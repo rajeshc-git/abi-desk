@@ -119,40 +119,38 @@ flowchart TB
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- **Node.js**: `>= 22.0.0`
-- **pnpm**: `>= 9.0.0`
-- **Docker Desktop** (running)
+### ⚡ 1-Minute Fresh Clone Setup (Zero Manual Configuration)
 
----
+For a fresh clone on any machine, you only need **Docker Desktop**, **Node.js 22+**, and **pnpm 9+**.
 
-### Option 1: Host-Docker Hybrid Mode (Recommended)
-
-This mode runs all infrastructure & backend containers (Postgres, Redis, MinIO, Mailpit, API, Worker) in Docker while running the React Console and Prisma Studio locally on the host for rapid Vite Hot Module Replacement (HMR).
-
-#### 🍎 macOS / Linux
 ```bash
-# 1. Make the execution scripts executable
-chmod +x run.sh stop.sh
-
-# 2. Start the entire development environment
-./run.sh
+# 1. Clone the repository
+git clone https://github.com/rajeshc-git/abi-desk.git
+cd abi-desk
 ```
 
-#### 🪟 Windows
-```cmd
-:: Double-click or execute in cmd/PowerShell:
-run.bat
+```bash
+# 2. Run the one-click automated launcher for your OS:
 ```
 
-> **Note:** The script automatically initializes `.env`, installs dependencies via `pnpm install`, builds and provisions containers, executes database migrations, and boots all services.
-> To stop the stack, run `./stop.sh` (or `stop.bat`).
+| Operating System | Command | Graceful Teardown |
+| :--- | :--- | :--- |
+| **🍎 macOS / Linux** | `chmod +x run.sh stop.sh && ./run.sh` | `./stop.sh` |
+| **🪟 Windows** | `run.bat` *(or double-click `run.bat`)* | `stop.bat` |
+
+> 💡 **What the one-click automated launcher does for you:**
+> 1. ✅ **Auto-provisions `.env`**: Copies `.env.example` &rarr; `.env` if not present.
+> 2. ✅ **Auto-installs packages**: Executes `pnpm install` across all monorepo apps and packages.
+> 3. ✅ **Boots backend containers**: Starts PostgreSQL 17, Redis 7, MinIO, Mailpit, NestJS API & BullMQ Worker.
+> 4. ✅ **Applies database migrations**: Automatically deploys 53 tables, dual security roles, and RLS policies.
+> 5. ✅ **Launches live frontends**: Boots the React Agent Console ([`http://localhost:9999`](http://localhost:9999)) and Prisma Studio in the background with Vite Hot Module Replacement (HMR).
 
 ---
 
-### Option 2: Full Docker Mode
+### Alternative Development Modes
 
-Run all services including the API and Worker inside Docker containers:
+#### Option A: Full Docker Mode
+Run all services (including the API and Worker) inside Docker containers:
 
 ```bash
 # 1. Configure environment variables
