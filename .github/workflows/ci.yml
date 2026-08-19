@@ -57,6 +57,9 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm --filter @abi-desk/db generate
 
+      - name: Build Packages & Monorepo
+        run: pnpm build
+
       - name: Run RBAC Matrix Conformance Tests
         run: pnpm --filter @abi-desk/rbac test
 
@@ -65,6 +68,3 @@ jobs:
 
       - name: Typecheck Entire Monorepo
         run: pnpm typecheck
-
-      - name: Build Packages & API
-        run: pnpm build
