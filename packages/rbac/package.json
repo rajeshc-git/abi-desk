@@ -1,0 +1,30 @@
+{
+  "name": "@abi-desk/rbac",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canonical permission catalogue, role matrix and policy evaluation for ABI Desk",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit --declaration false --declarationMap false",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

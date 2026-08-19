@@ -1,0 +1,249 @@
+name: abi-desk
+
+# ---------------------------------------------------------------------------
+# ABI Desk local / demo stack.
+#
+#   docker compose up -d --build
+#
+# Container-internal connection strings are composed here from the credential
+# pieces in .env, while .env itself carries localhost URLs for host-side tooling
+# (prisma migrate, studio, seed). That way the same .env serves both without
+# anyone editing hostnames back and forth.
+# ---------------------------------------------------------------------------
+
+x-postgres-app-url: &postgres-app-url postgresql://${POSTGRES_APP_USER:-abidesk_app}:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-abidesk}?schema=public&connection_limit=15&pool_timeout=10
+
+x-postgres-owner-url: &postgres-owner-url postgresql://${POSTGRES_OWNER_USER:-abidesk_owner}:${POSTGRES_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB:-abidesk}?schema=public
+
+x-runtime-env: &runtime-env
+  NODE_ENV: ${NODE_ENV:-production}
+  APP_VERSION: ${APP_VERSION:-0.1.0}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  LOG_PRETTY: ${LOG_PRETTY:-false}
+  DATABASE_URL: *postgres-app-url
+  MIGRATION_DATABASE_URL: *postgres-owner-url
+  DATABASE_LOG_QUERIES: ${DATABASE_LOG_QUERIES:-false}
+  REDIS_URL: redis://redis:6379
+  S3_ENDPOINT: http://minio:9000
+  # Presigned URLs are handed to a browser on the host, which cannot resolve
+  # "minio". Signed with the published address instead.
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-abi-desk-media}
+  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-abidesk}
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+  S3_FORCE_PATH_STYLE: "true"
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  MAIL_FROM: ${MAIL_FROM:-ABI Desk <donotreply@abi-health.in>}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:9999}
+  CONSOLE_URL: ${CONSOLE_URL:-http://localhost:9999}
+  # Required, no default on purpose: a container that silently started with a
+  # placeholder encryption key would make every stored secret unrecoverable later.
+  APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required - see .env.example}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+  JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+  JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+  JWT_ISSUER: ${JWT_ISSUER:-abi-desk}
+  DB_TRANSACTION_TIMEOUT_MS: ${DB_TRANSACTION_TIMEOUT_MS:-15000}
+  INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL - the system of record. Alpine image, as specified.
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-abidesk}
+      # Consumed by the init script to build the owner/app role split.
+      POSTGRES_OWNER_USER: ${POSTGRES_OWNER_USER:-abidesk_owner}
+      POSTGRES_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-abidesk_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
+      # Deterministic collation keeps ORDER BY stable across environments.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=8MB
+      # Surface slow queries during development instead of guessing later.
+      - -c
+      - log_min_duration_statement=500
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      # Assertion scripts, so tenant isolation can be verified against the running
+      # database as the low-privilege runtime role (see `pnpm db:check`).
+      - ./packages/db/prisma/checks:/checks:ro
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB:-abidesk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # Redis - BullMQ queues, Socket.IO pub/sub, rate-limit counters, caches.
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      # Queue state must never be evicted; only cache keys are expendable and
+      # those carry explicit TTLs.
+      - noeviction
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # MinIO - S3-compatible storage for screenshots, screen/voice recordings and
+  # attachments. The widget uploads straight here via presigned URLs so large
+  # media never occupies an API worker.
+  # -------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-abidesk}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *default-logging
+
+  # One-shot: create the media bucket and lock down anonymous access.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-abidesk}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:-abi-desk-media}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+        mc anonymous set none "local/$$S3_BUCKET"
+        mc version enable "local/$$S3_BUCKET" || true
+        echo "[minio-init] bucket $$S3_BUCKET ready (private, versioned)"
+    restart: "no"
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # Mailpit - catches invitation, notification and magic-link mail locally.
+  # UI on http://localhost:8025
+  # -------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "5000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # API - NestJS on Fastify. Owns schema migrations for the stack.
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+      target: runtime
+    image: abi-desk/api:${APP_VERSION:-0.1.0}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *runtime-env
+      PROCESS_ROLE: api
+      APP_NAME: abi-desk-api
+      PORT: "4000"
+      RUN_MIGRATIONS: "true"
+      RUN_SEED: ${RUN_SEED:-false}
+    ports:
+      - "${API_PORT:-4000}:4000"
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # Worker - same image, queue consumers only (SLA timers, webhooks, AI
+  # routing, media post-processing, retention). Never migrates.
+  # -------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+      target: runtime
+    image: abi-desk/api:${APP_VERSION:-0.1.0}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      <<: *runtime-env
+      PROCESS_ROLE: worker
+      APP_NAME: abi-desk-worker
+      RUN_MIGRATIONS: "false"
+    # No HTTP listener, so the image healthcheck does not apply.
+    healthcheck:
+      disable: true
+    logging: *default-logging
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

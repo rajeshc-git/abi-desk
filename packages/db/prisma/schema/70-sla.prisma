@@ -1,0 +1,250 @@
+// ---------------------------------------------------------------------------
+// SLA management
+//
+// A policy matches tickets by condition and defines targets (first response,
+// next response, resolution). Each target instantiates a `TicketSlaState` row
+// holding its own clock.
+//
+// Two things make this non-trivial and are modelled explicitly:
+//   1. Business hours. A 4-hour target opened at 17:00 on a Friday is not due at
+//      21:00 - it is due Monday morning. Hours and holidays are per tenant/brand
+//      with a timezone.
+//   2. Pausing. While a ticket waits on the customer the clock stops, so
+//      `elapsedMs` is accumulated rather than derived from `startedAt`.
+// ---------------------------------------------------------------------------
+
+enum SlaTargetType {
+  FIRST_RESPONSE
+  NEXT_RESPONSE
+  RESOLUTION
+}
+
+enum SlaClockStatus {
+  RUNNING
+  /// Stopped because the ticket is waiting on the customer.
+  PAUSED
+  MET
+  BREACHED
+  CANCELLED
+}
+
+enum SlaEventType {
+  STARTED
+  PAUSED
+  RESUMED
+  WARNING
+  BREACHED
+  MET
+  RECALCULATED
+  CANCELLED
+}
+
+model SlaPolicy {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @db.Uuid
+  brandId  String? @db.Uuid
+
+  name        String  @db.VarChar(120)
+  description String? @db.VarChar(500)
+
+  /// Match expression, e.g. `{"priority":["URGENT","CRITICAL"],"channel":["WIDGET"]}`.
+  /// Empty object matches everything, which is how the fallback policy works.
+  conditions Json @default("{}")
+
+  /// Evaluation order; the first matching policy wins. Explicit precedence beats
+  /// "most specific match" heuristics, which are hard to reason about.
+  priority Int @default(0)
+
+  businessHoursId String? @db.Uuid
+
+  /// Fire a warning at this fraction of the target (0.75 = at 75% elapsed).
+  warningThreshold Float @default(0.75)
+  /// Escalate a tier automatically on breach.
+  escalateOnBreach Boolean @default(true)
+  notifyRoleKeys   RoleKey[]
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand         Brand?         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  businessHours BusinessHours? @relation(fields: [businessHoursId], references: [id], onDelete: SetNull)
+
+  targets    SlaTarget[]
+  slaStates  TicketSlaState[]
+
+  @@index([tenantId, isActive, priority])
+  @@map("sla_policy")
+}
+
+model SlaTarget {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  policyId String @db.Uuid
+
+  type SlaTargetType
+  /// Target duration in minutes, measured in business time when the policy has
+  /// business hours attached, otherwise in calendar time.
+  minutes Int
+
+  /// Per-priority overrides, e.g. `{"CRITICAL":15,"HIGH":60}`. Avoids needing a
+  /// separate policy per priority.
+  priorityOverrides Json @default("{}")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  policy SlaPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  slaStates TicketSlaState[]
+
+  @@unique([policyId, type])
+  @@index([tenantId])
+  @@map("sla_target")
+}
+
+/// A named working-week definition.
+model BusinessHours {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @db.Uuid
+  brandId  String? @db.Uuid
+
+  name     String  @db.VarChar(120)
+  timezone String  @db.VarChar(64)
+  /// Treat the SLA as 24x7 and ignore the day rows entirely.
+  isAlwaysOpen Boolean @default(false)
+
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand  Brand? @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  days     BusinessHoursDay[]
+  holidays Holiday[]
+  policies SlaPolicy[]
+
+  @@index([tenantId, isDefault])
+  @@map("business_hours")
+}
+
+/// One working window on one weekday. Multiple rows per day allow split shifts
+/// (e.g. 09:00-13:00 and 14:00-18:00).
+model BusinessHoursDay {
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String @db.Uuid
+  businessHoursId String @db.Uuid
+
+  /// 0 = Sunday .. 6 = Saturday, matching JavaScript's `Date#getDay`.
+  weekday Int
+  /// Minutes from local midnight, so DST transitions do not shift the window.
+  startMinute Int
+  endMinute   Int
+
+  businessHours BusinessHours @relation(fields: [businessHoursId], references: [id], onDelete: Cascade)
+
+  @@unique([businessHoursId, weekday, startMinute])
+  @@index([tenantId])
+  @@map("business_hours_day")
+}
+
+model Holiday {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String  @db.Uuid
+  businessHoursId String? @db.Uuid
+
+  name String   @db.VarChar(120)
+  /// Date only; the working day is excluded in the business-hours timezone.
+  date DateTime @db.Date
+  /// Recurs on the same month/day every year.
+  recursAnnually Boolean @default(false)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  businessHours BusinessHours? @relation(fields: [businessHoursId], references: [id], onDelete: Cascade)
+
+  @@unique([businessHoursId, date])
+  @@index([tenantId, date])
+  @@map("holiday")
+}
+
+/// The live clock for one SLA target on one ticket.
+model TicketSlaState {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  ticketId String @db.Uuid
+  policyId String @db.Uuid
+  targetId String @db.Uuid
+
+  type   SlaTargetType
+  status SlaClockStatus @default(RUNNING)
+
+  startedAt DateTime  @db.Timestamptz(6)
+  /// Absolute deadline, already adjusted for business hours and holidays.
+  dueAt     DateTime  @db.Timestamptz(6)
+  /// When the warning job should run (dueAt minus the warning margin).
+  warnAt    DateTime? @db.Timestamptz(6)
+
+  /// Accumulated running time. Authoritative while paused, since `dueAt` is
+  /// recomputed on resume.
+  elapsedMs   BigInt    @default(0)
+  pausedAt    DateTime? @db.Timestamptz(6)
+  pausedMs    BigInt    @default(0)
+  pauseCount  Int       @default(0)
+
+  warnedAt   DateTime? @db.Timestamptz(6)
+  breachedAt DateTime? @db.Timestamptz(6)
+  metAt      DateTime? @db.Timestamptz(6)
+  /// Signed: negative means met with time to spare, positive means overdue.
+  breachMs   BigInt?
+
+  /// BullMQ job ids, so timers can be cancelled when the ticket moves on.
+  warnJobId   String? @db.VarChar(120)
+  breachJobId String? @db.VarChar(120)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  policy SlaPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  target SlaTarget @relation(fields: [targetId], references: [id], onDelete: Restrict)
+
+  @@unique([ticketId, type])
+  @@index([tenantId, status, dueAt])
+  @@index([tenantId, ticketId])
+  @@index([status, warnAt])
+  @@map("ticket_sla_state")
+}
+
+/// Audit trail for SLA clock changes. Separate from `TicketEvent` because SLA
+/// analytics query it directly and it is far higher volume.
+model SlaEvent {
+  id       String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String       @db.Uuid
+  ticketId String       @db.Uuid
+  stateId  String?      @db.Uuid
+  type     SlaEventType
+
+  targetType SlaTargetType
+  /// Snapshot of the deadline at the moment of the event.
+  dueAt      DateTime?     @db.Timestamptz(6)
+  reason     String?       @db.VarChar(300)
+  metadata   Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ticketId, createdAt])
+  @@index([tenantId, type, createdAt])
+  @@map("sla_event")
+}

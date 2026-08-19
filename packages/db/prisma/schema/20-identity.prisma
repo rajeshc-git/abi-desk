@@ -1,0 +1,404 @@
+// ---------------------------------------------------------------------------
+// Identity
+//
+// Users, federated identities, sessions, invitations, API keys, SSO providers,
+// teams and queues.
+//
+// Modelling note on provenance columns: fields like `createdById`,
+// `revokedById`, `invitedById` are plain UUID columns rather than Prisma
+// relations. They are audit metadata, not navigation paths, and keeping them
+// unlinked (a) avoids ~20 back-relation list fields on `User` that nothing reads,
+// and (b) keeps GDPR erasure simple - anonymizing a user must not cascade into
+// unrelated administrative history.
+// ---------------------------------------------------------------------------
+
+enum UserKind {
+  /// Support staff, admins, developers, QA - anyone who works tickets.
+  STAFF
+  /// End users of the tenant's SaaS application. "Guest User/Customer" in the
+  /// requirements.
+  CUSTOMER
+  /// Non-human actor used by automation and integrations.
+  SYSTEM
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum AuthProviderKind {
+  PASSWORD
+  OIDC
+  SAML
+  /// Passwordless email link, used by widget visitors with no host-app account.
+  MAGIC_LINK
+  /// Identity asserted by the tenant's backend via a signed handoff token.
+  WIDGET_HANDOFF
+}
+
+enum SsoProtocol {
+  OIDC
+  SAML
+}
+
+enum QueueRoutingStrategy {
+  MANUAL
+  ROUND_ROBIN
+  LEAST_LOADED
+}
+
+/// A person (or system actor) in the platform.
+///
+/// `tenantId` is nullable for exactly one case: PLATFORM_ADMIN, the vendor-side
+/// role that provisions tenants and therefore cannot belong to one. A partial
+/// unique index (see the constraints migration) keeps emails unique both within
+/// a tenant and across the platform-level set, because PostgreSQL treats NULLs as
+/// distinct and a plain composite unique would not catch duplicates.
+model User {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid
+
+  kind   UserKind   @default(STAFF)
+  status UserStatus @default(INVITED)
+
+  email           String    @db.VarChar(320)
+  emailVerifiedAt DateTime? @db.Timestamptz(6)
+
+  /// Argon2id hash. Null for SSO-only staff and magic-link customers.
+  passwordHash      String?   @db.VarChar(255)
+  passwordUpdatedAt DateTime? @db.Timestamptz(6)
+
+  fullName    String  @db.VarChar(200)
+  displayName String? @db.VarChar(100)
+  avatarUrl   String? @db.VarChar(2048)
+  phone       String? @db.VarChar(32)
+  jobTitle    String? @db.VarChar(120)
+  timezone    String? @db.VarChar(64)
+  locale      String? @db.VarChar(16)
+
+  /// Identity as the tenant's own application knows it, supplied by the widget
+  /// handoff token. Lets agents correlate a ticket with the customer's account.
+  externalId       String? @db.VarChar(200)
+  externalMetadata Json?
+
+  // -- Agent workload signals (used by routing) -----------------------------
+  isAvailable          Boolean @default(true)
+  maxConcurrentTickets Int?
+
+  // -- Credential hardening -------------------------------------------------
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime? @db.Timestamptz(6)
+  mfaEnabled       Boolean   @default(false)
+  /// AES-256-GCM envelope of the TOTP secret.
+  mfaSecretEncrypted String? @db.Text
+
+  lastLoginAt DateTime? @db.Timestamptz(6)
+  lastSeenAt  DateTime? @db.Timestamptz(6)
+
+  /// Set by GDPR/DPDPA erasure. PII is overwritten in place; the row survives so
+  /// ticket history stays coherent.
+  anonymizedAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  identities  UserIdentity[]
+  sessions    Session[]
+  roles       UserRole[]
+  teamMembers TeamMember[]
+
+  ticketsRequested Ticket[]        @relation("TicketRequester")
+  ticketsAssigned  Ticket[]        @relation("TicketAssignee")
+  ticketComments   TicketComment[]
+  ticketWatchers   TicketWatcher[]
+
+  mediaAssets       MediaAsset[]
+  approvalDecisions ApprovalDecision[]
+  csatResponses     CsatResponse[]
+
+  chatParticipants ChatParticipant[]
+  chatMessages     ChatMessage[]
+
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, kind])
+  @@index([tenantId, isAvailable])
+  @@index([email])
+  @@index([externalId])
+  @@index([deletedAt])
+  @@map("user")
+}
+
+/// Link between a local user and an external identity provider subject.
+model UserIdentity {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid
+  userId   String  @db.Uuid
+
+  provider AuthProviderKind
+  /// `SsoProvider.id` for OIDC/SAML; the literal provider name otherwise.
+  providerRef String           @db.VarChar(64)
+  /// The `sub` claim (OIDC) or NameID (SAML).
+  subject     String           @db.VarChar(255)
+  email       String?          @db.VarChar(320)
+  /// Raw claims from the last successful login, for debugging claim mapping.
+  rawProfile  Json?
+
+  lastLoginAt DateTime? @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerRef, subject])
+  @@index([userId])
+  @@index([tenantId])
+  @@map("user_identity")
+}
+
+/// A refresh-token family member.
+///
+/// Only the SHA-256 of the refresh token is stored, and every refresh rotates the
+/// token into a new row linked by `familyId`. Presenting an already-rotated token
+/// therefore proves theft, and the whole family is revoked - standard refresh
+/// token rotation with replay detection.
+model Session {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid
+  userId   String  @db.Uuid
+
+  refreshTokenHash String @unique @db.VarChar(64)
+  /// Groups every rotation of one login. Revoking the family kills the lineage.
+  familyId         String @db.Uuid
+  /// The row this one replaced, for forensics.
+  rotatedFromId    String? @db.Uuid
+
+  userAgent String? @db.VarChar(512)
+  ipAddress String? @db.Inet
+  device    String? @db.VarChar(120)
+  location  String? @db.VarChar(120)
+
+  issuedAt   DateTime  @default(now()) @db.Timestamptz(6)
+  expiresAt  DateTime  @db.Timestamptz(6)
+  lastUsedAt DateTime? @db.Timestamptz(6)
+
+  revokedAt     DateTime? @db.Timestamptz(6)
+  revokedReason String?   @db.VarChar(120)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("session")
+}
+
+/// A pending staff invitation. The raw token is emailed and never stored.
+model Invitation {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @db.Uuid
+  brandId  String? @db.Uuid
+
+  email  String @db.VarChar(320)
+  roleId String @db.Uuid
+  /// Provenance only - deliberately not a relation.
+  invitedById String @db.Uuid
+
+  tokenHash String  @unique @db.VarChar(64)
+  message   String? @db.VarChar(1000)
+
+  expiresAt  DateTime  @db.Timestamptz(6)
+  acceptedAt DateTime? @db.Timestamptz(6)
+  /// The user created or matched when the invitation was accepted.
+  acceptedUserId String? @db.Uuid
+  revokedAt      DateTime? @db.Timestamptz(6)
+  remindedAt     DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand  Brand? @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, email])
+  @@index([expiresAt])
+  @@map("invitation")
+}
+
+/// Tenant-scoped credential for server-to-server REST access.
+///
+/// Hashed with Argon2id, not encrypted: the platform only ever needs to compare a
+/// presented key, never to reproduce it. `prefix` is stored in clear so the UI can
+/// list keys meaningfully.
+model ApiKey {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  name   String   @db.VarChar(120)
+  prefix String   @unique @db.VarChar(32)
+  keyHash String  @db.VarChar(255)
+  /// Permission keys this credential may exercise; intersected with the tenant's
+  /// own grants at request time.
+  scopes String[]
+
+  createdById String @db.Uuid
+
+  lastUsedAt DateTime? @db.Timestamptz(6)
+  lastUsedIp String?   @db.Inet
+  useCount   BigInt    @default(0)
+
+  expiresAt     DateTime? @db.Timestamptz(6)
+  revokedAt     DateTime? @db.Timestamptz(6)
+  revokedById   String?   @db.Uuid
+  /// Set when this key replaced another, so rotation is traceable.
+  rotatedFromId String?   @db.Uuid
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, revokedAt])
+  @@map("api_key")
+}
+
+/// Per-tenant single sign-on configuration.
+model SsoProvider {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  protocol    SsoProtocol
+  displayName String      @db.VarChar(120)
+
+  issuer   String  @db.VarChar(512)
+  clientId String? @db.VarChar(255)
+  /// AES-256-GCM envelope; never returned by the API.
+  clientSecretEncrypted String? @db.Text
+
+  // Discovered from `${issuer}/.well-known/openid-configuration` where possible,
+  // stored so a discovery outage does not break logins.
+  authorizationEndpoint String? @db.VarChar(512)
+  tokenEndpoint         String? @db.VarChar(512)
+  userinfoEndpoint      String? @db.VarChar(512)
+  jwksUri               String? @db.VarChar(512)
+  endSessionEndpoint    String? @db.VarChar(512)
+
+  /// SAML only.
+  samlMetadataXml   String? @db.Text
+  samlCertificate   String? @db.Text
+
+  scopes String[] @default(["openid", "profile", "email"])
+
+  /// IdP claim -> local field, e.g. `{"fullName":"name","email":"email"}`.
+  claimMappings Json @default("{}")
+  /// IdP group/role value -> RoleKey, e.g. `{"helpdesk-l2":"L2_SUPPORT"}`.
+  roleMappings  Json @default("{}")
+
+  /// Email domains routed to this provider, for IdP-initiated discovery.
+  emailDomains String[]
+
+  /// Create a local user on first successful login.
+  jitProvisioning Boolean @default(true)
+  defaultRoleId   String? @db.Uuid
+
+  enabled          Boolean   @default(false)
+  lastTestedAt     DateTime? @db.Timestamptz(6)
+  lastTestSucceeded Boolean?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, protocol, issuer])
+  @@index([tenantId, enabled])
+  @@map("sso_provider")
+}
+
+/// A support team, usually aligned to a tier.
+model Team {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  name        String       @db.VarChar(120)
+  slug        String       @db.VarChar(64)
+  description String?      @db.VarChar(500)
+  tier        SupportTier?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  members TeamMember[]
+  queues  Queue[]
+  tickets Ticket[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, tier])
+  @@map("team")
+}
+
+model TeamMember {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  teamId   String @db.Uuid
+  userId   String @db.Uuid
+
+  /// Leads are the default approvers for escalations out of this team.
+  isLead    Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([tenantId, userId])
+  @@map("team_member")
+}
+
+/// A routing destination for tickets.
+///
+/// Relevant to the requirements' RBAC matrix: Tenant Admin gets "Queue" for
+/// Assign Ticket, meaning they may route a ticket to a queue but not to a
+/// specific agent. Queues make that expressible.
+model Queue {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @db.Uuid
+  brandId  String? @db.Uuid
+
+  name        String               @db.VarChar(120)
+  slug        String               @db.VarChar(64)
+  description String?              @db.VarChar(500)
+  tier        SupportTier          @default(L1)
+  teamId      String?              @db.Uuid
+  routing     QueueRoutingStrategy @default(LEAST_LOADED)
+
+  /// Where unrouted tickets land. One default per tenant (partial unique index).
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand   Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  team    Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  tickets Ticket[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, tier, isActive])
+  @@map("queue")
+}

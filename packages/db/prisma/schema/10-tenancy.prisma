@@ -1,0 +1,262 @@
+// ---------------------------------------------------------------------------
+// Tenancy
+//
+// Tenant -> Brand -> WidgetConfig.
+//
+// A tenant is a customer organization. A brand is a product or portal within
+// that organization: the requirements list "Branding" and "Multi-brand support"
+// separately, so branding, widget configuration, SLA policies and knowledge base
+// content all scope to a brand rather than to the tenant as a whole.
+// ---------------------------------------------------------------------------
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+/// A customer organization. Every tenant-scoped table carries `tenantId` and has
+/// a Row Level Security policy keyed on it.
+model Tenant {
+  id     String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// URL-safe identifier used in portal hostnames and API paths.
+  slug   String       @unique @db.VarChar(64)
+  name   String       @db.VarChar(200)
+  status TenantStatus @default(TRIAL)
+
+  /// Prefix for human-readable ticket numbers, e.g. `ACME` -> `ACME-1042`.
+  ticketPrefix String @db.VarChar(12)
+
+  /// IANA timezone; the default for business-hours and SLA calculations.
+  timezone String @default("UTC") @db.VarChar(64)
+  locale   String @default("en") @db.VarChar(16)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  // -- Relations ------------------------------------------------------------
+  brands   Brand[]
+  setting  TenantSetting?
+  sequence TicketSequence?
+
+  users              User[]
+  identities         UserIdentity[]
+  sessions           Session[]
+  invitations        Invitation[]
+  apiKeys            ApiKey[]
+  ssoProviders       SsoProvider[]
+  teams              Team[]
+  teamMembers        TeamMember[]
+  queues             Queue[]
+  userRoles          UserRole[]
+  permissionOverride TenantRolePermissionOverride[]
+
+  tickets        Ticket[]
+  ticketComments TicketComment[]
+  ticketEvents   TicketEvent[]
+  ticketWatchers TicketWatcher[]
+  tags           Tag[]
+  ticketTags     TicketTag[]
+  ticketLinks    TicketLink[]
+  csatResponses  CsatResponse[]
+
+  mediaAssets       MediaAsset[]
+  diagnosticBundles DiagnosticBundle[]
+
+  workflowTransitions WorkflowTransition[]
+  escalationPolicies  EscalationPolicy[]
+  approvalRequests    ApprovalRequest[]
+  approvalDecisions   ApprovalDecision[]
+
+  slaPolicies    SlaPolicy[]
+  slaTargets     SlaTarget[]
+  businessHours  BusinessHours[]
+  holidays       Holiday[]
+  ticketSlaState TicketSlaState[]
+  slaEvents      SlaEvent[]
+
+  automationRules AutomationRule[]
+  automationRuns  AutomationRun[]
+
+  chatConversations ChatConversation[]
+  chatParticipants  ChatParticipant[]
+  chatMessages      ChatMessage[]
+
+  webhookEndpoints  WebhookEndpoint[]
+  webhookDeliveries WebhookDelivery[]
+
+  auditLogs               AuditLog[]
+  outboxEvents            OutboxEvent[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  dataSubjectRequests     DataSubjectRequest[]
+  retentionPolicies       RetentionPolicy[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("tenant")
+}
+
+/// Tenant-wide operational settings. One row per tenant.
+///
+/// Modelled as typed columns rather than a key/value table because these values
+/// are read on nearly every request path and benefit from being type-checked.
+model TenantSetting {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @unique @db.Uuid
+
+  // -- Ticketing behaviour --------------------------------------------------
+  /// Days of customer silence after a resolution before auto-closing.
+  autoCloseAfterDays Int @default(7)
+  /// Whether a resolved ticket can be reopened by the customer, and for how long.
+  allowCustomerReopen     Boolean @default(true)
+  reopenWindowDays        Int     @default(14)
+  requireCategoryOnCreate Boolean @default(false)
+
+  // -- Retention (GDPR / DPDPA) --------------------------------------------
+  ticketRetentionDays     Int @default(1095)
+  mediaRetentionDays      Int @default(365)
+  diagnosticRetentionDays Int @default(180)
+  auditRetentionDays      Int @default(2555)
+
+  // -- Escape hatch for settings that do not warrant a column yet ----------
+  extra Json @default("{}")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_setting")
+}
+
+/// A product, portal or sub-brand inside a tenant. Carries the customer-facing
+/// identity: colours, logo, support address, portal domain.
+model Brand {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  slug String @db.VarChar(64)
+  name String @db.VarChar(200)
+  /// Exactly one brand per tenant is the default; enforced by a partial unique
+  /// index (see the constraints migration).
+  isDefault Boolean @default(false)
+
+  // -- Branding -------------------------------------------------------------
+  primaryColor String  @default("#2563EB") @db.VarChar(9)
+  accentColor  String  @default("#1E40AF") @db.VarChar(9)
+  logoUrl      String? @db.VarChar(2048)
+  faviconUrl   String? @db.VarChar(2048)
+  supportEmail String? @db.VarChar(320)
+  /// Custom hostname for the customer portal, e.g. `help.acme.com`.
+  portalDomain String? @db.VarChar(253)
+
+  timezone String? @db.VarChar(64)
+  locale   String? @db.VarChar(16)
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  widgetConfig WidgetConfig?
+
+  tickets     Ticket[]
+  queues      Queue[]
+  userRoles   UserRole[]
+  invitations Invitation[]
+
+  slaPolicies       SlaPolicy[]
+  businessHours     BusinessHours[]
+  chatConversations ChatConversation[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, isActive])
+  @@index([portalDomain])
+  @@map("brand")
+}
+
+enum WidgetLauncherPosition {
+  BOTTOM_RIGHT
+  BOTTOM_LEFT
+  TOP_RIGHT
+  TOP_LEFT
+}
+
+/// Configuration for the embeddable widget, per brand.
+///
+/// The widget runs inside the tenant's own application, so the host page carries
+/// only `publicKey`. Identity is established by the tenant's backend signing a
+/// short-lived handoff JWT with `signingSecret` - the same model as Intercom's
+/// identity verification. Without that signature any visitor could file tickets
+/// as any user.
+model WidgetConfig {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  brandId  String @unique @db.Uuid
+
+  /// Embedded in the host page. Public by design; grants nothing on its own.
+  publicKey String @unique @db.VarChar(64)
+
+  /// AES-256-GCM envelope (`v1:<iv>:<tag>:<ciphertext>`) of the HMAC secret the
+  /// tenant's backend uses to sign handoff tokens.
+  ///
+  /// Stored encrypted rather than hashed because verification needs the actual
+  /// secret - unlike API keys, which are hashed since we only ever compare them.
+  signingSecretEncrypted String    @db.Text
+  /// Last 4 characters, so the UI can identify a key without decrypting it.
+  signingSecretLast4     String    @db.VarChar(4)
+  signingSecretRotatedAt DateTime? @db.Timestamptz(6)
+
+  /// Origins permitted to open a widget session. Enforced at the session
+  /// endpoint in addition to CORS, because CORS alone is not an authorization
+  /// mechanism.
+  allowedOrigins String[]
+
+  widgetEnabled          Boolean @default(true)
+  adminWidgetEnabled     Boolean @default(true)
+
+  // -- Capture features (per the requirements' widget feature list) ---------
+  screenshotEnabled      Boolean @default(true)
+  annotationEnabled      Boolean @default(true)
+  screenRecordingEnabled Boolean @default(true)
+  voiceRecordingEnabled  Boolean @default(true)
+  attachmentsEnabled     Boolean @default(true)
+  consoleCaptureEnabled  Boolean @default(true)
+  networkCaptureEnabled  Boolean @default(true)
+  errorCaptureEnabled    Boolean @default(true)
+  performanceCapture     Boolean @default(true)
+  liveChatEnabled        Boolean @default(true)
+  ticketTrackingEnabled  Boolean @default(true)
+  kbDeflectionEnabled    Boolean @default(true)
+  /// Allow tickets from visitors who are not authenticated in the host app.
+  anonymousTicketsEnabled Boolean @default(true)
+
+  // -- Limits ---------------------------------------------------------------
+  maxRecordingSeconds     Int @default(120)
+  maxAttachmentBytes      Int @default(26214400)
+  maxAttachmentsPerTicket Int @default(10)
+  maxConsoleEntries       Int @default(200)
+  maxNetworkEntries       Int @default(100)
+
+  // -- Appearance / copy ----------------------------------------------------
+  launcherPosition WidgetLauncherPosition @default(BOTTOM_RIGHT)
+  launcherLabel    String                 @default("Support") @db.VarChar(40)
+  welcomeMessage   String?                @db.VarChar(500)
+  /// Notice shown before diagnostics capture, for GDPR/DPDPA consent.
+  privacyNotice    String?                @db.VarChar(1000)
+  requireConsent   Boolean                @default(true)
+  theme            Json                   @default("{}")
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("widget_config")
+}

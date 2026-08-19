@@ -1,0 +1,132 @@
+// ---------------------------------------------------------------------------
+// Live chat
+//
+// The requirements list "Live chat and ticket tracking" as a widget feature. A
+// conversation may exist before a ticket does (a question that never becomes a
+// ticket) and may later be promoted into one, so `ticketId` is nullable and the
+// relation is optional in both directions.
+// ---------------------------------------------------------------------------
+
+enum ChatConversationStatus {
+  /// An agent is engaged.
+  OPEN
+  /// Waiting for an agent to pick up.
+  QUEUED
+  /// Waiting on the customer.
+  WAITING
+  CLOSED
+}
+
+enum ChatParticipantRole {
+  CUSTOMER
+  AGENT
+  /// Present for supervision, not visible as an active participant.
+  OBSERVER
+}
+
+enum ChatMessageKind {
+  TEXT
+  ATTACHMENT
+  /// Join/leave/transfer notices rendered inline.
+  SYSTEM
+  /// A card linking to the ticket created from this conversation.
+  TICKET_LINK
+}
+
+model ChatConversation {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @db.Uuid
+  brandId  String? @db.Uuid
+  /// Set if and when the conversation is promoted into a ticket.
+  ticketId String? @unique @db.Uuid
+
+  status ChatConversationStatus @default(QUEUED)
+  subject String?               @db.VarChar(300)
+
+  /// Page the customer was on when they opened the chat.
+  pageUrl String? @db.VarChar(2048)
+
+  /// Denormalized for the agent inbox, which sorts by recency and unread state.
+  lastMessageAt      DateTime? @db.Timestamptz(6)
+  lastMessagePreview String?   @db.VarChar(200)
+  messageCount       Int       @default(0)
+
+  /// Time from the customer's first message to the first agent reply, the chat
+  /// equivalent of first-response SLA.
+  firstAgentReplyAt DateTime? @db.Timestamptz(6)
+
+  queuedAt   DateTime  @default(now()) @db.Timestamptz(6)
+  acceptedAt DateTime? @db.Timestamptz(6)
+  closedAt   DateTime? @db.Timestamptz(6)
+  closedById String?   @db.Uuid
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand  Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+
+  @@index([tenantId, status, lastMessageAt])
+  @@index([tenantId, brandId])
+  @@map("chat_conversation")
+}
+
+model ChatParticipant {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String @db.Uuid
+  conversationId String @db.Uuid
+  userId         String @db.Uuid
+
+  role ChatParticipantRole
+
+  joinedAt DateTime  @default(now()) @db.Timestamptz(6)
+  leftAt   DateTime? @db.Timestamptz(6)
+
+  /// Read cursor, for unread counts.
+  lastReadAt   DateTime? @db.Timestamptz(6)
+  /// Presence, maintained by the realtime gateway.
+  isTyping     Boolean   @default(false)
+  lastSeenAt   DateTime? @db.Timestamptz(6)
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([tenantId, userId])
+  @@map("chat_participant")
+}
+
+model ChatMessage {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String @db.Uuid
+  conversationId String @db.Uuid
+
+  /// Null for SYSTEM messages.
+  senderId String?         @db.Uuid
+  kind     ChatMessageKind @default(TEXT)
+
+  body String? @db.Text
+
+  /// Client-supplied idempotency key. Prevents duplicates when a flaky
+  /// connection causes the widget to resend after an unacknowledged send.
+  clientMessageId String? @db.VarChar(64)
+
+  editedAt  DateTime? @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User?            @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  mediaAssets MediaAsset[]
+
+  @@unique([conversationId, clientMessageId])
+  @@index([tenantId, conversationId, createdAt])
+  @@map("chat_message")
+}

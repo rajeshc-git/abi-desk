@@ -1,0 +1,111 @@
+:root {
+  /* Brand Palettes - Crisp Enterprise Light Theme (Default: Zoho Blue) */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-active: #1e40af;
+  --primary-surface: #eff6ff;
+  --primary-border: #bfdbfe;
+
+  /* Status Colors */
+  --color-open: #2563eb;
+  --color-in-progress: #7c3aed;
+  --color-pending: #d97706;
+  --color-escalated: #db2777;
+  --color-resolved: #059669;
+  --color-closed: #64748b;
+
+  /* Priority Colors */
+  --prio-low: #64748b;
+  --prio-normal: #0284c7;
+  --prio-high: #d97706;
+  --prio-urgent: #ea580c;
+  --prio-critical: #dc2626;
+
+  /* Support Tiers */
+  --tier-l1: #2563eb;
+  --tier-l2: #7c3aed;
+  --tier-l3: #db2777;
+  --tier-dev: #0891b2;
+  --tier-qa: #059669;
+
+  /* Clean Light Theme Surfaces */
+  --bg-app: #f8fafc;            /* Slate 50 - clean light background */
+  --bg-sidebar: #ffffff;        /* Crisp white sidebar */
+  --bg-surface: #ffffff;        /* Pure white cards & containers */
+  --bg-surface-elevated: #ffffff;
+  --bg-surface-hover: #f1f5f9;  /* Light slate hover */
+  --bg-input: #ffffff;
+
+  /* Crisp Borders */
+  --border-subtle: #e2e8f0;     /* Light slate border */
+  --border-medium: #cbd5e1;     /* Input border */
+  --border-strong: #94a3b8;
+  --border-focus: var(--primary);
+
+  /* High-Contrast Dark-on-Light Typography */
+  --text-primary: #0f172a;      /* Slate 900 */
+  --text-secondary: #334155;    /* Slate 700 */
+  --text-muted: #64748b;        /* Slate 500 */
+  --text-inverse: #ffffff;
+
+  /* Staff Internal Note Theme - Soft Amber Callout */
+  --internal-bg: #fffbeb;
+  --internal-border: #fde68a;
+  --internal-text: #92400e;
+
+  /* Compact Geometry */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* Soft Light Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+  --shadow-glass: 0 4px 20px -2px rgba(0, 0, 0, 0.06);
+
+  /* Font Families */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  line-height: 1.45;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Custom Scrollbars for Light Theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

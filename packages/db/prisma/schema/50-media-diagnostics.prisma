@@ -1,0 +1,210 @@
+// ---------------------------------------------------------------------------
+// Media and diagnostics
+//
+// Covers the requirements' widget capture list and the "Automatically Captured
+// Diagnostics" section: screenshots, annotation, screen recording, voice
+// recording, attachments, browser/OS/device/session/URL facts, console logs,
+// network requests, JavaScript errors and performance metrics.
+//
+// Media bytes never pass through the API. The widget receives a presigned URL and
+// uploads straight to object storage; these rows are the metadata and the
+// lifecycle state machine around that.
+// ---------------------------------------------------------------------------
+
+enum MediaKind {
+  /// DOM-rendered page capture (no browser permission prompt).
+  SCREENSHOT
+  /// True screen capture via getDisplayMedia.
+  SCREEN_CAPTURE
+  /// Screenshot with the annotation layer flattened in.
+  ANNOTATED_SCREENSHOT
+  SCREEN_RECORDING
+  VOICE_RECORDING
+  ATTACHMENT
+  CHAT_ATTACHMENT
+}
+
+enum MediaStatus {
+  /// Row created, presigned URL issued, bytes not yet confirmed.
+  PENDING_UPLOAD
+  /// Client reported success; server has verified size and content type.
+  UPLOADED
+  /// Worker is deriving thumbnails / duration.
+  PROCESSING
+  READY
+  /// Failed content inspection. Not downloadable.
+  QUARANTINED
+  FAILED
+  /// Soft-deleted or aged out by retention.
+  EXPIRED
+}
+
+enum MediaScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  SKIPPED
+}
+
+/// A stored binary: screenshot, recording, voice note or attachment.
+model MediaAsset {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  /// A media asset belongs to a ticket, a comment or a chat message. All three
+  /// are nullable because the row is created *before* the ticket exists: the
+  /// widget uploads while the user is still composing.
+  ticketId      String? @db.Uuid
+  commentId     String? @db.Uuid
+  chatMessageId String? @db.Uuid
+
+  uploadedById String? @db.Uuid
+
+  kind   MediaKind
+  status MediaStatus @default(PENDING_UPLOAD)
+
+  /// Object key within the bucket. Never exposed directly; downloads always go
+  /// through a short-lived presigned URL.
+  storageKey String @unique @db.VarChar(512)
+  bucket     String @db.VarChar(120)
+
+  originalFilename String? @db.VarChar(255)
+  /// Content type established server-side from the leading magic bytes.
+  mimeType         String  @db.VarChar(160)
+  /// What the client claimed. Kept when it disagrees with `mimeType`, because a
+  /// mismatch is a useful abuse signal.
+  declaredMimeType String? @db.VarChar(160)
+  sizeBytes        BigInt
+  checksumSha256   String? @db.VarChar(64)
+
+  // -- Derived by the worker -----------------------------------------------
+  width        Int?
+  height       Int?
+  durationMs   Int?
+  thumbnailKey String? @db.VarChar(512)
+
+  /// Annotation shapes (rectangles, arrows, text, blur regions) as drawn in the
+  /// widget. Retained separately from the flattened image so annotations remain
+  /// editable and auditable.
+  annotations Json?
+  /// True when the user blurred regions before upload - a PII-redaction signal
+  /// that matters for GDPR/DPDPA review.
+  hasRedactions Boolean @default(false)
+
+  scanStatus MediaScanStatus @default(PENDING)
+
+  /// Presigned upload deadline. Rows still PENDING_UPLOAD past this are reaped.
+  uploadExpiresAt DateTime? @db.Timestamptz(6)
+  uploadedAt      DateTime? @db.Timestamptz(6)
+  /// Retention horizon derived from TenantSetting.mediaRetentionDays.
+  retainUntil     DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket  Ticket?        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  comment TicketComment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
+  message ChatMessage?   @relation(fields: [chatMessageId], references: [id], onDelete: SetNull)
+  uploader User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, ticketId])
+  @@index([tenantId, status])
+  @@index([tenantId, kind])
+  @@index([retainUntil])
+  @@index([uploadExpiresAt])
+  @@map("media_asset")
+}
+
+/// Everything the widget captured automatically at the moment of the report.
+///
+/// One bundle per ticket. The high-cardinality series (console, network, errors)
+/// are JSONB ring buffers rather than child tables: they are written once, read
+/// as a whole, never queried field-by-field, and capping them in the client keeps
+/// row size bounded. Counts are denormalized so ticket lists can show
+/// "3 JS errors" without deserializing the payload.
+///
+/// All of this arrives already scrubbed in the browser (auth headers, cookies,
+/// tokens, emails) and is scrubbed again server-side; `redactionsApplied` records
+/// which rules fired, which is what makes the scrubbing auditable.
+model DiagnosticBundle {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  ticketId String @unique @db.Uuid
+
+  capturedAt DateTime @db.Timestamptz(6)
+
+  // -- Page / session context ----------------------------------------------
+  pageUrl     String  @db.VarChar(2048)
+  pageTitle   String? @db.VarChar(500)
+  referrerUrl String? @db.VarChar(2048)
+  /// Host application's session identifier, for cross-referencing their logs.
+  hostSessionId String? @db.VarChar(200)
+  /// Host application's own user and account ids, from the handoff token.
+  hostUserId    String? @db.VarChar(200)
+  hostAccountId String? @db.VarChar(200)
+
+  // -- Browser / OS / device ------------------------------------------------
+  userAgent      String  @db.Text
+  browserName    String? @db.VarChar(80)
+  browserVersion String? @db.VarChar(40)
+  engineName     String? @db.VarChar(80)
+  osName         String? @db.VarChar(80)
+  osVersion      String? @db.VarChar(40)
+  deviceType     String? @db.VarChar(40)
+  deviceModel    String? @db.VarChar(120)
+
+  viewportWidth    Int?
+  viewportHeight   Int?
+  screenWidth      Int?
+  screenHeight     Int?
+  devicePixelRatio Float?
+  colorScheme      String? @db.VarChar(20)
+
+  timezone String? @db.VarChar(64)
+  locale   String? @db.VarChar(16)
+
+  connectionType      String? @db.VarChar(20)
+  deviceMemoryGb      Float?
+  hardwareConcurrency Int?
+
+  // -- Captured series (bounded, PII-scrubbed) -----------------------------
+  /// `[{ level, message, timestamp, stack? }]`
+  consoleEntries    Json @default("[]")
+  consoleErrorCount Int  @default(0)
+  consoleWarnCount  Int  @default(0)
+
+  /// `[{ method, url, status, durationMs, requestId?, failed }]`
+  networkEntries      Json @default("[]")
+  networkFailureCount Int  @default(0)
+
+  /// `[{ message, stack, source, line, column, timestamp, kind }]`
+  jsErrors      Json @default("[]")
+  jsErrorCount  Int  @default(0)
+
+  /// Core Web Vitals plus memory: `{ lcp, cls, inp, ttfb, fcp, usedJsHeapMb }`
+  performanceMetrics Json @default("{}")
+
+  /// Feature flags and arbitrary context the host app chose to attach.
+  featureFlags  Json?
+  customContext Json?
+
+  /// Serialized payload size, for abuse detection and quota accounting.
+  payloadBytes Int @default(0)
+  /// Names of redaction rules that matched, e.g. ["bearer_token", "email"].
+  redactionsApplied String[]
+
+  /// Retention horizon from TenantSetting.diagnosticRetentionDays. Diagnostics
+  /// age out faster than tickets because they are the most sensitive artefact.
+  retainUntil DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, capturedAt])
+  @@index([retainUntil])
+  @@map("diagnostic_bundle")
+}

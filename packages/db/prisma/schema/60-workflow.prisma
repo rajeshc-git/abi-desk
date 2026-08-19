@@ -1,0 +1,175 @@
+// ---------------------------------------------------------------------------
+// Workflow and approvals
+//
+// The escalation pipeline is declarative. `WorkflowTransition` rows say which
+// status moves are legal, who may make them and whether they need sign-off; the
+// service layer only looks a move up and enforces what it finds.
+//
+// Why data rather than a switch statement: the requirements' pipeline has 13
+// stages and tenants will want to skip or gate stages differently. Encoding it in
+// code means every variation is a deploy.
+// ---------------------------------------------------------------------------
+
+enum ApprovalMode {
+  /// One approver is enough.
+  ANY
+  /// Every approver must sign off.
+  ALL
+  /// Approvers act in order.
+  SEQUENTIAL
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum ApprovalDecisionType {
+  APPROVED
+  REJECTED
+}
+
+/// A legal status move.
+///
+/// `tenantId` null means "product default"; a row with a tenantId overrides the
+/// default for that tenant (enforced by a partial unique index, since PostgreSQL
+/// would otherwise treat every NULL tenantId as distinct).
+model WorkflowTransition {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid
+
+  fromStatus TicketStatus
+  toStatus   TicketStatus
+
+  /// Permission key the actor must hold, e.g. `ticket:escalate`.
+  requiredPermission String @db.VarChar(80)
+  /// Restricts the move to a ticket currently at this tier.
+  requiredTier       SupportTier?
+  /// Tier the ticket moves to. Null leaves the tier unchanged.
+  targetTier         SupportTier?
+
+  /// Gate the move behind an approval (e.g. handing work to Development, or
+  /// promoting to Release).
+  requiresApproval Boolean       @default(false)
+  approverRoleKey  RoleKey?
+  approvalMode     ApprovalMode  @default(ANY)
+
+  /// Button label in the console.
+  label       String  @db.VarChar(80)
+  /// Whether the transition prompts for a comment.
+  requiresComment Boolean @default(false)
+  isTerminal  Boolean @default(false)
+  sortOrder   Int     @default(0)
+  enabled     Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, fromStatus, enabled])
+  @@map("workflow_transition")
+}
+
+/// Automatic escalation rules, applied when a ticket ages or breaches an SLA.
+model EscalationPolicy {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  name        String  @db.VarChar(120)
+  description String? @db.VarChar(500)
+
+  /// Conditions this policy matches on, e.g. priority/category/tier.
+  conditions Json @default("{}")
+
+  fromTier SupportTier
+  toTier   SupportTier
+
+  /// Escalate after this much time in `fromTier` without resolution.
+  afterMinutes Int
+  /// Escalate immediately on SLA breach instead of waiting.
+  onSlaBreach  Boolean @default(true)
+
+  /// Queue or team to hand the ticket to.
+  targetQueueId String? @db.Uuid
+  targetTeamId  String? @db.Uuid
+  /// Raise priority by this many steps when escalating.
+  bumpPriority  Int     @default(0)
+  notifyRoleKeys RoleKey[]
+
+  isActive  Boolean  @default(true)
+  priority  Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isActive, fromTier])
+  @@map("escalation_policy")
+}
+
+/// An outstanding request for sign-off, blocking a workflow transition.
+model ApprovalRequest {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  ticketId String @db.Uuid
+
+  /// The move being gated.
+  fromStatus TicketStatus
+  toStatus   TicketStatus
+
+  status ApprovalStatus @default(PENDING)
+  mode   ApprovalMode   @default(ANY)
+
+  /// Role whose members may decide, and/or explicitly named approvers.
+  approverRoleKey RoleKey?
+  approverUserIds String[] @db.Uuid
+
+  requestedById String  @db.Uuid
+  reason        String? @db.VarChar(1000)
+
+  /// How many approvals are still outstanding (for ALL / SEQUENTIAL modes).
+  requiredCount Int @default(1)
+  approvedCount Int @default(0)
+
+  expiresAt   DateTime? @db.Timestamptz(6)
+  remindedAt  DateTime? @db.Timestamptz(6)
+  resolvedAt  DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket    Ticket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  decisions ApprovalDecision[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, ticketId])
+  @@index([expiresAt])
+  @@map("approval_request")
+}
+
+model ApprovalDecision {
+  id         String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String               @db.Uuid
+  requestId  String               @db.Uuid
+  approverId String               @db.Uuid
+  decision   ApprovalDecisionType
+
+  comment String? @db.VarChar(1000)
+  /// Position in a SEQUENTIAL chain.
+  sequence Int @default(0)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  request  ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approver User            @relation(fields: [approverId], references: [id], onDelete: Restrict)
+
+  @@unique([requestId, approverId])
+  @@index([tenantId, approverId])
+  @@map("approval_decision")
+}

@@ -1,0 +1,23 @@
+# Normalize text files to LF in the repository.
+* text=auto eol=lf
+
+# Files consumed by Linux containers MUST be LF. A CRLF shell script fails with
+# an obscure `\r: not found` inside Alpine, so this is not cosmetic.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+.env.example text eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.webm binary
+*.mp4 binary
+*.pdf binary

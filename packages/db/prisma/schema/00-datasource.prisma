@@ -1,0 +1,31 @@
+// ---------------------------------------------------------------------------
+// ABI Desk - datasource and client generation
+//
+// The schema is split across this folder by domain (tenancy, identity,
+// authorization, ticket, ...) because a single-file schema for a system this size
+// becomes unreviewable. Prisma merges every `.prisma` file in the folder.
+//
+// Connection strategy - this is the load-bearing security decision in the
+// project:
+//   url       -> `abidesk_app`, the low-privilege runtime role. It owns nothing,
+//                so PostgreSQL Row Level Security is ENFORCED against it. This is
+//                the connection the API and worker use for every query.
+//   directUrl -> `abidesk_owner`, the schema owner. Prisma Migrate and Studio use
+//                it because DDL requires ownership. Never used to serve traffic.
+//
+// Consequence: a query that forgets its tenant filter returns zero rows instead
+// of another tenant's data. Isolation does not depend on developer discipline.
+// ---------------------------------------------------------------------------
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("MIGRATION_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  // `native` keeps local development working on Windows/macOS; the musl target is
+  // required because the runtime image is node:22-alpine.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}

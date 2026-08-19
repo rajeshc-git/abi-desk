@@ -1,0 +1,265 @@
+// ---------------------------------------------------------------------------
+// Platform: audit, event outbox, notifications, compliance
+//
+// `AuditLog` is append-only, enforced by a database trigger that rejects UPDATE
+// and DELETE. An audit trail an administrator can quietly edit is not an audit
+// trail, and application-level immutability is not immutability.
+//
+// `OutboxEvent` is the transactional outbox. Domain writes and their event row
+// commit in one transaction; the worker publishes afterwards. Without it, a crash
+// between "ticket saved" and "webhook enqueued" silently loses the event -
+// exactly the bug that makes integrations untrustworthy.
+// ---------------------------------------------------------------------------
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+  /// Retries exhausted; needs operator attention.
+  DEAD
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WEBHOOK
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+enum DataSubjectRequestType {
+  /// GDPR Art. 15 / DPDPA access - export everything we hold on a person.
+  EXPORT
+  /// GDPR Art. 17 / DPDPA erasure - anonymize in place.
+  ERASURE
+}
+
+enum DataSubjectRequestStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  REJECTED
+}
+
+enum RetentionScope {
+  TICKET
+  MEDIA
+  DIAGNOSTIC
+  AUDIT
+  CHAT
+  WEBHOOK_DELIVERY
+}
+
+/// Immutable record of every consequential action.
+///
+/// Actor fields are plain columns, not relations: the log must remain readable
+/// after a user is erased, and a foreign key would either block erasure or cascade
+/// the evidence away.
+model AuditLog {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Null for platform-level actions (tenant provisioning, etc.).
+  tenantId String? @db.Uuid
+
+  actorId    String?   @db.Uuid
+  actorType  ActorType @default(USER)
+  /// Denormalized at write time so the entry stays meaningful even if the actor
+  /// is later renamed, deactivated or anonymized.
+  actorEmail String?   @db.VarChar(320)
+  actorLabel String?   @db.VarChar(200)
+
+  /// `module.action`, e.g. `ticket.status_changed`, `apikey.revoked`.
+  action String @db.VarChar(80)
+  /// Resource type and id the action targeted.
+  resourceType String  @db.VarChar(60)
+  resourceId   String? @db.VarChar(120)
+  /// Human-readable identifier, e.g. the ticket number.
+  resourceLabel String? @db.VarChar(200)
+
+  /// Field-level diff: `{"status":{"from":"OPEN","to":"RESOLVED"}}`. Values are
+  /// redacted for sensitive fields before being written.
+  changes Json?
+
+  /// Request context, for forensics.
+  ipAddress String? @db.Inet
+  userAgent String? @db.VarChar(512)
+  requestId String? @db.VarChar(120)
+  /// Set when the action came through an API key rather than a session.
+  apiKeyId  String? @db.Uuid
+
+  /// False when the action was attempted and denied - failed authorization
+  /// attempts are the entries a security review actually wants.
+  succeeded    Boolean @default(true)
+  failureCode  String? @db.VarChar(80)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, actorId, createdAt])
+  @@index([tenantId, resourceType, resourceId])
+  @@index([tenantId, action, createdAt])
+  @@index([succeeded, createdAt])
+  @@map("audit_log")
+}
+
+/// Transactional outbox row. Written in the same transaction as the domain change.
+model OutboxEvent {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid
+
+  /// Dotted event name, e.g. `ticket.status_changed`.
+  eventType String @db.VarChar(80)
+  /// Aggregate this event belongs to, for ordered per-entity publication.
+  aggregateType String @db.VarChar(60)
+  aggregateId   String @db.Uuid
+
+  payload Json
+
+  status  OutboxStatus @default(PENDING)
+  attempt Int          @default(0)
+
+  /// Groups events produced by one originating request, for tracing and for
+  /// automation loop detection.
+  causationId   String? @db.Uuid
+  correlationId String? @db.VarChar(120)
+
+  availableAt DateTime  @default(now()) @db.Timestamptz(6)
+  publishedAt DateTime? @db.Timestamptz(6)
+  error       String?   @db.Text
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // The publisher polls exactly this predicate, so it is the leading index.
+  @@index([status, availableAt])
+  @@index([tenantId, aggregateType, aggregateId])
+  @@index([causationId])
+  @@map("outbox_event")
+}
+
+model Notification {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  userId   String @db.Uuid
+
+  channel NotificationChannel @default(IN_APP)
+  status  NotificationStatus  @default(PENDING)
+
+  /// Event that produced it, e.g. `ticket.assigned`.
+  eventType String @db.VarChar(80)
+  title     String @db.VarChar(200)
+  body      String @db.VarChar(2000)
+  /// Deep link into the console or portal.
+  linkUrl   String? @db.VarChar(2048)
+
+  resourceType String? @db.VarChar(60)
+  resourceId   String? @db.Uuid
+
+  sentAt   DateTime? @db.Timestamptz(6)
+  readAt   DateTime? @db.Timestamptz(6)
+  error    String?   @db.Text
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, readAt])
+  @@index([tenantId, userId, createdAt])
+  @@index([status, createdAt])
+  @@map("notification")
+}
+
+/// Per-user, per-event delivery preferences.
+model NotificationPreference {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  userId   String @db.Uuid
+
+  eventType String  @db.VarChar(80)
+  inApp     Boolean @default(true)
+  email     Boolean @default(true)
+
+  /// Suppress email outside these local hours (minutes from midnight).
+  quietHoursStart Int? 
+  quietHoursEnd   Int?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventType])
+  @@index([tenantId])
+  @@map("notification_preference")
+}
+
+/// A GDPR / DPDPA data subject request.
+model DataSubjectRequest {
+  id       String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String                   @db.Uuid
+  type     DataSubjectRequestType
+  status   DataSubjectRequestStatus @default(PENDING)
+
+  /// The person the request concerns. Kept as a plain column because an erasure
+  /// must be able to outlive the user row's PII.
+  subjectUserId String  @db.Uuid
+  subjectEmail  String  @db.VarChar(320)
+
+  requestedById String  @db.Uuid
+  reason        String? @db.VarChar(1000)
+
+  /// EXPORT: object key of the generated archive, and its expiry.
+  exportStorageKey String?   @db.VarChar(512)
+  exportExpiresAt  DateTime? @db.Timestamptz(6)
+
+  /// ERASURE: what was anonymized, for the compliance record.
+  affectedCounts Json?
+
+  startedAt   DateTime? @db.Timestamptz(6)
+  completedAt DateTime? @db.Timestamptz(6)
+  error       String?   @db.Text
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([tenantId, subjectUserId])
+  @@map("data_subject_request")
+}
+
+/// Retention window for one class of data, enforced by a scheduled purge job.
+model RetentionPolicy {
+  id       String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String         @db.Uuid
+  scope    RetentionScope
+
+  retentionDays Int
+  /// Anonymize rather than delete, where the row must survive for referential
+  /// integrity (tickets, audit).
+  anonymizeInsteadOfDelete Boolean @default(false)
+
+  isActive    Boolean   @default(true)
+  lastRunAt   DateTime? @db.Timestamptz(6)
+  lastRunCount Int?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, scope])
+  @@map("retention_policy")
+}

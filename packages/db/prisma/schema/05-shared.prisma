@@ -1,0 +1,29 @@
+// ---------------------------------------------------------------------------
+// Cross-domain enums
+//
+// Only enums referenced by more than one domain live here. Prisma merges all
+// files in this folder, so placement is purely for human navigation.
+// ---------------------------------------------------------------------------
+
+/// The support escalation ladder from the requirements' ticket workflow:
+/// Customer -> L1 -> L2 -> L3 -> Development -> QA.
+///
+/// QA is included as a tier because the documented workflow has a QA stage even
+/// though the roles table omits it; without it, "IN_QA" would have no owner.
+enum SupportTier {
+  L1
+  L2
+  L3
+  DEV
+  QA
+}
+
+/// Provenance of a write, recorded on audit-bearing rows.
+enum ActorType {
+  USER
+  API_KEY
+  AUTOMATION
+  AI
+  SYSTEM
+  INTEGRATION
+}

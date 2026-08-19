@@ -1,0 +1,193 @@
+// ---------------------------------------------------------------------------
+// Authorization
+//
+// Direct encoding of the requirements' RBAC matrix.
+//
+// Roles do not hard-code permissions in application code. They are rows, joined
+// to permissions through `RolePermission` (the product default) and overridable
+// per tenant through `TenantRolePermissionOverride`. That structure exists
+// specifically to express the matrix's non-binary cells:
+//
+//   "Optional" -> the product ships a default, and a Tenant Admin may toggle it
+//                 (Permission.tenantConfigurable = true).
+//   "Queue"    -> Tenant Admin holds `ticket:assign:queue` but not
+//                 `ticket:assign:agent`: they may route a ticket to a queue, not
+//                 hand it to a named agent.
+//
+// Effective permission = tenant override, if present, else the role default.
+// ---------------------------------------------------------------------------
+
+enum RoleKey {
+  /// End users of the tenant's SaaS application ("Guest User/Customer").
+  GUEST_CUSTOMER
+  /// Customer organization administrator.
+  TENANT_ADMIN
+  /// First-line support.
+  L1_SUPPORT
+  /// Technical support.
+  L2_SUPPORT
+  /// Product specialists.
+  L3_SUPPORT
+  /// Engineering team.
+  DEV_TEAM
+  /// Not in the requirements' roles table, but the documented workflow has a QA
+  /// stage (Development -> QA -> Release). Without this role that stage has no
+  /// owner, so it is seeded as a first-class role.
+  QA_TEAM
+  /// Vendor-side operator. Cross-tenant; provisions and supports tenants. Also
+  /// absent from the requirements, but a multi-tenant SaaS cannot be operated
+  /// without it.
+  PLATFORM_ADMIN
+}
+
+enum RoleScope {
+  /// Spans every tenant. Only PLATFORM_ADMIN.
+  PLATFORM
+  /// Confined to one tenant.
+  TENANT
+}
+
+model Role {
+  id  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key RoleKey   @unique
+  scope RoleScope
+
+  name        String @db.VarChar(80)
+  description String @db.VarChar(500)
+
+  /// Authority ordering, lower is broader. Used to prevent privilege escalation
+  /// (a user may never grant a role with a rank lower than their own).
+  rank Int
+
+  /// The escalation tier this role works at, where applicable.
+  tier SupportTier?
+
+  /// True for roles shipped with the product; these cannot be deleted.
+  isSystem Boolean @default(true)
+  /// Staff roles see the agent console; non-staff see only the customer portal.
+  isStaff  Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  permissions RolePermission[]
+  users       UserRole[]
+  overrides   TenantRolePermissionOverride[]
+  invitations Invitation[]
+
+  @@index([scope])
+  @@map("role")
+}
+
+/// A single capability, addressed by a stable string key.
+///
+/// Key format: `module:action[:scope]`, e.g. `ticket:read:tenant`. The `:own` and
+/// `:tenant` scopes are what separate "View Own Tickets" from "View All Tenant
+/// Tickets" in the matrix, and they are enforced as query filters, not just as
+/// endpoint guards.
+model Permission {
+  id  String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key String @unique @db.VarChar(80)
+
+  module      String  @db.VarChar(40)
+  action      String  @db.VarChar(40)
+  scope       String? @db.VarChar(20)
+  description String  @db.VarChar(500)
+
+  /// Whether a Tenant Admin may re-grant or revoke this per role. Set for the
+  /// matrix's "Optional" cells and nothing else.
+  tenantConfigurable Boolean @default(false)
+
+  /// Grouping label for the admin UI.
+  category String @db.VarChar(40)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  roles     RolePermission[]
+  overrides TenantRolePermissionOverride[]
+
+  @@index([module])
+  @@index([tenantConfigurable])
+  @@map("permission")
+}
+
+/// Product-default grant for a (role, permission) pair.
+///
+/// `granted = false` rows are meaningful, not redundant: they record an
+/// explicitly withheld capability that a tenant is nonetheless allowed to switch
+/// on - for example L1 bulk update, which the matrix marks "Optional".
+model RolePermission {
+  roleId       String  @db.Uuid
+  permissionId String  @db.Uuid
+  granted      Boolean @default(true)
+
+  /// Whether a Tenant Admin may change this specific pairing.
+  ///
+  /// Configurability is a property of the (role, permission) pair, not of the
+  /// permission alone: `ticket:escalate` is "Optional" for Tenant Admin but a
+  /// hard ✓ for L1-L3, and an admin must not be able to revoke it from L1.
+  configurable Boolean @default(false)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permission")
+}
+
+/// Tenant-level deviation from a product default.
+///
+/// Writing one of these is an administrative act and is always audited; the
+/// resolver treats a row here as authoritative over `RolePermission`.
+model TenantRolePermissionOverride {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String  @db.Uuid
+  roleId       String  @db.Uuid
+  permissionId String  @db.Uuid
+  granted      Boolean
+
+  reason      String? @db.VarChar(500)
+  /// Provenance only - deliberately not a relation.
+  updatedById String  @db.Uuid
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, roleId, permissionId])
+  @@index([tenantId])
+  @@map("tenant_role_permission_override")
+}
+
+/// Assignment of a role to a user, optionally narrowed to a single brand.
+///
+/// `brandId` is null for tenant-wide assignments, which is the common case; a
+/// non-null value scopes an agent to one product line in a multi-brand tenant.
+model UserRole {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid
+  userId   String  @db.Uuid
+  roleId   String  @db.Uuid
+  brandId  String? @db.Uuid
+
+  /// Provenance only - deliberately not a relation.
+  assignedById String? @db.Uuid
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  brand  Brand?  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId, roleId])
+  @@index([roleId])
+  @@map("user_role")
+}

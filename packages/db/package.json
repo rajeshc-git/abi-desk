@@ -1,0 +1,58 @@
+{
+  "name": "@abi-desk/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prisma schema, migrations, row-level-security policies and seed data for ABI Desk",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "prisma"
+  ],
+  "scripts": {
+    "generate": "prisma generate --schema=./prisma/schema",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit --declaration false --declarationMap false",
+    "lint": "eslint src prisma",
+    "validate": "dotenv -e ../../.env -- prisma validate --schema=./prisma/schema",
+    "format": "prisma format --schema=./prisma/schema",
+    "migrate": "dotenv -e ../../.env -- prisma migrate dev --schema=./prisma/schema",
+    "deploy": "prisma migrate deploy --schema=./prisma/schema",
+    "deploy:local": "dotenv -e ../../.env -- prisma migrate deploy --schema=./prisma/schema",
+    "reset": "dotenv -e ../../.env -- prisma migrate reset --force --schema=./prisma/schema",
+    "status": "dotenv -e ../../.env -- prisma migrate status --schema=./prisma/schema",
+    "diff": "dotenv -e ../../.env -- prisma migrate diff --from-schema-datasource ./prisma/schema --to-schema-datamodel ./prisma/schema --script",
+    "drift": "dotenv -e ../../.env -- prisma migrate diff --from-schema-datasource ./prisma/schema --to-schema-datamodel ./prisma/schema --exit-code",
+    "baseline:generate": "node prisma/baseline/generate.mjs",
+    "baseline:build": "node prisma/baseline/build.mjs",
+    "baseline:rebuild": "pnpm run baseline:generate && pnpm run baseline:build",
+    "baseline:verify": "node prisma/baseline/verify.mjs",
+    "seed": "tsx prisma/seed.ts",
+    "seed:metadata": "tsx prisma/seed-metadata.ts",
+    "seed:local": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "studio": "dotenv -e ../../.env -- prisma studio --schema=./prisma/schema",
+    "clean": "rimraf dist"
+  },
+  "prisma": {
+    "schema": "./prisma/schema",
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "2.0.2",
+    "@prisma/client": "6.19.2",
+    "prisma": "6.19.2"
+  },
+  "devDependencies": {
+    "@abi-desk/rbac": "workspace:*",
+    "@types/node": "22.20.0",
+    "dotenv-cli": "11.0.0",
+    "tsx": "4.23.10",
+    "typescript": "5.9.3"
+  }
+}

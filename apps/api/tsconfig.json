@@ -1,0 +1,22 @@
+{
+  "extends": "../../packages/config/tsconfig.node.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+
+    // This is an application, not a consumed library, so nothing imports its types.
+    //
+    // Beyond being unnecessary, declaration emit actively breaks here: Prisma's
+    // inferred result types reference `@prisma/client/runtime/library`, which under
+    // pnpm lives at a path outside this package. TypeScript then reports TS2742
+    // ("inferred type cannot be named without a reference to ...") on every
+    // controller method that returns a Prisma row. The alternative would be hand-
+    // annotating a return type on every handler purely to satisfy a .d.ts nobody
+    // reads.
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+}

@@ -1,0 +1,98 @@
+// ---------------------------------------------------------------------------
+// Outbound webhooks
+//
+// Signed with HMAC-SHA256 over `timestamp.body` and delivered with exponential
+// backoff. Every attempt is recorded so a tenant can see exactly what we sent and
+// replay it.
+//
+// The destination is the tenant's own endpoint, so this introduces no external service
+// dependency and nothing to pay for - it is how a tenant integrates ABI Desk with
+// whatever they already run.
+// ---------------------------------------------------------------------------
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  /// Failed but still has retries remaining.
+  FAILED
+  /// Retries exhausted; requires manual replay.
+  EXHAUSTED
+}
+
+model WebhookEndpoint {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  name String @db.VarChar(120)
+  url  String @db.VarChar(2048)
+
+  /// Event names subscribed to, e.g. `["ticket.created","ticket.status_changed"]`.
+  events String[]
+
+  /// AES-256-GCM envelope of the HMAC signing secret. Shown to the tenant once at
+  /// creation and never again.
+  secretEncrypted String @db.Text
+  secretLast4     String @db.VarChar(4)
+
+  /// Extra headers the tenant needs, e.g. a gateway token.
+  headers Json @default("{}")
+
+  maxRetries Int @default(5)
+  timeoutMs  Int @default(10000)
+
+  isActive Boolean @default(true)
+  /// Set when consecutive failures cross the threshold, so one dead endpoint cannot
+  /// consume the delivery queue indefinitely.
+  disabledAt          DateTime? @db.Timestamptz(6)
+  consecutiveFailures Int       @default(0)
+
+  lastSuccessAt DateTime? @db.Timestamptz(6)
+  lastFailureAt DateTime? @db.Timestamptz(6)
+
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId, isActive])
+  @@map("webhook_endpoint")
+}
+
+model WebhookDelivery {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String @db.Uuid
+  endpointId String @db.Uuid
+
+  eventType String @db.VarChar(80)
+  /// Correlates back to the outbox row that produced this delivery.
+  eventId   String @db.Uuid
+
+  status  WebhookDeliveryStatus @default(PENDING)
+  attempt Int                   @default(0)
+
+  requestBody    String  @db.Text
+  requestHeaders Json?
+  responseStatus Int?
+  /// Truncated; endpoints occasionally return megabytes of HTML on error.
+  responseBody    String? @db.Text
+  responseHeaders Json?
+  error           String? @db.Text
+  durationMs      Int?
+
+  /// When the next retry is due (exponential backoff).
+  nextAttemptAt DateTime? @db.Timestamptz(6)
+  deliveredAt   DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, endpointId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@index([eventId])
+  @@map("webhook_delivery")
+}

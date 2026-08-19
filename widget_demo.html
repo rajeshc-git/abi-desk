@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ABI Desk Widget - Light Test Page</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #ffffff;
+      color: #1a1a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .test-box {
+      max-width: 450px;
+      text-align: center;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    p {
+      color: #4b5563;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="test-box">
+    <h1>ABI Desk Widget Test</h1>
+    <p>
+      This is a clean, light-themed page. The support widget is loaded at the bottom. Use the floating launcher bubble in the bottom right corner to test.
+    </p>
+  </div>
+
+  <!-- ABI Desk Customer Support Widget -->
+  <script
+    src="http://192.168.10.246:4000/api/v1/auth/widget.js"
+    data-public-key="pk_af11d6c7daca3088cbd0896e78b5fa5d"
+    data-api-url="http://192.168.10.246:4000"
+    data-position="bottom-right"
+    data-theme="auto"
+    async
+  ></script>
+
+</body>
+</html>

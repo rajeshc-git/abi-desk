@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Prisma generated client
+packages/db/generated/
+
+# Part 02 of the baseline migration: regenerated from the Prisma schema by
+# `baseline:rebuild`. The assembled migration.sql is committed instead - committing both
+# would create two sources of truth for the same DDL.
+packages/db/prisma/baseline/02-schema.sql
+
+# Environment - never commit real secrets
+.env
+.env.*
+!.env.example
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Local volumes / uploads
+.docker-data/
+tmp/
+uploads/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

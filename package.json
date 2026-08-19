@@ -1,0 +1,59 @@
+{
+  "name": "abi-desk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ABI Desk - Enterprise SaaS Integrated Ticketing System with embeddable diagnostics widget",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint -- --fix",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "turbo run test:integration",
+    "clean": "turbo run clean && rimraf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,json,md,yml,yaml}\"",
+    "db:generate": "pnpm --filter @abi-desk/db run generate",
+    "db:migrate": "pnpm --filter @abi-desk/db run migrate",
+    "db:deploy": "pnpm --filter @abi-desk/db run deploy",
+    "db:reset": "pnpm --filter @abi-desk/db run reset",
+    "db:seed": "pnpm --filter @abi-desk/db run seed",
+    "db:studio": "pnpm --filter @abi-desk/db run studio",
+    "db:check": "docker compose exec -T postgres psql -U abidesk_app -d abidesk -q -v ON_ERROR_STOP=1 -f /checks/rls-smoke.sql",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f api worker",
+    "docker:nuke": "docker compose down -v"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "cross-env": "10.1.0",
+    "eslint": "9.39.5",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "rimraf": "6.1.3",
+    "tsx": "4.23.10",
+    "turbo": "2.10.8",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.66.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "@swc/core",
+      "argon2",
+      "esbuild",
+      "sharp"
+    ]
+  }
+}

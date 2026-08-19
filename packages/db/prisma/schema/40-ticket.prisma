@@ -1,0 +1,441 @@
+// ---------------------------------------------------------------------------
+// Tickets
+//
+// The documented workflow is:
+//   Customer -> Widget -> L1 -> L2 -> L3 -> Development -> QA -> Release
+//            -> Verification -> Customer Confirmation -> Closed
+//
+// `status` tracks where in that pipeline a ticket sits and `tier` tracks who owns
+// it, because the two are not the same thing: a ticket can be OPEN at L2 or OPEN
+// at L3. Legal moves between statuses are data (`WorkflowTransition`), not
+// branches in code.
+// ---------------------------------------------------------------------------
+
+enum TicketStatus {
+  /// Submitted, not yet picked up.
+  NEW
+  /// L1 is classifying it.
+  TRIAGE
+  /// Actively worked.
+  OPEN
+  /// Waiting on the customer. SLA clocks pause here.
+  PENDING_CUSTOMER
+  /// Waiting on something else (vendor, maintenance window).
+  ON_HOLD
+  ESCALATED_L2
+  ESCALATED_L3
+  IN_DEVELOPMENT
+  IN_QA
+  PENDING_RELEASE
+  RELEASED
+  /// Support verifying the release fixed the report.
+  PENDING_VERIFICATION
+  /// Customer asked to confirm. Auto-closes after TenantSetting.autoCloseAfterDays.
+  AWAITING_CUSTOMER_CONFIRMATION
+  RESOLVED
+  CLOSED
+  REOPENED
+  CANCELLED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+enum TicketType {
+  QUESTION
+  INCIDENT
+  BUG
+  FEATURE_REQUEST
+  TASK
+}
+
+enum TicketChannel {
+  /// The embeddable widget - the primary path in this product.
+  WIDGET
+  PORTAL
+  EMAIL
+  API
+  CHAT
+  PHONE
+}
+
+enum CommentVisibility {
+  /// Visible to the customer.
+  PUBLIC
+  /// Staff-only. The matrix grants this to L1/L2/L3/Dev and explicitly NOT to
+  /// Guest or Tenant Admin.
+  INTERNAL
+}
+
+enum CommentFormat {
+  MARKDOWN
+  HTML
+  PLAIN
+}
+
+enum TicketLinkType {
+  RELATED
+  DUPLICATE_OF
+  BLOCKS
+  BLOCKED_BY
+  CAUSED_BY
+  MERGED_INTO
+}
+
+/// Every state-changing thing that happens to a ticket, in order. This is what
+/// the console renders as the activity timeline and what auditors read.
+enum TicketEventType {
+  CREATED
+  STATUS_CHANGED
+  TIER_CHANGED
+  PRIORITY_CHANGED
+  CATEGORY_CHANGED
+  ASSIGNED
+  UNASSIGNED
+  QUEUE_CHANGED
+  TEAM_CHANGED
+  COMMENT_ADDED
+  INTERNAL_NOTE_ADDED
+  ATTACHMENT_ADDED
+  DIAGNOSTICS_ATTACHED
+  ESCALATED
+  DEESCALATED
+  REOPENED
+  RESOLVED
+  CLOSED
+  CANCELLED
+  CONFIRMATION_REQUESTED
+  CUSTOMER_CONFIRMED
+  CUSTOMER_REJECTED
+  SLA_TARGET_STARTED
+  SLA_WARNING
+  SLA_BREACHED
+  SLA_MET
+  APPROVAL_REQUESTED
+  APPROVAL_GRANTED
+  APPROVAL_REJECTED
+  AUTOMATION_APPLIED
+  AI_SUGGESTION_APPLIED
+  AI_SUGGESTION_REJECTED
+  EXTERNAL_ISSUE_LINKED
+  EXTERNAL_ISSUE_UPDATED
+  TAG_ADDED
+  TAG_REMOVED
+  WATCHER_ADDED
+  WATCHER_REMOVED
+  LINKED
+  MERGED
+  CSAT_SUBMITTED
+  SPAM_MARKED
+}
+
+/// Monotonic per-tenant counter behind human-readable ticket numbers.
+///
+/// A dedicated row updated with `UPDATE ... RETURNING` gives gap-free, collision-
+/// free numbering under concurrency. A PostgreSQL sequence would be simpler but is
+/// global, and `MAX(sequence) + 1` races.
+model TicketSequence {
+  tenantId  String   @id @db.Uuid
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("ticket_sequence")
+}
+
+model Ticket {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  brandId  String @db.Uuid
+
+  /// Customer-facing identifier, e.g. `ACME-1042`.
+  number   String @db.VarChar(32)
+  /// Numeric part, retained for ordering and for the sequence allocator.
+  sequence Int
+
+  subject     String @db.VarChar(300)
+  description String @db.Text
+
+  status   TicketStatus   @default(NEW)
+  tier     SupportTier    @default(L1)
+  priority TicketPriority @default(NORMAL)
+  type     TicketType     @default(INCIDENT)
+  channel  TicketChannel  @default(WIDGET)
+
+  category    String? @db.VarChar(120)
+  subcategory String? @db.VarChar(120)
+
+  /// Who reported it. Restrict on delete: ticket history must not lose its
+  /// reporter. GDPR erasure anonymizes the user row instead of removing it.
+  requesterId String  @db.Uuid
+  assigneeId  String? @db.Uuid
+  queueId     String? @db.Uuid
+  teamId      String? @db.Uuid
+
+  // -- Denormalized counters, maintained transactionally by the service layer.
+  // Kept on the row because ticket lists show them and per-row subqueries across
+  // a large backlog are the first thing to fall over.
+  escalationCount    Int @default(0)
+  reopenCount        Int @default(0)
+  publicCommentCount Int @default(0)
+  internalNoteCount  Int @default(0)
+  attachmentCount    Int @default(0)
+
+  // -- Lifecycle timestamps (drive SLA state and analytics) ------------------
+  firstResponseAt      DateTime? @db.Timestamptz(6)
+  lastCustomerReplyAt  DateTime? @db.Timestamptz(6)
+  lastAgentReplyAt     DateTime? @db.Timestamptz(6)
+  lastActivityAt       DateTime  @default(now()) @db.Timestamptz(6)
+  resolvedAt           DateTime? @db.Timestamptz(6)
+  closedAt             DateTime? @db.Timestamptz(6)
+  reopenedAt           DateTime? @db.Timestamptz(6)
+  /// Set when the customer is asked to confirm a resolution; the auto-close job
+  /// keys off this.
+  confirmationRequestedAt DateTime? @db.Timestamptz(6)
+  confirmedAt             DateTime? @db.Timestamptz(6)
+  dueAt                   DateTime? @db.Timestamptz(6)
+
+  isSpam Boolean @default(false)
+
+  /// Free-form fields configured per tenant.
+  customFields Json @default("{}")
+
+  /// Full-text search index over subject and description, maintained by a
+  /// trigger (see the search migration).
+  ///
+  /// Declared as `Unsupported` rather than omitted so Prisma knows the column
+  /// exists; otherwise every `migrate dev` would generate a migration to drop it.
+  /// A trigger is used instead of a generated column for the same reason - Prisma
+  /// cannot model `GENERATED ALWAYS AS`, but it is happy with a plain column whose
+  /// contents happen to be maintained for it.
+  searchVector Unsupported("tsvector")?
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand     Brand   @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  requester User    @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  assignee  User?   @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  queue     Queue?  @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  team      Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  comments  TicketComment[]
+  events    TicketEvent[]
+  watchers  TicketWatcher[]
+  tags      TicketTag[]
+
+  mediaAssets      MediaAsset[]
+  diagnosticBundle DiagnosticBundle?
+
+  approvalRequests ApprovalRequest[]
+  slaStates        TicketSlaState[]
+  slaEvents        SlaEvent[]
+  automationRuns   AutomationRun[]
+  csatResponse     CsatResponse?
+  chatConversation ChatConversation?
+
+  linksFrom TicketLink[] @relation("TicketLinkSource")
+  linksTo   TicketLink[] @relation("TicketLinkTarget")
+
+  @@unique([tenantId, number])
+  @@unique([tenantId, sequence])
+  @@index([searchVector], type: Gin)
+  // Index order matters: `tenantId` leads every index because RLS and every
+  // query filter on it, so a tenant's rows stay physically clustered in the index.
+  @@index([tenantId, status, priority])
+  @@index([tenantId, assigneeId, status])
+  @@index([tenantId, requesterId, createdAt])
+  @@index([tenantId, tier, status])
+  @@index([tenantId, queueId, status])
+  @@index([tenantId, brandId, createdAt])
+  @@index([tenantId, status, lastActivityAt])
+  @@index([tenantId, category])
+  @@index([deletedAt])
+  /// Trigram index for fuzzy subject matching ("printer" finds "Printr").
+  /// Declared here rather than in raw SQL so Prisma owns it and no future
+  /// `migrate dev` proposes dropping it.
+  @@index([subject(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("ticket")
+}
+
+/// A public reply or an internal note.
+///
+/// One table with a `visibility` discriminator rather than two tables: the
+/// timeline interleaves them, and a single ordered read is cheaper and simpler
+/// than merging two. The read path filters on `visibility` according to the
+/// caller's `ticket:note:internal` grant.
+model TicketComment {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  ticketId String @db.Uuid
+
+  /// Null for system-generated entries.
+  authorId   String?           @db.Uuid
+  visibility CommentVisibility @default(PUBLIC)
+
+  body       String        @db.Text
+  bodyFormat CommentFormat @default(MARKDOWN)
+
+  /// True when written by automation or the AI assistant rather than a person.
+  isSystem Boolean @default(false)
+  /// Actor label for system entries, e.g. "SLA automation".
+  systemLabel String? @db.VarChar(120)
+
+  editedAt  DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User?  @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  mediaAssets MediaAsset[]
+
+  @@index([tenantId, ticketId, createdAt])
+  @@index([tenantId, ticketId, visibility])
+  @@index([authorId])
+  @@map("ticket_comment")
+}
+
+/// Append-only activity timeline. Never updated, never deleted.
+model TicketEvent {
+  id       String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String          @db.Uuid
+  ticketId String          @db.Uuid
+  type     TicketEventType
+
+  actorId   String?   @db.Uuid
+  actorType ActorType @default(USER)
+  /// Human label for non-user actors, e.g. "Automation: P1 billing triage".
+  actorLabel String?  @db.VarChar(160)
+
+  /// Previous and next value as display strings; `metadata` carries structure.
+  fromValue String? @db.VarChar(120)
+  toValue   String? @db.VarChar(120)
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ticketId, createdAt])
+  @@index([tenantId, type, createdAt])
+  @@map("ticket_event")
+}
+
+/// A user following a ticket for notifications.
+model TicketWatcher {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  ticketId String @db.Uuid
+  userId   String @db.Uuid
+
+  /// Watchers added automatically (e.g. by escalation) versus explicitly.
+  isImplicit Boolean  @default(false)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, userId])
+  @@index([tenantId, userId])
+  @@map("ticket_watcher")
+}
+
+model Tag {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  name  String  @db.VarChar(60)
+  slug  String  @db.VarChar(60)
+  color String  @default("#64748B") @db.VarChar(9)
+  /// Denormalized so tag pickers can order by popularity without a join.
+  usageCount Int @default(0)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tickets TicketTag[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, usageCount])
+  @@map("tag")
+}
+
+model TicketTag {
+  tenantId String @db.Uuid
+  ticketId String @db.Uuid
+  tagId    String @db.Uuid
+
+  /// Null when applied by automation or the AI classifier.
+  addedById String?  @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, tagId])
+  @@index([tenantId, tagId])
+  @@map("ticket_tag")
+}
+
+/// Relationship between two tickets (duplicate, blocker, root cause, merge).
+model TicketLink {
+  id       String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String         @db.Uuid
+  sourceId String         @db.Uuid
+  targetId String         @db.Uuid
+  type     TicketLinkType
+
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source Ticket @relation("TicketLinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target Ticket @relation("TicketLinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, targetId, type])
+  @@index([tenantId, targetId])
+  @@map("ticket_link")
+}
+
+/// Customer satisfaction response, collected after resolution.
+model CsatResponse {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  ticketId String @unique @db.Uuid
+  userId   String @db.Uuid
+
+  /// 1..5.
+  rating  Int
+  comment String? @db.VarChar(2000)
+
+  /// Copied from the ticket at submission time so analytics survive later
+  /// reassignment of the ticket.
+  agentId String?     @db.Uuid
+  tier    SupportTier?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, rating])
+  @@index([tenantId, agentId])
+  @@index([tenantId, createdAt])
+  @@map("csat_response")
+}

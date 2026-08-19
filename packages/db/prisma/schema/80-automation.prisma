@@ -1,0 +1,115 @@
+// ---------------------------------------------------------------------------
+// Automation rules
+//
+// Trigger -> conditions -> actions, evaluated in the worker.
+//
+// Everything here is deterministic and runs in-process: no model, no inference, no
+// external service. Routing decisions come from explicit rules a Tenant Admin can read
+// and reason about, which is also what makes them auditable - `AutomationRun` records
+// why a rule did or did not fire.
+// ---------------------------------------------------------------------------
+
+enum AutomationTrigger {
+  TICKET_CREATED
+  TICKET_UPDATED
+  TICKET_STATUS_CHANGED
+  TICKET_ASSIGNED
+  TICKET_COMMENTED
+  TICKET_REOPENED
+  SLA_WARNING
+  SLA_BREACHED
+  /// Time-based, evaluated by a repeatable job.
+  SCHEDULE
+}
+
+enum AutomationRunStatus {
+  /// Conditions matched and every action succeeded.
+  SUCCESS
+  /// Conditions did not match; recorded so rule authors can see why.
+  SKIPPED
+  FAILED
+  /// Refused because the rule would have re-triggered itself.
+  LOOP_BLOCKED
+}
+
+model AutomationRule {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+
+  name        String  @db.VarChar(120)
+  description String? @db.VarChar(500)
+
+  trigger AutomationTrigger
+
+  /// Condition tree, e.g.
+  /// `{"all":[{"field":"priority","op":"in","value":["URGENT"]},
+  ///          {"field":"category","op":"eq","value":"billing"}]}`
+  conditions Json @default("{}")
+
+  /// Ordered action list, e.g.
+  /// `[{"type":"assign_queue","queueId":"..."},{"type":"add_tag","tag":"billing"}]`
+  actions Json @default("[]")
+
+  /// Cron expression, for SCHEDULE triggers only.
+  schedule String? @db.VarChar(120)
+
+  /// Lower runs first. Rules are not commutative (an assign followed by a priority
+  /// bump differs from the reverse), so order is explicit rather than incidental.
+  priority Int @default(0)
+
+  /// Stop evaluating later rules once this one matches.
+  stopOnMatch Boolean @default(false)
+
+  /// Guard against a rule whose action re-fires its own trigger. The engine refuses to
+  /// run the same rule against the same ticket more than this many times within one
+  /// causal chain - without it, one badly written rule takes the queue down.
+  maxRunsPerTicket Int @default(3)
+
+  isActive   Boolean   @default(true)
+  lastRunAt  DateTime? @db.Timestamptz(6)
+  runCount   BigInt    @default(0)
+  matchCount BigInt    @default(0)
+
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  runs   AutomationRun[]
+
+  @@index([tenantId, trigger, isActive, priority])
+  @@map("automation_rule")
+}
+
+/// One evaluation of one rule against one ticket. The rule author's debugger.
+model AutomationRun {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @db.Uuid
+  ruleId   String  @db.Uuid
+  ticketId String? @db.Uuid
+
+  status  AutomationRunStatus
+  trigger AutomationTrigger
+
+  /// Per-condition evaluation result, so "why didn't my rule fire?" is answerable
+  /// without re-running anything.
+  conditionTrace Json?
+  /// Per-action outcome.
+  actionResults Json?
+  error         String? @db.Text
+
+  durationMs Int @default(0)
+  /// Groups every rule run caused by one originating event, for loop detection.
+  causationId String? @db.Uuid
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rule   AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ticket Ticket?        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ruleId, createdAt])
+  @@index([tenantId, ticketId])
+  @@index([causationId])
+  @@map("automation_run")
+}
