@@ -245,6 +245,8 @@
 .split-left-pane {
   border-right: 1px solid var(--border-subtle);
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
   background-color: #ffffff;
 }
 

@@ -460,7 +460,15 @@ export const InboxPage: React.FC = () => {
           ) : (
             <>
               {tickets.map((t) => (
-                <div key={t.id} style={{ display: 'flex', alignItems: 'center' }}>
+                <div
+                  key={t.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    minWidth: 0,
+                    width: '100%',
+                  }}
+                >
                   <button
                     onClick={(e) => toggleSelectTicket(t.id, e)}
                     style={{
@@ -469,11 +477,12 @@ export const InboxPage: React.FC = () => {
                       padding: '0 8px 0 12px',
                       color: selectedIds.has(t.id) ? 'var(--primary)' : 'var(--text-muted)',
                       cursor: 'pointer',
+                      flexShrink: 0,
                     }}
                   >
                     {selectedIds.has(t.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                   </button>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <TicketCard
                       ticket={t}
                       isSelected={selectedTicket?.id === t.id}

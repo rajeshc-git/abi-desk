@@ -54,6 +54,9 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
           : '3px solid transparent',
         cursor: 'pointer',
         transition: 'all 0.15s ease',
+        minWidth: 0,
+        width: '100%',
+        boxSizing: 'border-box',
       }}
       onMouseEnter={(e) => {
         if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
@@ -69,20 +72,25 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
           alignItems: 'center',
           justifyContent: 'space-between',
           marginBottom: '6px',
+          gap: '8px',
+          minWidth: 0,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexShrink: 1, overflow: 'hidden' }}>
           <span
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: '12px',
               fontWeight: 700,
               color: 'var(--primary)',
+              flexShrink: 0,
             }}
           >
             #{ticket.number}
           </span>
-          <TierBadge tier={ticket.tier} />
+          <div style={{ flexShrink: 0 }}>
+            <TierBadge tier={ticket.tier} />
+          </div>
           {isUnread && (
             <span
               style={{
@@ -97,16 +105,20 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
                 display: 'inline-flex',
                 alignItems: 'center',
                 boxShadow: '0 1px 2px rgba(37,99,235,0.3)',
+                flexShrink: 0,
               }}
             >
               NEW
             </span>
           )}
         </div>
-        <StatusBadge status={ticket.status} />
+        <div style={{ flexShrink: 0 }}>
+          <StatusBadge status={ticket.status} />
+        </div>
       </div>
 
       <div
+        title={ticket.subject}
         style={{
           fontSize: '14px',
           fontWeight: isUnread ? 700 : 600,
@@ -115,6 +127,8 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          width: '100%',
+          display: 'block',
         }}
       >
         {ticket.subject}
@@ -127,14 +141,28 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
           justifyContent: 'space-between',
           fontSize: '11px',
           color: 'var(--text-muted)',
+          gap: '8px',
+          minWidth: 0,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <PriorityPill priority={ticket.priority} />
-          <span>•</span>
-          <span style={{ fontWeight: isUnread ? 600 : 400 }}>{ticket.requester?.fullName || 'Customer'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+          <div style={{ flexShrink: 0 }}>
+            <PriorityPill priority={ticket.priority} />
+          </div>
+          <span style={{ flexShrink: 0 }}>•</span>
+          <span
+            title={ticket.requester?.fullName || 'Customer'}
+            style={{
+              fontWeight: isUnread ? 600 : 400,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {ticket.requester?.fullName || 'Customer'}
+          </span>
         </div>
-        <span>{formattedDate}</span>
+        <span style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>{formattedDate}</span>
       </div>
     </div>
   );
