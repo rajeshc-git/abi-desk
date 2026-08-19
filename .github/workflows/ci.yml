@@ -80,6 +80,9 @@ jobs:
       - name: Run RBAC Matrix Conformance Tests
         run: pnpm --filter @abi-desk/rbac test
 
+      - name: Run Widget Unit Tests
+        run: pnpm --filter @abi-desk/widget test
+
       - name: Run API Unit Tests
         run: pnpm --filter @abi-desk/api test:unit
 
@@ -88,4 +91,7 @@ jobs:
 
       - name: Typecheck Entire Monorepo
         run: pnpm typecheck
+
+      - name: Verify Docker API Container Build (Dry-Run)
+        run: docker build -t abi-desk-api:test -f docker/api/Dockerfile .
 
