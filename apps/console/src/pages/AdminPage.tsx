@@ -6,6 +6,9 @@ import {
   Webhook,
   Shield,
   UserPlus,
+  UserCheck,
+  Search,
+  X,
   Plus,
   Code,
   Copy,
@@ -37,7 +40,7 @@ export const AdminPage: React.FC = () => {
   const toast = useToast();
   const { debouncedSearchQuery, setSearchQuery } = useSearch();
   const [activeTab, setActiveTab] = useState<
-    'brands' | 'widget' | 'teams' | 'users' | 'keys' | 'webhooks' | 'compliance' | 'sso'
+    'brands' | 'widget' | 'teams' | 'users' | 'customers' | 'keys' | 'webhooks' | 'compliance' | 'sso'
   >('brands');
   const [selectedThemeColor, setSelectedThemeColor] = useState(
     () => localStorage.getItem('abidesk_theme_color') || '#2563eb',
@@ -121,18 +124,86 @@ export const AdminPage: React.FC = () => {
     );
   }, [queuesList, debouncedSearchQuery]);
 
-  const filteredUsers = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return usersList;
-    const query = debouncedSearchQuery.toLowerCase();
+  const [staffSearchText, setStaffSearchText] = useState('');
+  const [staffRoleFilter, setStaffRoleFilter] = useState('ALL');
+  const [staffStatusFilter, setStaffStatusFilter] = useState('ALL');
+  const [customerSearchText, setCustomerSearchText] = useState('');
+  const [customerStatusFilter, setCustomerStatusFilter] = useState('ALL');
+
+  // Helper to distinguish Guest/Customer users from Staff members
+  const isCustomerUser = (u: any) => {
+    if (u.kind === 'CUSTOMER') return true;
+    const roleKey = u.roles?.[0]?.role?.key || '';
+    const roleName = (u.roles?.[0]?.role?.name || '').toLowerCase();
+    if (roleKey === 'GUEST_CUSTOMER') return true;
+    if (roleName.includes('guest') || roleName.includes('customer')) return true;
+    return false;
+  };
+
+  const isStaffUser = (u: any) => !isCustomerUser(u);
+
+  const totalStaffCount = React.useMemo(() => usersList.filter(isStaffUser).length, [usersList]);
+  const totalCustomerCount = React.useMemo(() => usersList.filter(isCustomerUser).length, [usersList]);
+
+  const filteredStaffUsers = React.useMemo(() => {
+    const globalQ = debouncedSearchQuery.trim().toLowerCase();
+    const localQ = staffSearchText.trim().toLowerCase();
+    const query = localQ || globalQ;
+
     return usersList.filter((u) => {
+      if (!isStaffUser(u)) return false;
+      const roleName = u.roles?.[0]?.role?.name || '';
+      const tier = u.roles?.[0]?.role?.tier || '';
+      const status = u.status || '';
+
+      if (staffRoleFilter !== 'ALL') {
+        const rKey = u.roles?.[0]?.role?.key || '';
+        if (staffRoleFilter === 'ADMIN' && !roleName.toLowerCase().includes('admin') && rKey !== 'TENANT_ADMIN') return false;
+        if (staffRoleFilter === 'L1' && tier !== 'L1' && !roleName.toLowerCase().includes('l1')) return false;
+        if (staffRoleFilter === 'L2' && tier !== 'L2' && !roleName.toLowerCase().includes('l2')) return false;
+        if (staffRoleFilter === 'L3' && tier !== 'L3' && !roleName.toLowerCase().includes('l3')) return false;
+        if (staffRoleFilter === 'DEV' && tier !== 'DEV' && !roleName.toLowerCase().includes('dev')) return false;
+        if (staffRoleFilter === 'QA' && tier !== 'QA' && !roleName.toLowerCase().includes('qa')) return false;
+      }
+
+      if (staffStatusFilter !== 'ALL') {
+        if (staffStatusFilter === 'ACTIVE' && status !== 'ACTIVE') return false;
+        if (staffStatusFilter === 'SUSPENDED' && status !== 'SUSPENDED') return false;
+      }
+
+      if (!query) return true;
+      return (
+        u.fullName?.toLowerCase().includes(query) ||
+        u.email?.toLowerCase().includes(query) ||
+        roleName.toLowerCase().includes(query) ||
+        tier.toLowerCase().includes(query)
+      );
+    });
+  }, [usersList, debouncedSearchQuery, staffSearchText, staffRoleFilter, staffStatusFilter]);
+
+  const filteredCustomerUsers = React.useMemo(() => {
+    const globalQ = debouncedSearchQuery.trim().toLowerCase();
+    const localQ = customerSearchText.trim().toLowerCase();
+    const query = localQ || globalQ;
+
+    return usersList.filter((u) => {
+      if (!isCustomerUser(u)) return false;
+      const status = u.status || '';
+
+      if (customerStatusFilter !== 'ALL') {
+        if (customerStatusFilter === 'ACTIVE' && status !== 'ACTIVE') return false;
+        if (customerStatusFilter === 'SUSPENDED' && status !== 'SUSPENDED') return false;
+      }
+
+      if (!query) return true;
       const roleName = u.roles?.[0]?.role?.name || '';
       return (
-        u.fullName.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query) ||
+        u.fullName?.toLowerCase().includes(query) ||
+        u.email?.toLowerCase().includes(query) ||
         roleName.toLowerCase().includes(query)
       );
     });
-  }, [usersList, debouncedSearchQuery]);
+  }, [usersList, debouncedSearchQuery, customerSearchText, customerStatusFilter]);
 
   const filteredApiKeys = React.useMemo(() => {
     if (!debouncedSearchQuery.trim()) return apiKeys;
@@ -304,7 +375,7 @@ export const AdminPage: React.FC = () => {
         setTeams(teamsData || []);
         setQueuesList(queuesData || []);
         setBrandsList(brandsData || []);
-      } else if (activeTab === 'users') {
+      } else if (activeTab === 'users' || activeTab === 'customers') {
         const [usersData, rolesData, brandsData] = await Promise.all([
           ApiClient.get('/admin/users'),
           ApiClient.get('/admin/roles'),
@@ -958,6 +1029,7 @@ export const AdminPage: React.FC = () => {
           { id: 'widget', label: 'Embeddable Widget', icon: Code },
           { id: 'teams', label: 'Teams & Queues', icon: Users },
           { id: 'users', label: 'Staff Directory', icon: UserPlus },
+          { id: 'customers', label: 'Customer Directory', icon: UserCheck },
           { id: 'sso', label: 'Single Sign-On (SSO)', icon: Shield },
           { id: 'keys', label: 'API Keys', icon: Key },
           { id: 'webhooks', label: 'Webhooks', icon: Webhook },
@@ -1673,36 +1745,233 @@ export const AdminPage: React.FC = () => {
 
           {activeTab === 'users' && (
             <div className="card">
+              {/* Directory Sub-Nav Switcher */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  paddingBottom: '12px',
+                  marginBottom: '16px',
+                }}
+              >
+                <button
+                  onClick={() => setActiveTab('users')}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-full)',
+                    border: 'none',
+                    backgroundColor: 'var(--primary)',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <UserPlus size={13} />
+                  <span>Staff Directory ({totalStaffCount})</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('customers')}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-full)',
+                    border: 'none',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <UserCheck size={13} />
+                  <span>Customers & Guests ({totalCustomerCount})</span>
+                </button>
+              </div>
+
+              {/* Section Header */}
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
                   marginBottom: '16px',
                 }}
               >
-                <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Staff Directory</h3>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Staff Directory</h3>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--primary-surface, #eff6ff)',
+                        color: 'var(--primary, #2563eb)',
+                        border: '1px solid var(--primary-border, #bfdbfe)',
+                      }}
+                    >
+                      {filteredStaffUsers.length} of {totalStaffCount} Staff
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                    Administrators, support tiers (L1, L2, L3), developers, and QA specialists with agent workspace access.
+                  </p>
+                </div>
                 <button onClick={() => setIsInviteOpen(true)} className="btn btn-primary btn-sm">
                   <UserPlus size={14} /> Invite New Staff
                 </button>
               </div>
 
+              {/* Search & Filters Toolbar */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'center',
+                  marginBottom: '16px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+                  <Search
+                    size={14}
+                    style={{
+                      position: 'absolute',
+                      left: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--text-muted)',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search staff by name, email, or role..."
+                    value={staffSearchText}
+                    onChange={(e) => setStaffSearchText(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 30px 7px 32px',
+                      fontSize: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-medium)',
+                      backgroundColor: 'var(--bg-input)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                  {staffSearchText && (
+                    <button
+                      onClick={() => setStaffSearchText('')}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--text-muted)',
+                        padding: '2px',
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={staffRoleFilter}
+                  onChange={(e) => setStaffRoleFilter(e.target.value)}
+                  style={{
+                    padding: '7px 10px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-medium)',
+                    backgroundColor: 'var(--bg-input)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="ALL">All Roles</option>
+                  <option value="ADMIN">Tenant Admin</option>
+                  <option value="L1">L1 Support</option>
+                  <option value="L2">L2 Support</option>
+                  <option value="L3">L3 Support</option>
+                  <option value="DEV">Dev Team</option>
+                  <option value="QA">QA Team</option>
+                </select>
+
+                <select
+                  value={staffStatusFilter}
+                  onChange={(e) => setStaffStatusFilter(e.target.value)}
+                  style={{
+                    padding: '7px 10px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-medium)',
+                    backgroundColor: 'var(--bg-input)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">Active Only</option>
+                  <option value="SUSPENDED">Suspended Only</option>
+                </select>
+              </div>
+
+              {/* Staff List */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {filteredUsers.length === 0 ? (
+                {filteredStaffUsers.length === 0 ? (
                   <div
                     style={{
                       fontSize: '13px',
                       color: 'var(--text-muted)',
                       textAlign: 'center',
-                      padding: '16px 0',
+                      padding: '28px 0',
+                      backgroundColor: 'var(--bg-surface-elevated)',
+                      borderRadius: 'var(--radius-md)',
                     }}
                   >
-                    No staff members found matching search.
+                    No staff members found matching search filters.
                   </div>
                 ) : (
-                  filteredUsers.map((u) => {
+                  filteredStaffUsers.map((u) => {
                     const roleName = u.roles?.[0]?.role?.name || 'Staff';
+                    const tier = u.roles?.[0]?.role?.tier;
                     const isSuspended = u.status === 'SUSPENDED';
+
+                    let tierPillClass = 'tier-pill L1';
+                    let customStyle: React.CSSProperties | undefined;
+
+                    if (tier === 'L1' || roleName.toLowerCase().includes('l1')) tierPillClass = 'tier-pill L1';
+                    else if (tier === 'L2' || roleName.toLowerCase().includes('l2')) tierPillClass = 'tier-pill L2';
+                    else if (tier === 'L3' || roleName.toLowerCase().includes('l3')) tierPillClass = 'tier-pill L3';
+                    else if (tier === 'DEV' || roleName.toLowerCase().includes('dev')) tierPillClass = 'tier-pill DEV';
+                    else if (tier === 'QA' || roleName.toLowerCase().includes('qa')) tierPillClass = 'tier-pill QA';
+                    else if (roleName.toLowerCase().includes('admin')) {
+                      tierPillClass = 'tier-pill';
+                      customStyle = {
+                        color: '#1d4ed8',
+                        backgroundColor: '#eff6ff',
+                        borderColor: '#bfdbfe',
+                        fontWeight: 600,
+                      };
+                    }
+
                     return (
                       <div
                         key={u.id}
@@ -1710,24 +1979,33 @@ export const AdminPage: React.FC = () => {
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          padding: '10px 14px',
+                          padding: '12px 16px',
                           borderRadius: 'var(--radius-md)',
                           backgroundColor: 'var(--bg-surface-elevated)',
+                          border: '1px solid var(--border-subtle, #f1f5f9)',
+                          transition: 'all 0.15s ease',
                         }}
                       >
                         <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600 }}>{u.fullName}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {u.fullName || 'Unnamed Staff'}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                             {u.email}
                           </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <span className="tier-pill L1">{roleName}</span>
+                          <span className={tierPillClass} style={customStyle}>
+                            {roleName}
+                          </span>
                           <span
                             style={{
                               fontSize: '11px',
                               color: isSuspended ? '#ef4444' : '#10b981',
                               fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
                             }}
                           >
                             ● {u.status}
@@ -1735,7 +2013,255 @@ export const AdminPage: React.FC = () => {
                           <button
                             onClick={() => handleToggleUserStatus(u)}
                             className={`btn btn-sm ${isSuspended ? 'btn-primary' : 'btn-secondary'}`}
-                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                            style={{ padding: '4px 10px', fontSize: '11px' }}
+                          >
+                            {isSuspended ? 'Activate' : 'Suspend'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'customers' && (
+            <div className="card">
+              {/* Directory Sub-Nav Switcher */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  paddingBottom: '12px',
+                  marginBottom: '16px',
+                }}
+              >
+                <button
+                  onClick={() => setActiveTab('users')}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-full)',
+                    border: 'none',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <UserPlus size={13} />
+                  <span>Staff Directory ({totalStaffCount})</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('customers')}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-full)',
+                    border: 'none',
+                    backgroundColor: 'var(--primary)',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <UserCheck size={13} />
+                  <span>Customers & Guests ({totalCustomerCount})</span>
+                </button>
+              </div>
+
+              {/* Section Header */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  marginBottom: '16px',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Customer & Guest Directory</h3>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        backgroundColor: '#f1f5f9',
+                        color: '#475569',
+                        border: '1px solid #cbd5e1',
+                      }}
+                    >
+                      {filteredCustomerUsers.length} of {totalCustomerCount} Customers
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                    End users, guests, and customers raising tickets or participating via embeddable widget and email.
+                  </p>
+                </div>
+              </div>
+
+              {/* Search & Filter Toolbar */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'center',
+                  marginBottom: '16px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+                  <Search
+                    size={14}
+                    style={{
+                      position: 'absolute',
+                      left: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--text-muted)',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search customers by name or email..."
+                    value={customerSearchText}
+                    onChange={(e) => setCustomerSearchText(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '7px 30px 7px 32px',
+                      fontSize: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-medium)',
+                      backgroundColor: 'var(--bg-input)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                  {customerSearchText && (
+                    <button
+                      onClick={() => setCustomerSearchText('')}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--text-muted)',
+                        padding: '2px',
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={customerStatusFilter}
+                  onChange={(e) => setCustomerStatusFilter(e.target.value)}
+                  style={{
+                    padding: '7px 10px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-medium)',
+                    backgroundColor: 'var(--bg-input)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ACTIVE">Active Only</option>
+                  <option value="SUSPENDED">Suspended Only</option>
+                </select>
+              </div>
+
+              {/* Customer List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {filteredCustomerUsers.length === 0 ? (
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      color: 'var(--text-muted)',
+                      textAlign: 'center',
+                      padding: '28px 0',
+                      backgroundColor: 'var(--bg-surface-elevated)',
+                      borderRadius: 'var(--radius-md)',
+                    }}
+                  >
+                    No customers found matching search filters.
+                  </div>
+                ) : (
+                  filteredCustomerUsers.map((u) => {
+                    const roleName = u.roles?.[0]?.role?.name || 'Guest User / Customer';
+                    const isSuspended = u.status === 'SUSPENDED';
+
+                    return (
+                      <div
+                        key={u.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '12px 16px',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--bg-surface-elevated)',
+                          border: '1px solid var(--border-subtle, #f1f5f9)',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {u.fullName || 'Customer User'}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {u.email}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <span
+                            style={{
+                              color: '#475569',
+                              backgroundColor: '#f1f5f9',
+                              border: '1px solid #cbd5e1',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {roleName}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color: isSuspended ? '#ef4444' : '#10b981',
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            ● {u.status}
+                          </span>
+                          <button
+                            onClick={() => handleToggleUserStatus(u)}
+                            className={`btn btn-sm ${isSuspended ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ padding: '4px 10px', fontSize: '11px' }}
                           >
                             {isSuspended ? 'Activate' : 'Suspend'}
                           </button>
