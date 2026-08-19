@@ -54,24 +54,46 @@ jobs:
       - name: Prepare environment configuration
         run: cp .env.example .env
 
-      - name: Initialize PostgreSQL Roles
+      - name: Initialize PostgreSQL Roles & Extensions
         env:
           PGPASSWORD: dev_superuser_pw_change_me
         run: |
-          psql -h localhost -p 5432 -U postgres -d abidesk \
-            -v owner_password="'dev_owner_pw_change_me'" \
-            -v app_password="'dev_app_pw_change_me'" \
-            -f docker/postgres/init/managed-setup.sql
+          psql -h localhost -p 5432 -U postgres -d abidesk << 'EOF'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'abidesk_owner') THEN
+              CREATE ROLE abidesk_owner LOGIN PASSWORD 'dev_owner_pw_change_me';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'abidesk_app') THEN
+              CREATE ROLE abidesk_app LOGIN PASSWORD 'dev_app_pw_change_me';
+            END IF;
+          END $$;
+          ALTER DATABASE abidesk OWNER TO abidesk_owner;
+          ALTER SCHEMA public OWNER TO abidesk_owner;
+          ALTER ROLE abidesk_owner CREATEDB;
+          GRANT CONNECT ON DATABASE abidesk TO abidesk_app;
+          GRANT USAGE ON SCHEMA public TO abidesk_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE abidesk_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO abidesk_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE abidesk_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO abidesk_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE abidesk_owner IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO abidesk_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+          CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+          CREATE EXTENSION IF NOT EXISTS "btree_gin";
+          EOF
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
 
       - name: Generate Prisma Client
         run: pnpm --filter @abi-desk/db generate
 
       - name: Apply Database Migrations (Test DB)
         run: pnpm --filter @abi-desk/db deploy
+
+      - name: Seed Database (Test Data)
+        run: pnpm --filter @abi-desk/db seed
+
 
       - name: Build Monorepo & Packages
         run: pnpm build
