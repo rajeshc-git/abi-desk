@@ -16,8 +16,14 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_PASSWORD: dev_superuser_pw_change_me
           POSTGRES_DB: abidesk
+          POSTGRES_OWNER_USER: abidesk_owner
+          POSTGRES_OWNER_PASSWORD: dev_owner_pw_change_me
+          POSTGRES_APP_USER: abidesk_app
+          POSTGRES_APP_PASSWORD: dev_app_pw_change_me
+        volumes:
+          - ${{ github.workspace }}/docker/postgres/init:/docker-entrypoint-initdb.d
         ports:
           - 5432:5432
         options: >-
@@ -51,20 +57,35 @@ jobs:
           node-version: 22
           cache: "pnpm"
 
+      - name: Prepare environment configuration
+        run: cp .env.example .env
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint & Format Checks
+        run: |
+          pnpm lint
+          pnpm format:check
 
       - name: Generate Prisma Client
         run: pnpm --filter @abi-desk/db generate
 
-      - name: Build Packages & Monorepo
+      - name: Apply Database Migrations (Test DB)
+        run: pnpm --filter @abi-desk/db deploy
+
+      - name: Build Monorepo & Packages
         run: pnpm build
 
       - name: Run RBAC Matrix Conformance Tests
         run: pnpm --filter @abi-desk/rbac test
 
       - name: Run API Unit Tests
-        run: pnpm --filter @abi-desk/api test
+        run: pnpm --filter @abi-desk/api test:unit
+
+      - name: Run API Integration Tests (PostgreSQL & Redis)
+        run: pnpm --filter @abi-desk/api test:integration
 
       - name: Typecheck Entire Monorepo
         run: pnpm typecheck
+
