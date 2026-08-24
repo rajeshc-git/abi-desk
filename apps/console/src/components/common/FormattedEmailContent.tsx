@@ -460,8 +460,9 @@ function renderEmailBlocks(text: string) {
         <pre
           key={i}
           style={{
-            backgroundColor: 'var(--bg-surface-elevated, #0f172a)',
-            color: '#f8fafc',
+            backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+            border: '1px solid var(--border-subtle, #e2e8f0)',
+            color: 'var(--text-primary, #0f172a)',
             padding: '12px 14px',
             borderRadius: '6px',
             fontSize: '12px',
