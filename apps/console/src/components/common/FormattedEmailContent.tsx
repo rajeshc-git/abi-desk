@@ -190,15 +190,44 @@ function normalizeEmailHtml(raw: string): string {
     text = text.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '\n[CODEBLOCK:$1]\n');
     text = text.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, '\n[CODEBLOCK:$1]\n');
 
-    // Preserve inline images (e.g. signature logos): <img src="...">
+    // VML Outlook buttons: <v:roundrect ... href="...">...</v:roundrect>
+    text = text.replace(/<v:roundrect[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/v:roundrect>/gi, (_, href, content) => {
+      const label = content.replace(/<[^>]*>/g, '').trim();
+      return `\n[BUTTON:${label || 'Click Here'}|${stashUrl(href.trim())}]\n`;
+    });
+
+    // Buttons: <button ...>...</button>
+    text = text.replace(/<button\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/button>/gi, (_, href, content) => {
+      const label = content.replace(/<[^>]*>/g, '').trim();
+      return `\n[BUTTON:${label || 'Click Here'}|${stashUrl(href.trim())}]\n`;
+    });
+
+    // Linked images: <a href="..."><img src="..." .../></a>
+    text = text.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>\s*<img\s+[^>]*src=["']([^"']+)["'][^>]*>\s*<\/a>/gi, (_, href, src) => {
+      return `\n[LINK:${stashUrl(href.trim())}|${stashUrl(href.trim())}]\n[IMG:${stashUrl(src.trim())}]\n`;
+    });
+
+    // Standalone inline images: <img src="...">
     text = text.replace(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi, (_, src) => {
       return `\n[IMG:${stashUrl(src.trim())}]\n`;
     });
 
-    // Preserve anchor links: <a href="http://...">Click here</a>
-    text = text.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, content) => {
+    // Anchor links and styled buttons: <a href="...">...</a>
+    const ctaKeywords = /^(?:verify|confirm|reset|view|click here|sign in|log in|get started|download|pay|join|accept|approve|proceed|subscribe|unsubscribe|open|activate|register|check|visit|submit)/i;
+
+    text = text.replace(/<a\s+([^>]*)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi, (_, beforeHref, href, afterHref, content) => {
+      const attributes = `${beforeHref} ${afterHref}`;
       const textContent = content.replace(/<[^>]*>/g, '').trim();
       const protectedHref = stashUrl(href.trim());
+
+      const isButtonRole = /role=["']?button["']?/i.test(attributes);
+      const isButtonClass = /class=["'][^"']*(?:btn|button|cta|action)[^"']*["']/i.test(attributes);
+      const isButtonStyle = /style=["'][^"']*(?:background|border-radius|display:\s*inline-block|display:\s*block)[^"']*["']/i.test(attributes);
+      const isCtaText = textContent.length > 0 && textContent.length <= 60 && ctaKeywords.test(textContent);
+
+      if (isButtonRole || isButtonClass || isButtonStyle || isCtaText) {
+        return `\n[BUTTON:${textContent || href}|${protectedHref}]\n`;
+      }
       return `[LINK:${textContent || href}|${protectedHref}]`;
     });
 
@@ -226,7 +255,9 @@ function normalizeEmailHtml(raw: string): string {
       .replace(/<br\s*[\/]?>/gi, '\n')
       .replace(/<\/p>/gi, '\n\n')
       .replace(/<\/div>/gi, '\n')
+      .replace(/<\/td>/gi, ' ')
       .replace(/<\/tr>/gi, '\n')
+      .replace(/<\/table>/gi, '\n')
       .replace(/<[^>]*>/g, '')
       .replace(/&nbsp;/gi, ' ')
       .replace(/&amp;/gi, '&')
@@ -246,6 +277,14 @@ function normalizeEmailHtml(raw: string): string {
 
   // Markdown horizontal rules: --- or ***
   text = text.replace(/^(?:---|\*\*\*|___)\s*$/gm, '[HR]');
+
+  // Markdown links: [Label](https://...)
+  const ctaKeywords = /^(?:verify|confirm|reset|view|click here|sign in|log in|get started|download|pay|join|accept|approve|proceed|subscribe|unsubscribe|open|activate|register|check|visit|submit)/i;
+  text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s\)]+)\)/g, (_, label, url) => {
+    const isCta = label.length <= 50 && ctaKeywords.test(label);
+    const protectedUrl = stashUrl(url.trim());
+    return isCta ? `\n[BUTTON:${label}|${protectedUrl}]\n` : `[LINK:${label}|${protectedUrl}]`;
+  });
 
   // Stash Emails first
   text = text.replace(EMAIL_REGEX, (email) => {
@@ -557,7 +596,7 @@ function renderQuotedLines(lines: Array<{ level: number; text: string }>) {
  */
 function renderRichText(text: string): React.ReactNode {
   const tokenRegex = new RegExp(
-    `\\[IMG:([^\\]]+)\\]|\\[LINK:([^|]+)\\|([^\\]]+)\\]|\\[BOLD:([^\\]]+)\\]|\\[ITALIC:([^\\]]+)\\]|\\[UNDERLINE:([^\\]]+)\\]|\\[STRIKE:([^\\]]+)\\]|\\[MARK:([^\\]]+)\\]|\\[CODE:([^\\]]+)\\]|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})|(https?:\\/\\/[^\\s<>\"]+|(?:www\\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.(?:${DOMAIN_TLDS})(?::[0-9]{1,5})?(?:\\/[^\\s<>\"]*)?)|(mailto:[^\\s<>\"]+)|(tel:[^\\s<>\"]+)`,
+    `\\[IMG:([^\\]]+)\\]|\\[BUTTON:([^|]+)\\|([^\\]]+)\\]|\\[LINK:([^|]+)\\|([^\\]]+)\\]|\\[BOLD:([^\\]]+)\\]|\\[ITALIC:([^\\]]+)\\]|\\[UNDERLINE:([^\\]]+)\\]|\\[STRIKE:([^\\]]+)\\]|\\[MARK:([^\\]]+)\\]|\\[CODE:([^\\]]+)\\]|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})|(https?:\\/\\/[^\\s<>\"]+|(?:www\\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.(?:${DOMAIN_TLDS})(?::[0-9]{1,5})?(?:\\/[^\\s<>\"]*)?)|(mailto:[^\\s<>\"]+)|(tel:[^\\s<>\"]+)`,
     'gi',
   );
 
@@ -575,6 +614,8 @@ function renderRichText(text: string): React.ReactNode {
     const [
       fullMatch,
       imgUrl,
+      buttonLabel,
+      buttonUrl,
       linkLabel,
       linkUrl,
       boldText,
@@ -607,6 +648,50 @@ function renderRichText(text: string): React.ReactNode {
               e.currentTarget.style.display = 'none';
             }}
           />
+        </span>,
+      );
+    } else if (buttonUrl) {
+      const destination = buttonUrl.startsWith('http://') || buttonUrl.startsWith('https://') || buttonUrl.startsWith('mailto:') || buttonUrl.startsWith('tel:')
+        ? buttonUrl
+        : `https://${buttonUrl}`;
+
+      parts.push(
+        <span key={matchIndex} style={{ display: 'inline-block', margin: '6px 4px 6px 0', verticalAlign: 'middle' }}>
+          <a
+            href={destination}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '7px 16px',
+              backgroundColor: 'var(--primary, #2563eb)',
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: 600,
+              textDecoration: 'none',
+              borderRadius: '6px',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              lineHeight: 1.4,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--primary-hover, #1d4ed8)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.08)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--primary, #2563eb)';
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)';
+            }}
+          >
+            <span>{buttonLabel || 'Open Link'}</span>
+            <ExternalLink size={13} style={{ opacity: 0.9 }} />
+          </a>
         </span>,
       );
     } else if (linkUrl) {

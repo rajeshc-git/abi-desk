@@ -134,21 +134,11 @@ export class TicketController {
       extractHeader('subject') ||
       '';
 
-    let text = (body.text || body.plain || '').trim();
-    if (!text && body.html) {
-      text = String(body.html)
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<br\s*[\/]?>/gi, '\n')
-        .replace(/<\/p>/gi, '\n\n')
-        .replace(/<\/div>/gi, '\n')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/&quot;/gi, '"')
-        .trim();
+    let content = '';
+    if (typeof body.html === 'string' && body.html.trim().length > 0) {
+      content = body.html.trim();
+    } else {
+      content = (body.text || body.plain || '').trim();
     }
 
     if (!from || !to) {
@@ -162,7 +152,7 @@ export class TicketController {
       from,
       to,
       subject,
-      body: text,
+      body: content,
       attachments,
     });
   }
