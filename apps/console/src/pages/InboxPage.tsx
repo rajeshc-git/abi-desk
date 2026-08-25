@@ -586,20 +586,31 @@ export const InboxPage: React.FC = () => {
       </div>
 
       {/* Right Pane: Quick Detail Workspace */}
-      <div className="split-right-pane">
+      <div className="split-right-pane" style={{ height: '100%', overflow: 'hidden' }}>
         {selectedTicket ? (
-          <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {/* Header */}
+          <div
+            style={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: '24px 32px',
+              gap: '16px',
+              overflow: 'hidden',
+              boxSizing: 'border-box',
+            }}
+          >
+            {/* Header (fixed at top) */}
             <div
               style={{
+                flexShrink: 0,
                 display: 'flex',
                 alignItems: 'flex-start',
                 justifyContent: 'space-between',
                 borderBottom: '1px solid var(--border-subtle)',
-                paddingBottom: '20px',
+                paddingBottom: '16px',
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span
                     style={{
@@ -615,7 +626,7 @@ export const InboxPage: React.FC = () => {
                   <StatusBadge status={selectedTicket.status} />
                   <PriorityPill priority={selectedTicket.priority} />
                 </div>
-                <h1 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                   {selectedTicket.subject}
                 </h1>
               </div>
@@ -628,113 +639,240 @@ export const InboxPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Description Preview */}
-            <div className="card">
-              <h4
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: 'var(--text-muted)',
-                  marginBottom: '10px',
-                }}
-              >
-                Initial Description
-              </h4>
-              <div
-                style={{
-                  fontSize: '14px',
-                  color: 'var(--text-primary)',
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: 1.6,
-                  maxHeight: '220px',
-                  overflowY: 'auto',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: '6px',
-                  padding: '12px',
-                  backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-                }}
-              >
-                <FormattedEmailContent text={selectedTicket.description} />
-              </div>
-            </div>
-
-            {/* Mail-style attachment area: preview captures without leaving the inbox. */}
-            <div className="card">
-              <h4
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: 'var(--text-muted)',
-                  marginBottom: '10px',
-                }}
-              >
-                Attachments & Captures ({selectedMedia.length})
-              </h4>
-              {isMediaLoading ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '8px 0' }}>
-                  Loading attachments…
-                </div>
-              ) : (
-                <MediaPlayer media={selectedMedia} />
-              )}
-            </div>
-
-            {/* Metadata Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-              <div className="card" style={{ padding: '16px' }}>
-                <span
+            {/* Middle Content Area: Dynamically splits or expands based on attachments presence */}
+            {selectedMedia.length > 0 ? (
+              <>
+                {/* Description Card (50% equal flex share) */}
+                <div
+                  className="card"
                   style={{
-                    fontSize: '11px',
-                    color: 'var(--text-muted)',
-                    textTransform: 'uppercase',
-                    fontWeight: 600,
+                    flex: 1,
+                    minHeight: '120px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    padding: '16px',
+                    margin: 0,
                   }}
                 >
-                  Requester
-                </span>
-                <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '4px' }}>
-                  {selectedTicket.requester?.fullName || 'Customer'}
+                  <h4
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                      marginBottom: '8px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Initial Description
+                  </h4>
+                  <div
+                    style={{
+                      flex: 1,
+                      fontSize: '13px',
+                      color: 'var(--text-primary)',
+                      lineHeight: 1.45,
+                      overflowY: 'auto',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '6px',
+                      padding: '12px 14px',
+                      backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                    }}
+                  >
+                    <FormattedEmailContent text={selectedTicket.description} />
+                  </div>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  {selectedTicket.requester?.email}
-                </div>
-              </div>
 
-              <div className="card" style={{ padding: '16px' }}>
-                <span
+                {/* Attachments Card (50% equal flex share with scrollable gallery) */}
+                <div
+                  className="card"
                   style={{
-                    fontSize: '11px',
-                    color: 'var(--text-muted)',
-                    textTransform: 'uppercase',
-                    fontWeight: 600,
+                    flex: 1,
+                    minHeight: '120px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    padding: '16px',
+                    margin: 0,
                   }}
                 >
-                  Assignee
-                </span>
-                <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '4px' }}>
-                  {selectedTicket.assignee?.fullName || 'Unassigned (Queue)'}
+                  <h4
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                      marginBottom: '10px',
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>Attachments & Captures ({selectedMedia.length})</span>
+                  </h4>
+                  <div
+                    style={{
+                      flex: 1,
+                      overflowY: 'auto',
+                      paddingRight: '4px',
+                    }}
+                  >
+                    {isMediaLoading ? (
+                      <div style={{ color: 'var(--text-muted)', fontSize: '13px', padding: '8px 0' }}>
+                        Loading attachments…
+                      </div>
+                    ) : (
+                      <MediaPlayer media={selectedMedia} />
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              <div className="card" style={{ padding: '16px' }}>
-                <span
+              </>
+            ) : (
+              <>
+                {/* Description Card (Takes Full Flexible Height) */}
+                <div
+                  className="card"
                   style={{
-                    fontSize: '11px',
-                    color: 'var(--text-muted)',
-                    textTransform: 'uppercase',
-                    fontWeight: 600,
+                    flex: 1,
+                    minHeight: '140px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    padding: '16px',
+                    margin: 0,
                   }}
                 >
-                  Channel
-                </span>
-                <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '4px' }}>
-                  {selectedTicket.channel}
+                  <h4
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                      marginBottom: '8px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Initial Description
+                  </h4>
+                  <div
+                    style={{
+                      flex: 1,
+                      fontSize: '13px',
+                      color: 'var(--text-primary)',
+                      lineHeight: 1.45,
+                      overflowY: 'auto',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '6px',
+                      padding: '12px 14px',
+                      backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                    }}
+                  >
+                    <FormattedEmailContent text={selectedTicket.description} />
+                  </div>
+                </div>
+
+                {/* Compact Attachments Footer when Empty */}
+                <div className="card" style={{ padding: '12px 16px', margin: 0, flexShrink: 0 }}>
+                  <h4
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    Attachments & Captures (0)
+                  </h4>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                    {isMediaLoading ? 'Loading attachments…' : 'No media assets or files attached to this ticket.'}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Bottom Fixed Metadata Grid */}
+            <div style={{ flexShrink: 0, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                <div className="card" style={{ padding: '10px 14px', margin: 0 }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Requester
+                  </span>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      marginTop: '2px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {selectedTicket.requester?.fullName || 'Customer'}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {selectedTicket.requester?.email}
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '10px 14px', margin: 0 }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Assignee
+                  </span>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      marginTop: '2px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {selectedTicket.assignee?.fullName || 'Unassigned (Queue)'}
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '10px 14px', margin: 0 }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Channel
+                  </span>
+                  <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '2px' }}>
+                    {selectedTicket.channel}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
         ) : (
           <div
             style={{

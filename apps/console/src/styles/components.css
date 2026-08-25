@@ -241,8 +241,7 @@
 .timeline-body {
   font-size: 13px;
   color: var(--text-primary);
-  line-height: 1.55;
-  white-space: pre-wrap;
+  line-height: 1.45;
 }
 
 /* Reply Composer */

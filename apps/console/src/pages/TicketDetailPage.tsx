@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   MessageSquare,
   Monitor,
   Video,
-  ShieldCheck,
   UserCheck,
-  ArrowUpRight,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge';
@@ -39,9 +39,11 @@ export const TicketDetailPage: React.FC = () => {
   const [availableTransitions, setAvailableTransitions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
   const [activeTab, setActiveTab] = useState<'timeline' | 'diagnostics' | 'media' | 'approvals'>(
     'timeline',
   );
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (id) loadTicketDetails(id);
@@ -106,6 +108,8 @@ export const TicketDetailPage: React.FC = () => {
           : [],
       }));
       setComments(mappedComments);
+      // Smart Adaptive Default: Auto-expand if fresh ticket (0 replies), auto-collapse if ongoing conversation thread
+      setIsDescriptionExpanded(mappedComments.length === 0);
       setDiagnostics(data.diagnostics || data.diagnosticBundle?.payload || null);
       try {
         setMediaAssets(await ApiClient.get<MediaAssetItem[]>(`/tickets/${ticketId}/media`));
@@ -160,7 +164,7 @@ export const TicketDetailPage: React.FC = () => {
 
     if (transition?.requiresComment) {
       const userInput = window.prompt(`A comment is required to transition to ${newStatus}:`);
-      if (userInput === null) return; // User cancelled
+      if (userInput === null) return;
       const trimmedComment = userInput.trim();
       if (!trimmedComment) {
         toast.error('A comment is required for this transition.');
@@ -182,7 +186,7 @@ export const TicketDetailPage: React.FC = () => {
   const handleTierEscalate = async (newTier: string) => {
     if (!id) return;
     const userInput = window.prompt(`Please enter a reason for escalating to tier ${newTier}:`);
-    if (userInput === null) return; // User cancelled
+    if (userInput === null) return;
     const trimmedReason = userInput.trim();
     if (!trimmedReason) {
       toast.error('Escalation reason is required.');
@@ -223,15 +227,17 @@ export const TicketDetailPage: React.FC = () => {
       {/* Top Header & Actions Bar */}
       <div
         style={{
-          padding: '16px 24px',
+          flexShrink: 0,
+          padding: '12px 20px',
           backgroundColor: 'var(--bg-sidebar)',
           borderBottom: '1px solid var(--border-subtle)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: '16px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
           <button
             onClick={() => navigate('/inbox')}
             className="btn btn-secondary btn-sm"
@@ -239,8 +245,8 @@ export const TicketDetailPage: React.FC = () => {
           >
             <ArrowLeft size={16} />
           </button>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
               <span
                 style={{
                   fontFamily: 'var(--font-mono)',
@@ -252,22 +258,33 @@ export const TicketDetailPage: React.FC = () => {
                 #{ticket.number}
               </span>
               <TierBadge tier={ticket.tier} />
+              <StatusBadge status={ticket.status} />
               <PriorityPill priority={ticket.priority} />
             </div>
-            <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+            <h2
+              style={{
+                fontSize: '15px',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                margin: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {ticket.subject}
             </h2>
           </div>
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
           {/* Status Dropdown */}
           <select
             value={ticket.status}
             onChange={(e) => handleStatusChange(e.target.value)}
             style={{
-              padding: '6px 12px',
+              padding: '5px 10px',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-medium)',
               borderRadius: 'var(--radius-md)',
@@ -292,7 +309,7 @@ export const TicketDetailPage: React.FC = () => {
             value={ticket.tier}
             onChange={(e) => handleTierEscalate(e.target.value)}
             style={{
-              padding: '6px 12px',
+              padding: '5px 10px',
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-medium)',
               borderRadius: 'var(--radius-md)',
@@ -324,66 +341,110 @@ export const TicketDetailPage: React.FC = () => {
 
       {/* Main Split Body */}
       <div
-        style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 340px', overflow: 'hidden' }}
+        style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 320px', overflow: 'hidden' }}
       >
-        {/* Left Column: SLA, Tabs, Conversation */}
+        {/* Left Column: Context, Tabs, Conversation */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
             borderRight: '1px solid var(--border-subtle)',
+            backgroundColor: 'var(--bg-app)',
           }}
         >
-          <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
-            <h3
-              style={{
-                fontSize: '12px',
-                fontWeight: 700,
-                color: 'var(--text-muted)',
-                textTransform: 'uppercase',
-                marginBottom: '8px',
-              }}
-            >
-              Description
-            </h3>
+          {/* Collapsible Description & SLA Section (Compact to save vertical screen space) */}
+          <div
+            style={{
+              flexShrink: 0,
+              padding: '12px 20px',
+              backgroundColor: '#ffffff',
+              borderBottom: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: 'var(--text-muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  Initial Description
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: 'var(--primary, #2563eb)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                  }}
+                >
+                  {isDescriptionExpanded ? (
+                    <>
+                      <span>Collapse</span>
+                      <ChevronUp size={12} />
+                    </>
+                  ) : (
+                    <>
+                      <span>Expand</span>
+                      <ChevronDown size={12} />
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Live SLA Countdown Badge */}
+              <div>
+                <SlaCountdown clocks={ticket.slaClocks} ticketStatus={ticket.status} />
+              </div>
+            </div>
+
             <div
               style={{
                 margin: 0,
-                whiteSpace: 'pre-wrap',
-                lineHeight: 1.6,
-                fontSize: '14px',
+                lineHeight: 1.45,
+                fontSize: '13px',
                 color: 'var(--text-primary)',
-                maxHeight: '220px',
+                maxHeight: isDescriptionExpanded ? '320px' : '75px',
                 overflowY: 'auto',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '6px',
-                padding: '12px',
+                padding: '8px 12px',
                 backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                transition: 'max-height 0.2s ease',
               }}
             >
               <FormattedEmailContent text={ticket.description} />
             </div>
           </div>
 
-          {/* Live SLA Countdown Widget */}
-          <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
-            <SlaCountdown clocks={ticket.slaClocks} ticketStatus={ticket.status} />
-          </div>
-
-          {/* Workspace Tabs */}
+          {/* Workspace Tabs Header */}
           <div
             style={{
+              flexShrink: 0,
               display: 'flex',
               borderBottom: '1px solid var(--border-subtle)',
               backgroundColor: 'var(--bg-surface)',
-              padding: '0 24px',
+              padding: '0 20px',
             }}
           >
             <button
               onClick={() => setActiveTab('timeline')}
               style={{
-                padding: '12px 16px',
+                padding: '10px 14px',
                 fontSize: '13px',
                 fontWeight: 600,
                 color: activeTab === 'timeline' ? 'var(--primary)' : 'var(--text-secondary)',
@@ -399,13 +460,13 @@ export const TicketDetailPage: React.FC = () => {
                 gap: '6px',
               }}
             >
-              <MessageSquare size={15} /> Conversation ({comments.length})
+              <MessageSquare size={14} /> Conversation ({comments.length})
             </button>
 
             <button
               onClick={() => setActiveTab('diagnostics')}
               style={{
-                padding: '12px 16px',
+                padding: '10px 14px',
                 fontSize: '13px',
                 fontWeight: 600,
                 color: activeTab === 'diagnostics' ? 'var(--primary)' : 'var(--text-secondary)',
@@ -423,13 +484,13 @@ export const TicketDetailPage: React.FC = () => {
                 gap: '6px',
               }}
             >
-              <Monitor size={15} /> Telemetry & Diagnostics
+              <Monitor size={14} /> Telemetry & Diagnostics
             </button>
 
             <button
               onClick={() => setActiveTab('media')}
               style={{
-                padding: '12px 16px',
+                padding: '10px 14px',
                 fontSize: '13px',
                 fontWeight: 600,
                 color: activeTab === 'media' ? 'var(--primary)' : 'var(--text-secondary)',
@@ -445,31 +506,45 @@ export const TicketDetailPage: React.FC = () => {
                 gap: '6px',
               }}
             >
-              <Video size={15} /> Screen Recordings & Media ({mediaAssets.length})
+              <Video size={14} /> Screen Recordings & Media ({mediaAssets.length})
             </button>
           </div>
 
-          {/* Active Tab Content */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Active Tab Content: Dynamic Responsive View */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             {activeTab === 'timeline' && (
-              <>
-                <TimelineView comments={comments} />
-                <ReplyComposer
-                  onSend={handleSendComment}
-                  isSending={isSending}
-                  canWriteInternal={canWriteInternal}
-                />
-              </>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                {/* Scrollable Conversation Stream */}
+                <div
+                  ref={timelineScrollRef}
+                  style={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    padding: '8px 0',
+                  }}
+                >
+                  <TimelineView comments={comments} />
+                </div>
+
+                {/* Docked Reply Composer at the bottom — Always visible without scrolling */}
+                <div style={{ flexShrink: 0, padding: '0 16px 14px', backgroundColor: 'var(--bg-app)' }}>
+                  <ReplyComposer
+                    onSend={handleSendComment}
+                    isSending={isSending}
+                    canWriteInternal={canWriteInternal}
+                  />
+                </div>
+              </div>
             )}
 
             {activeTab === 'diagnostics' && (
-              <div style={{ padding: '24px' }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
                 <DiagnosticsView diagnostics={diagnostics} />
               </div>
             )}
 
             {activeTab === 'media' && (
-              <div style={{ padding: '24px' }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
                 <MediaPlayer media={mediaAssets} />
               </div>
             )}
@@ -479,31 +554,31 @@ export const TicketDetailPage: React.FC = () => {
         {/* Right Column: Customer & Ticket Sidebar Info */}
         <div
           style={{
-            padding: '24px',
+            padding: '16px',
             overflowY: 'auto',
             backgroundColor: 'var(--bg-sidebar)',
             display: 'flex',
             flexDirection: 'column',
-            gap: '20px',
+            gap: '14px',
           }}
         >
-          <div className="card">
+          <div className="card" style={{ padding: '14px' }}>
             <h4
               style={{
                 fontSize: '11px',
                 fontWeight: 700,
                 color: 'var(--text-muted)',
                 textTransform: 'uppercase',
-                marginBottom: '12px',
+                marginBottom: '10px',
               }}
             >
               Customer Details
             </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
               <div>
                 <strong>Name:</strong> {ticket.requester?.fullName || 'Customer'}
               </div>
-              <div>
+              <div style={{ wordBreak: 'break-all' }}>
                 <strong>Email:</strong> {ticket.requester?.email || 'N/A'}
               </div>
               <div>
@@ -512,19 +587,19 @@ export const TicketDetailPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="card">
+          <div className="card" style={{ padding: '14px' }}>
             <h4
               style={{
                 fontSize: '11px',
                 fontWeight: 700,
                 color: 'var(--text-muted)',
                 textTransform: 'uppercase',
-                marginBottom: '12px',
+                marginBottom: '10px',
               }}
             >
               Assignment & Queue
             </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
               <div>
                 <strong>Assignee:</strong> {ticket.assignee?.fullName || 'Unassigned'}
               </div>

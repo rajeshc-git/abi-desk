@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MoreHorizontal, ExternalLink, Mail, Phone } from 'lucide-react';
 
 interface FormattedEmailContentProps {
@@ -8,30 +8,32 @@ interface FormattedEmailContentProps {
 }
 
 // Regex for matching full URLs, www links, bare domains (.com, .in, .io, etc.), and email addresses
-const DOMAIN_TLDS = 'com|org|net|edu|gov|io|ai|co|in|dev|app|info|biz|me|cc|tv|uk|ca|de|us|fr|au|tech|online|store|site|agency|cloud|xyz';
+const DOMAIN_TLDS =
+  'com|org|net|edu|gov|io|ai|co|in|dev|app|info|biz|me|cc|tv|uk|ca|de|us|fr|au|tech|online|store|site|agency|cloud|xyz';
 const URL_OR_DOMAIN_REGEX = new RegExp(
   `(https?:\\/\\/[^\\s<>\"]+|(?:www\\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.(?:${DOMAIN_TLDS})(?::[0-9]{1,5})?(?:\\/[^\\s<>\"]*)?)`,
   'gi',
 );
 const EMAIL_REGEX = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
+const CTA_KEYWORDS =
+  /^(?:verify|confirm|reset|view|click here|sign in|log in|get started|download|pay|join|accept|approve|proceed|subscribe|unsubscribe|open|activate|register|check|visit|submit)/i;
 
 /**
  * Universal Dynamic Email Parser:
- * Dynamically handles BOTH:
- * 1. HTML Formatting (from Outlook, Apple Mail, Webmail):
+ * Seamlessly handles:
+ * 1. HTML Formatting (Gmail, Outlook, Apple Mail, Webmail, CRM systems)
  *    - <b>, <strong>, <span style="font-weight: bold"> -> Bold
  *    - <i>, <em>, <span style="font-style: italic"> -> Italics
  *    - <u>, <ins>, <span style="text-decoration: underline"> -> Underline
  *    - <del>, <s>, <strike> -> Strikethrough
- *    - <h1> - <h6> -> Headings
- *    - <ul>, <ol>, <li> -> Bullet / Numbered lists
- * 2. Markdown & Plaintext Formatting (from Gmail, Slack, Mobile mail):
- *    - *bold*, **bold** -> Bold
- *    - _italics_ -> Italics
- *    - ~strike~ -> Strikethrough
- *    - `code`, ```codeblocks``` -> Code
- *    - Bare domains (abc.com, google.in, www.site.io) -> Clickable links
- *    - Email addresses -> Clickable mailto links
+ *    - <font color="...">, <span style="color: ..."> -> Colors
+ *    - <a href="..."> -> Links & CTA Buttons
+ *    - <img src="..."> -> Compact Inline Attachments & Signatures (no bloated spacing)
+ *    - <h1>-<h6>, <ul>, <ol>, <li>, <blockquote>, <hr>, <pre>, <code>, <table>
+ * 2. Plaintext & Markdown Formatting (Mobile Mail, Slack, Terminal)
+ *    - *bold*, **bold**, _italics_, ~strike~, `code`, ```codeblocks```
+ *    - Clickable URLs, domain links, and mailto/tel links
+ * 3. Quoted Email Trails (Gmail / Outlook style collapse with "..." toggle)
  */
 export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
   text,
@@ -42,7 +44,7 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
     return <span style={{ color: 'var(--text-muted, #64748b)', fontStyle: 'italic' }}>No content provided.</span>;
   }
 
-  // Check if string contains actual readable content
+  // Quick check for empty or placeholder content
   const cleanCheck = text
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -62,14 +64,360 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
     return <span style={{ color: 'var(--text-muted, #64748b)', fontStyle: 'italic' }}>No content provided.</span>;
   }
 
-  // Pre-process HTML & Markdown safely
-  const normalized = normalizeEmailHtml(text);
+  const isHtml = /<[a-z][\s\S]*>/i.test(text);
 
-  // Split content into primary fresh message and quoted reply trail
-  const { primaryText, quoteHeader, quotedLines } = parseEmailQuotation(normalized);
+  if (isHtml) {
+    return <HtmlEmailRenderer rawHtml={text} className={className} style={style} />;
+  }
+
+  return <PlaintextEmailRenderer rawText={text} className={className} style={style} />;
+};
+
+/* =========================================================================
+   HTML EMAIL RENDERER (Native Browser DOM Parser + Sanitized React Elements)
+   ========================================================================= */
+
+interface HtmlEmailRendererProps {
+  rawHtml: string;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+/**
+ * Universal Email Parser & Sanitizer.
+ *
+ * Sanitizes raw HTML for safe dangerouslySetInnerHTML rendering while applying
+ * the full universal email parser transformations:
+ *
+ * Security:
+ *   - Strips script, style, iframe, object, embed, form, input, button tags
+ *   - Removes on* event handlers and javascript: URIs
+ *   - Forces links to target="_blank" rel="noopener noreferrer"
+ *   - Hides 1×1 tracking pixels / web beacons
+ *
+ * Enhancement:
+ *   - <a> with CTA keywords or button role/class → styled branded CTA button
+ *   - <v:roundrect href="..."> (Outlook VML) → styled CTA button
+ *   - Regular <a href="..."> → blue underlined link with ↗ external icon SVG
+ *   - <img> → constrained max dimensions, signature logos capped smaller
+ *   - Preserves ALL original inline styles, fonts, colors, margins exactly
+ */
+function sanitizeEmailHtml(raw: string): string {
+  if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
+    return raw.replace(/<[^>]*>/g, '');
+  }
+
+  // Pre-clean VML roundrect buttons (Outlook) before DOM parsing since DOMParser
+  // doesn't understand VML namespace tags and would strip them.
+  let preProcessed = raw;
+  preProcessed = preProcessed.replace(
+    /<v:roundrect[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/v:roundrect>/gi,
+    (_match, href: string, content: string) => {
+      const label = content.replace(/<[^>]*>/g, '').trim() || 'Click Here';
+      return buildCtaButtonHtml(label, href.trim());
+    },
+  );
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(preProcessed, 'text/html');
+
+  // ── Security: Remove dangerous elements ──
+  const dangerousTags = doc.querySelectorAll(
+    'script, style, link, meta, title, head, iframe, object, embed, form, input, textarea, select',
+  );
+  dangerousTags.forEach((el) => el.remove());
+
+  // Remove HTML comments
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
+  const comments: Comment[] = [];
+  while (walker.nextNode()) {
+    comments.push(walker.currentNode as Comment);
+  }
+  comments.forEach((c) => c.remove());
+
+  // ── Security: Strip event handlers & javascript: URIs ──
+  const allElements = doc.body.querySelectorAll('*');
+  allElements.forEach((el) => {
+    const attrs = Array.from(el.attributes);
+    attrs.forEach((attr) => {
+      if (/^on/i.test(attr.name) || attr.name === 'srcdoc' || attr.name === 'formaction') {
+        el.removeAttribute(attr.name);
+      }
+      if (
+        (attr.name === 'href' || attr.name === 'src' || attr.name === 'action') &&
+        /^\s*javascript:/i.test(attr.value)
+      ) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+
+  // ── Enhancement: Transform <button> elements with href before removing ──
+  doc.body.querySelectorAll('button').forEach((btn) => {
+    const href = btn.getAttribute('href') || btn.closest('a')?.getAttribute('href');
+    if (href) {
+      const label = btn.textContent?.trim() || 'Click Here';
+      const replacement = doc.createRange().createContextualFragment(buildCtaButtonHtml(label, href));
+      btn.replaceWith(replacement);
+    } else {
+      btn.remove();
+    }
+  });
+
+  // ── Enhancement: Transform <a> tags → CTA buttons or styled links ──
+  const ctaKeywords = /^(?:verify|confirm|reset|view|click here|sign in|log in|get started|download|pay|join|accept|approve|proceed|subscribe|unsubscribe|open|activate|register|check|visit|submit)/i;
+
+  doc.body.querySelectorAll('a').forEach((anchor) => {
+    const href = anchor.getAttribute('href');
+    if (!href) return;
+
+    const safeHref = (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:') || href.startsWith('tel:'))
+      ? href
+      : `https://${href}`;
+
+    const textContent = anchor.textContent?.trim() || '';
+    const isButtonRole = anchor.getAttribute('role') === 'button';
+    const isButtonClass = /(?:btn|button|cta|action)/i.test(anchor.className || '');
+    const isButtonStyle = /(?:background|border-radius)/i.test(anchor.getAttribute('style') || '');
+    const isCtaText = textContent.length > 0 && textContent.length <= 60 && ctaKeywords.test(textContent);
+
+    if (isButtonRole || isButtonClass || isButtonStyle || isCtaText) {
+      // Replace with styled CTA button
+      const replacement = doc.createRange().createContextualFragment(
+        buildCtaButtonHtml(textContent || 'Open Link', safeHref),
+      );
+      anchor.replaceWith(replacement);
+    } else {
+      // Style as regular link with external icon
+      anchor.setAttribute('href', safeHref);
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+      anchor.setAttribute('style',
+        `color: #2563eb; font-weight: 600; text-decoration: underline; ${anchor.getAttribute('style') || ''}`,
+      );
+
+      // Append external link SVG icon if not already present
+      if (!anchor.querySelector('.email-ext-icon')) {
+        const icon = doc.createElement('span');
+        icon.className = 'email-ext-icon';
+        icon.setAttribute('style', 'display: inline-block; vertical-align: middle; margin-left: 2px; opacity: 0.8;');
+        icon.innerHTML = EXTERNAL_LINK_SVG;
+        anchor.appendChild(icon);
+      }
+    }
+  });
+
+  // ── Enhancement: Constrain <img> dimensions & remove tracking pixels ──
+  doc.body.querySelectorAll('img').forEach((img) => {
+    const src = img.getAttribute('src') || '';
+    const w = img.getAttribute('width');
+    const h = img.getAttribute('height');
+
+    // Remove tracking pixels
+    if (
+      w === '0' || h === '0' || w === '1' || h === '1' ||
+      /1x1|track|beacon|open\.gif|pixel/i.test(src)
+    ) {
+      img.remove();
+      return;
+    }
+
+    // Constrain oversized images
+    const numW = w ? parseInt(w, 10) : NaN;
+    const numH = h ? parseInt(h, 10) : NaN;
+
+    const isSignature =
+      /(?:logo|signature|icon|avatar|brand)/i.test(src) ||
+      /(?:logo|signature|icon|avatar|brand)/i.test(img.getAttribute('alt') || '') ||
+      Boolean(img.closest('.gmail_signature, [data-smartmail="gmail_signature"], #Signature, .signature'));
+
+    const existingStyle = img.getAttribute('style') || '';
+    let constraintStyle = 'max-width: 100%; height: auto; ';
+
+    if (isSignature) {
+      constraintStyle = `max-width: ${!isNaN(numW) ? Math.min(numW, 260) : 260}px; max-height: ${!isNaN(numH) ? Math.min(numH, 70) : 70}px; height: auto; object-fit: contain; `;
+    } else if (!isNaN(numW) && numW > 600) {
+      constraintStyle = `max-width: 100%; width: auto; height: auto; `;
+    }
+
+    img.setAttribute('style', constraintStyle + existingStyle);
+    // Ensure broken images hide gracefully
+    img.setAttribute('onerror', "this.style.display='none'");
+  });
+
+  return doc.body.innerHTML;
+}
+
+/** Inline SVG for the external-link icon (matches Lucide ExternalLink 11px) */
+const EXTERNAL_LINK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+
+/** Builds a styled CTA button as an HTML string */
+function buildCtaButtonHtml(label: string, href: string): string {
+  const safeHref = href.replace(/"/g, '&quot;');
+  const safeLabel = label.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<span style="display: inline-block; margin: 4px 4px 4px 0; vertical-align: middle;">` +
+    `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" ` +
+    `style="display: inline-flex; align-items: center; justify-content: center; gap: 5px; ` +
+    `padding: 6px 14px; background-color: #2563eb; color: #ffffff; font-size: 13px; ` +
+    `font-weight: 600; text-decoration: none; border-radius: 6px; ` +
+    `box-shadow: 0 1px 2px rgba(0,0,0,0.08); cursor: pointer; line-height: 1.4;">` +
+    `<span>${safeLabel}</span>` +
+    `<span style="display: inline-flex; opacity: 0.9;">${EXTERNAL_LINK_SVG.replace('width="11"', 'width="13"').replace('height="11"', 'height="13"')}</span>` +
+    `</a></span>`;
+}
+
+const HtmlEmailRenderer: React.FC<HtmlEmailRendererProps> = ({ rawHtml, className, style }) => {
+  const { primaryHtml, quotedHtml, hasQuoted } = useMemo(() => {
+    try {
+      if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
+        return { primaryHtml: '', quotedHtml: '', hasQuoted: false };
+      }
+
+      const sanitized = sanitizeEmailHtml(rawHtml);
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(sanitized, 'text/html');
+
+      // Search for quoted email trail elements
+      const quoteSelectors = [
+        '.gmail_quote',
+        '.gmail_extra',
+        'blockquote.gmail_quote',
+        '#divRplyFwdMsg',
+        '[id^="divRplyFwdMsg"]',
+        '.moz-cite-prefix',
+        'blockquote[type="cite"]',
+        '.email-quoted-reply',
+      ];
+
+      const quotedElements: Element[] = [];
+      quoteSelectors.forEach((sel) => {
+        doc.querySelectorAll(sel).forEach((el) => {
+          if (!quotedElements.some((q) => q.contains(el))) {
+            quotedElements.push(el);
+          }
+        });
+      });
+
+      // Also check block elements with "On ... wrote:" or "From: ..." etc.
+      const blockElements = doc.querySelectorAll('div, p, blockquote');
+      for (let i = 0; i < blockElements.length; i++) {
+        const el = blockElements[i];
+        if (!el || quotedElements.some((q) => q.contains(el))) continue;
+        const textContent = el.textContent?.trim() || '';
+        if (
+          /^on\s.+wrote:?$/i.test(textContent) ||
+          /^-+\s*(?:original message|forwarded message)\s*-+$/i.test(textContent) ||
+          /^(?:from|sent|date):\s*.+/i.test(textContent)
+        ) {
+          quotedElements.push(el);
+        }
+      }
+
+      let quotedHtml = '';
+      if (quotedElements.length > 0) {
+        const quotedContainer = document.createElement('div');
+        quotedElements.forEach((el) => {
+          quotedContainer.appendChild(el.cloneNode(true));
+          el.remove();
+        });
+        quotedHtml = quotedContainer.innerHTML;
+      }
+
+      return {
+        primaryHtml: doc.body.innerHTML.trim(),
+        quotedHtml,
+        hasQuoted: quotedHtml.length > 0,
+      };
+    } catch {
+      return { primaryHtml: rawHtml, quotedHtml: '', hasQuoted: false };
+    }
+  }, [rawHtml]);
+
+  const [isQuoteExpanded, setIsQuoteExpanded] = useState<boolean>(false);
+
+  return (
+    <div
+      className={className}
+      style={{
+        width: '100%',
+        wordBreak: 'break-word',
+        fontSize: '13px',
+        lineHeight: 1.4,
+        color: 'var(--text-primary)',
+        whiteSpace: 'normal',
+        ...style,
+      }}
+    >
+      {/* Primary Fresh Message — rendered with original email HTML/CSS intact */}
+      {primaryHtml && (
+        <div
+          className="email-body-content"
+          dangerouslySetInnerHTML={{ __html: primaryHtml }}
+          style={{ overflowWrap: 'break-word', whiteSpace: 'normal' }}
+        />
+      )}
+
+      {/* Quoted Trail (Gmail / Outlook style) */}
+      {hasQuoted && (
+        <div style={{ marginTop: '8px' }}>
+          <button
+            type="button"
+            onClick={() => setIsQuoteExpanded(!isQuoteExpanded)}
+            title={isQuoteExpanded ? 'Hide quoted text' : 'Show quoted text'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 9px',
+              fontSize: '11px',
+              fontWeight: 600,
+              color: 'var(--text-muted, #64748b)',
+              backgroundColor: 'var(--bg-surface-elevated, #f1f5f9)',
+              border: '1px solid var(--border-subtle, #cbd5e1)',
+              borderRadius: '12px',
+              cursor: 'pointer',
+              marginBottom: isQuoteExpanded ? '6px' : '0',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <MoreHorizontal size={13} />
+            <span>{isQuoteExpanded ? 'Hide quoted text' : 'Show quoted text'}</span>
+          </button>
+
+          {isQuoteExpanded && (
+            <div
+              style={{
+                marginTop: '4px',
+                paddingLeft: '12px',
+                borderLeft: '3px solid var(--border-subtle, #cbd5e1)',
+                color: 'var(--text-muted, #64748b)',
+                fontSize: '13px',
+                backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                padding: '8px 12px',
+                borderRadius: '0 6px 6px 0',
+              }}
+              dangerouslySetInnerHTML={{ __html: quotedHtml }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* =========================================================================
+   PLAINTEXT & MARKDOWN EMAIL RENDERER
+   ========================================================================= */
+
+interface PlaintextEmailRendererProps {
+  rawText: string;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+const PlaintextEmailRenderer: React.FC<PlaintextEmailRendererProps> = ({ rawText, className, style }) => {
+  const { primaryText, quoteHeader, quotedLines } = parseEmailQuotation(rawText);
   const hasQuotedTrail = quotedLines.length > 0 || !!quoteHeader;
-
-  // If there's primary text, collapse the quote by default (like Gmail).
   const [isQuoteExpanded, setIsQuoteExpanded] = useState<boolean>(!primaryText.trim());
 
   return (
@@ -79,22 +427,21 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
         width: '100%',
         wordBreak: 'break-word',
         fontSize: '14px',
-        lineHeight: 1.6,
+        lineHeight: 1.5,
         color: 'var(--text-primary)',
         ...style,
       }}
     >
       {/* Primary fresh message */}
       {primaryText.trim() && (
-        <div style={{ marginBottom: hasQuotedTrail ? '12px' : '0' }}>
-          {renderEmailBlocks(primaryText)}
+        <div style={{ marginBottom: hasQuotedTrail ? '8px' : '0' }}>
+          {renderPlaintextBlocks(primaryText)}
         </div>
       )}
 
-      {/* Quoted Trail (Gmail/Outlook style) */}
+      {/* Quoted Trail */}
       {hasQuotedTrail && (
-        <div style={{ marginTop: '8px' }}>
-          {/* Trimmed content toggle button */}
+        <div style={{ marginTop: '6px' }}>
           {primaryText.trim() && (
             <button
               type="button"
@@ -112,7 +459,7 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
                 border: '1px solid var(--border-subtle, #cbd5e1)',
                 borderRadius: '12px',
                 cursor: 'pointer',
-                marginBottom: isQuoteExpanded ? '8px' : '0',
+                marginBottom: isQuoteExpanded ? '6px' : '0',
                 transition: 'all 0.15s ease',
               }}
             >
@@ -121,22 +468,21 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
             </button>
           )}
 
-          {/* Quoted email trail body */}
           {isQuoteExpanded && (
             <div
               style={{
-                marginTop: '6px',
+                marginTop: '4px',
                 paddingLeft: '12px',
                 borderLeft: '3px solid var(--border-subtle, #cbd5e1)',
                 color: 'var(--text-muted, #64748b)',
                 fontSize: '13px',
                 backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-                padding: '10px 14px',
+                padding: '8px 12px',
                 borderRadius: '0 6px 6px 0',
               }}
             >
               {quoteHeader && (
-                <div style={{ fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary, #475569)' }}>
+                <div style={{ fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary, #475569)' }}>
                   {quoteHeader}
                 </div>
               )}
@@ -149,194 +495,6 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
   );
 };
 
-/**
- * Normalizes rich HTML and markdown emails with guaranteed zero URL corruption
- */
-function normalizeEmailHtml(raw: string): string {
-  let text = raw;
-
-  // Stash map to protect URLs and domains from markdown syntax
-  const stash: string[] = [];
-  const stashUrl = (url: string) => {
-    const idx = stash.length;
-    stash.push(url);
-    return `⟦TOKENURL${idx}⟧`;
-  };
-
-  // Clean Gmail / Outlook bracketed image URLs like: [https://lh7-rt.googleusercontent.com/...]
-  text = text.replace(/\[\s*(https?:\/\/[^\s<>\"]+)\s*\]/gi, '$1');
-  text = text.replace(/\[image:\s*(https?:\/\/[^\s<>\"]+)\s*\]/gi, '$1');
-
-  if (text.includes('<')) {
-    // Strip styles, scripts, head, and comments
-    text = text
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-
-    // Headings: <h1> to <h6>
-    text = text.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n[H1:$1]\n');
-    text = text.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n[H2:$1]\n');
-    text = text.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n[H3:$1]\n');
-    text = text.replace(/<h[4-6][^>]*>([\s\S]*?)<\/h[4-6]>/gi, '\n[H4:$1]\n');
-
-    // Horizontal Rule: <hr>
-    text = text.replace(/<hr\s*[\/]?>/gi, '\n[HR]\n');
-
-    // Blockquotes: <blockquote>
-    text = text.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\n[QUOTE:$1]\n');
-
-    // Code blocks: <pre><code>
-    text = text.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '\n[CODEBLOCK:$1]\n');
-    text = text.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, '\n[CODEBLOCK:$1]\n');
-
-    // VML Outlook buttons: <v:roundrect ... href="...">...</v:roundrect>
-    text = text.replace(/<v:roundrect[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/v:roundrect>/gi, (_, href, content) => {
-      const label = content.replace(/<[^>]*>/g, '').trim();
-      return `\n[BUTTON:${label || 'Click Here'}|${stashUrl(href.trim())}]\n`;
-    });
-
-    // Buttons: <button ...>...</button>
-    text = text.replace(/<button\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/button>/gi, (_, href, content) => {
-      const label = content.replace(/<[^>]*>/g, '').trim();
-      return `\n[BUTTON:${label || 'Click Here'}|${stashUrl(href.trim())}]\n`;
-    });
-
-    // Linked images: <a href="..."><img src="..." .../></a>
-    text = text.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>\s*<img\s+[^>]*src=["']([^"']+)["'][^>]*>\s*<\/a>/gi, (_, href, src) => {
-      return `\n[LINK:${stashUrl(href.trim())}|${stashUrl(href.trim())}]\n[IMG:${stashUrl(src.trim())}]\n`;
-    });
-
-    // Standalone inline images: <img src="...">
-    text = text.replace(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi, (_, src) => {
-      return `\n[IMG:${stashUrl(src.trim())}]\n`;
-    });
-
-    // Anchor links and styled buttons: <a href="...">...</a>
-    const ctaKeywords = /^(?:verify|confirm|reset|view|click here|sign in|log in|get started|download|pay|join|accept|approve|proceed|subscribe|unsubscribe|open|activate|register|check|visit|submit)/i;
-
-    text = text.replace(/<a\s+([^>]*)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi, (_, beforeHref, href, afterHref, content) => {
-      const attributes = `${beforeHref} ${afterHref}`;
-      const textContent = content.replace(/<[^>]*>/g, '').trim();
-      const protectedHref = stashUrl(href.trim());
-
-      const isButtonRole = /role=["']?button["']?/i.test(attributes);
-      const isButtonClass = /class=["'][^"']*(?:btn|button|cta|action)[^"']*["']/i.test(attributes);
-      const isButtonStyle = /style=["'][^"']*(?:background|border-radius|display:\s*inline-block|display:\s*block)[^"']*["']/i.test(attributes);
-      const isCtaText = textContent.length > 0 && textContent.length <= 60 && ctaKeywords.test(textContent);
-
-      if (isButtonRole || isButtonClass || isButtonStyle || isCtaText) {
-        return `\n[BUTTON:${textContent || href}|${protectedHref}]\n`;
-      }
-      return `[LINK:${textContent || href}|${protectedHref}]`;
-    });
-
-    // Outlook inline styled spans: font-weight: bold/700, font-style: italic, text-decoration: underline
-    text = text.replace(/<span\s+[^>]*style=["'][^"']*font-weight:\s*(?:bold|[789]00)[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi, '[BOLD:$1]');
-    text = text.replace(/<span\s+[^>]*style=["'][^"']*font-style:\s*italic[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi, '[ITALIC:$1]');
-    text = text.replace(/<span\s+[^>]*style=["'][^"']*text-decoration:\s*underline[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi, '[UNDERLINE:$1]');
-    text = text.replace(/<span\s+[^>]*style=["'][^"']*text-decoration:\s*line-through[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi, '[STRIKE:$1]');
-
-    // Standard HTML formatting tags
-    text = text.replace(/<(?:b|strong)[^>]*>([\s\S]*?)<\/(?:b|strong)>/gi, '[BOLD:$1]');
-    text = text.replace(/<(?:i|em)[^>]*>([\s\S]*?)<\/(?:i|em)>/gi, '[ITALIC:$1]');
-    text = text.replace(/<(?:u|ins)[^>]*>([\s\S]*?)<\/(?:u|ins)>/gi, '[UNDERLINE:$1]');
-    text = text.replace(/<(?:del|s|strike)[^>]*>([\s\S]*?)<\/(?:del|s|strike)>/gi, '[STRIKE:$1]');
-    text = text.replace(/<mark[^>]*>([\s\S]*?)<\/mark>/gi, '[MARK:$1]');
-    text = text.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, '[CODE:$1]');
-
-    // Lists
-    text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n• $1');
-    text = text.replace(/<\/ul>/gi, '\n');
-    text = text.replace(/<\/ol>/gi, '\n');
-
-    // Line breaks and containers
-    text = text
-      .replace(/<br\s*[\/]?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<\/div>/gi, '\n')
-      .replace(/<\/td>/gi, ' ')
-      .replace(/<\/tr>/gi, '\n')
-      .replace(/<\/table>/gi, '\n')
-      .replace(/<[^>]*>/g, '')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'");
-  }
-
-  // Markdown code blocks: ```code```
-  text = text.replace(/```(?:[a-z]*\n)?([\s\S]*?)```/g, '\n[CODEBLOCK:$1]\n');
-
-  // Markdown headings: # Heading, ## Heading
-  text = text.replace(/^#\s+(.+)$/gm, '[H1:$1]');
-  text = text.replace(/^##\s+(.+)$/gm, '[H2:$1]');
-  text = text.replace(/^###\s+(.+)$/gm, '[H3:$1]');
-
-  // Markdown horizontal rules: --- or ***
-  text = text.replace(/^(?:---|\*\*\*|___)\s*$/gm, '[HR]');
-
-  // Markdown links: [Label](https://...)
-  const ctaKeywords = /^(?:verify|confirm|reset|view|click here|sign in|log in|get started|download|pay|join|accept|approve|proceed|subscribe|unsubscribe|open|activate|register|check|visit|submit)/i;
-  text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s\)]+)\)/g, (_, label, url) => {
-    const isCta = label.length <= 50 && ctaKeywords.test(label);
-    const protectedUrl = stashUrl(url.trim());
-    return isCta ? `\n[BUTTON:${label}|${protectedUrl}]\n` : `[LINK:${label}|${protectedUrl}]`;
-  });
-
-  // Stash Emails first
-  text = text.replace(EMAIL_REGEX, (email) => {
-    return stashUrl(email);
-  });
-
-  // Stash URLs & Domains (.com, .org, .in, etc.)
-  text = text.replace(URL_OR_DOMAIN_REGEX, (matchedUrl) => {
-    return stashUrl(matchedUrl);
-  });
-
-  // Markdown bold: **text** or *text* (Gmail style)
-  text = text.replace(/\*\*([^*\n\r]+)\*\*/g, '[BOLD:$1]');
-  text = text.replace(/\*([^*\n\r]+)\*/g, '[BOLD:$1]');
-
-  // Markdown italics: _text_
-  text = text.replace(/_([^_\n\r]+)_/g, '[ITALIC:$1]');
-
-  // Markdown strikethrough: ~text~
-  text = text.replace(/~([^~\n\r]+)~/g, '[STRIKE:$1]');
-
-  // Markdown inline code: `text`
-  text = text.replace(/`([^`\n\r]+)`/g, '[CODE:$1]');
-
-  // Unstash all protected URLs safely!
-  for (let i = 0; i < stash.length; i++) {
-    text = text.replaceAll(`⟦TOKENURL${i}⟧`, stash[i]!);
-  }
-
-  return text.trim();
-}
-
-/**
- * Checks if a URL points to an image or image CDN
- */
-function isImageUrl(url: string): boolean {
-  if (!url) return false;
-  const clean = url.trim().toLowerCase();
-  return (
-    /\.(gif|jpe?g|tiff?|png|webp|svg|bmp)(?:\?|$)/i.test(clean) ||
-    clean.includes('googleusercontent.com') ||
-    clean.includes('s3.amazonaws.com') ||
-    clean.includes('/media/') ||
-    clean.includes('/attachments/') ||
-    clean.includes('/docsz/') ||
-    clean.includes('/docs/')
-  );
-}
-
-/**
- * Splits email body into primary fresh message and quoted reply trail
- */
 function parseEmailQuotation(text: string) {
   const lines = text.split('\n');
   const primaryLines: string[] = [];
@@ -346,8 +504,7 @@ function parseEmailQuotation(text: string) {
 
   const quoteHeaderPatterns = [
     /^on\s.+wrote:?$/i,
-    /^-+\s*original message\s*-+$/i,
-    /^-+\s*forwarded message\s*-+$/i,
+    /^-+\s*(?:original message|forwarded message)\s*-+$/i,
     /^from:\s*.+/i,
     /^sent:\s*.+/i,
     /^date:\s*.+/i,
@@ -394,10 +551,7 @@ function parseEmailQuotation(text: string) {
   };
 }
 
-/**
- * Renders blocks (Headings, Dividers, Code blocks, Lists, and Paragraphs)
- */
-function renderEmailBlocks(text: string) {
+function renderPlaintextBlocks(text: string) {
   const lines = text.split('\n');
   const elements: React.ReactNode[] = [];
 
@@ -406,95 +560,50 @@ function renderEmailBlocks(text: string) {
     const trimmed = line.trim();
 
     if (!trimmed) {
-      elements.push(<div key={i} style={{ height: '8px' }} />);
+      elements.push(<div key={i} style={{ height: '4px' }} />);
       continue;
     }
 
-    if (trimmed === '[HR]') {
+    if (trimmed === '---' || trimmed === '***' || trimmed === '___' || trimmed === '[HR]') {
       elements.push(
         <hr
           key={i}
           style={{
             border: 'none',
             borderTop: '1px solid var(--border-subtle, #e2e8f0)',
-            margin: '12px 0',
+            margin: '8px 0',
           }}
         />,
       );
       continue;
     }
 
-    if (trimmed.startsWith('[H1:')) {
-      const content = trimmed.slice(4, -1);
+    if (trimmed.startsWith('# ') || trimmed.startsWith('[H1:')) {
+      const content = trimmed.startsWith('# ') ? trimmed.slice(2) : trimmed.slice(4, -1);
       elements.push(
-        <h2 key={i} style={{ fontSize: '18px', fontWeight: 700, margin: '14px 0 6px', color: 'var(--text-primary)' }}>
-          {renderRichText(content)}
+        <h2 key={i} style={{ fontSize: '18px', fontWeight: 700, margin: '10px 0 4px', color: 'var(--text-primary)' }}>
+          {renderTextWithLinks(content, `h1-${i}`)}
         </h2>,
       );
       continue;
     }
 
-    if (trimmed.startsWith('[H2:')) {
-      const content = trimmed.slice(4, -1);
+    if (trimmed.startsWith('## ') || trimmed.startsWith('[H2:')) {
+      const content = trimmed.startsWith('## ') ? trimmed.slice(3) : trimmed.slice(4, -1);
       elements.push(
-        <h3 key={i} style={{ fontSize: '16px', fontWeight: 700, margin: '12px 0 4px', color: 'var(--text-primary)' }}>
-          {renderRichText(content)}
+        <h3 key={i} style={{ fontSize: '16px', fontWeight: 700, margin: '8px 0 3px', color: 'var(--text-primary)' }}>
+          {renderTextWithLinks(content, `h2-${i}`)}
         </h3>,
       );
       continue;
     }
 
-    if (trimmed.startsWith('[H3:') || trimmed.startsWith('[H4:')) {
-      const content = trimmed.slice(4, -1);
+    if (trimmed.startsWith('### ') || trimmed.startsWith('[H3:') || trimmed.startsWith('[H4:')) {
+      const content = trimmed.startsWith('### ') ? trimmed.slice(4) : trimmed.slice(4, -1);
       elements.push(
-        <h4 key={i} style={{ fontSize: '14px', fontWeight: 700, margin: '10px 0 4px', color: 'var(--text-primary)' }}>
-          {renderRichText(content)}
+        <h4 key={i} style={{ fontSize: '14px', fontWeight: 700, margin: '6px 0 2px', color: 'var(--text-primary)' }}>
+          {renderTextWithLinks(content, `h3-${i}`)}
         </h4>,
-      );
-      continue;
-    }
-
-    if (trimmed.startsWith('[CODEBLOCK:')) {
-      const content = trimmed.slice(11, -1);
-      elements.push(
-        <pre
-          key={i}
-          style={{
-            backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-            border: '1px solid var(--border-subtle, #e2e8f0)',
-            color: 'var(--text-primary, #0f172a)',
-            padding: '12px 14px',
-            borderRadius: '6px',
-            fontSize: '12px',
-            fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-            overflowX: 'auto',
-            margin: '8px 0',
-            lineHeight: 1.5,
-          }}
-        >
-          <code>{content}</code>
-        </pre>,
-      );
-      continue;
-    }
-
-    if (trimmed.startsWith('[QUOTE:')) {
-      const content = trimmed.slice(7, -1);
-      elements.push(
-        <blockquote
-          key={i}
-          style={{
-            margin: '8px 0',
-            padding: '6px 12px',
-            borderLeft: '3px solid var(--primary, #2563eb)',
-            backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-            borderRadius: '0 4px 4px 0',
-            fontStyle: 'italic',
-            color: 'var(--text-secondary, #475569)',
-          }}
-        >
-          {renderRichText(content)}
-        </blockquote>,
       );
       continue;
     }
@@ -508,19 +617,19 @@ function renderEmailBlocks(text: string) {
           style={{
             display: 'flex',
             alignItems: 'flex-start',
-            gap: '8px',
-            margin: '3px 0',
-            paddingLeft: '6px',
+            gap: '6px',
+            margin: '2px 0',
+            paddingLeft: '4px',
           }}
         >
           <span style={{ color: 'var(--primary, #2563eb)', fontWeight: 700, lineHeight: 1.4 }}>•</span>
-          <div style={{ flex: 1 }}>{renderRichText(itemText)}</div>
+          <div style={{ flex: 1 }}>{renderTextWithLinks(itemText, `li-${i}`)}</div>
         </div>,
       );
       continue;
     }
 
-    // Numbered list item: "1. ", "2) "
+    // Numbered list item
     const numberedMatch = trimmed.match(/^(\d+[\.\)])\s+(.*)$/);
     if (numberedMatch) {
       elements.push(
@@ -529,15 +638,15 @@ function renderEmailBlocks(text: string) {
           style={{
             display: 'flex',
             alignItems: 'flex-start',
-            gap: '8px',
-            margin: '3px 0',
-            paddingLeft: '6px',
+            gap: '6px',
+            margin: '2px 0',
+            paddingLeft: '4px',
           }}
         >
-          <span style={{ fontWeight: 600, color: 'var(--text-muted)', minWidth: '18px' }}>
+          <span style={{ fontWeight: 600, color: 'var(--text-muted)', minWidth: '16px' }}>
             {numberedMatch[1]}
           </span>
-          <div style={{ flex: 1 }}>{renderRichText(numberedMatch[2]!)}</div>
+          <div style={{ flex: 1 }}>{renderTextWithLinks(numberedMatch[2]!, `num-${i}`)}</div>
         </div>,
       );
       continue;
@@ -545,8 +654,8 @@ function renderEmailBlocks(text: string) {
 
     // Regular line
     elements.push(
-      <div key={i} style={{ minHeight: '20px' }}>
-        {renderRichText(line)}
+      <div key={i} style={{ minHeight: '18px' }}>
+        {renderTextWithLinks(line, `line-${i}`)}
       </div>,
     );
   }
@@ -556,10 +665,10 @@ function renderEmailBlocks(text: string) {
 
 function renderQuotedLines(lines: Array<{ level: number; text: string }>) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
       {lines.map((item, idx) => {
         if (!item.text.trim()) {
-          return <div key={idx} style={{ height: '6px' }} />;
+          return <div key={idx} style={{ height: '4px' }} />;
         }
 
         const isNested = item.level > 1;
@@ -568,13 +677,13 @@ function renderQuotedLines(lines: Array<{ level: number; text: string }>) {
           <div
             key={idx}
             style={{
-              paddingLeft: isNested ? `${(item.level - 1) * 12}px` : '0px',
+              paddingLeft: isNested ? `${(item.level - 1) * 10}px` : '0px',
               borderLeft: isNested ? '2px solid var(--border-subtle, #cbd5e1)' : 'none',
               marginLeft: isNested ? '4px' : '0px',
               color: isNested ? 'var(--text-muted, #64748b)' : 'inherit',
             }}
           >
-            {renderRichText(item.text)}
+            {renderTextWithLinks(item.text, `qline-${idx}`)}
           </div>
         );
       })}
@@ -582,28 +691,39 @@ function renderQuotedLines(lines: Array<{ level: number; text: string }>) {
   );
 }
 
-/**
- * Safely renders rich text tokens recursively:
- * - [IMG:url] -> Compact inline signature logo (Outlook/Gmail)
- * - [LINK:Label|Url] -> Anchor tag with external link icon
- * - [BOLD:Text] -> Bold
- * - [ITALIC:Text] -> Italics
- * - [UNDERLINE:Text] -> Underline
- * - [STRIKE:Text] -> Strikethrough
- * - [MARK:Text] -> Highlight
- * - [CODE:Text] -> Inline code badge
- * - Domain URLs (abc.com, https://..., www....) -> Clickable links
- * - Emails (user@domain.com) -> Clickable mailto: links
- */
-function renderRichText(text: string): React.ReactNode {
+/* =========================================================================
+   INLINE TOKEN & LINKIFIER PARSER
+   ========================================================================= */
+
+function renderTextWithLinks(text: string, keyPrefix: string): React.ReactNode {
+  if (!text) return '';
+
   const tokenRegex = new RegExp(
-    `\\[IMG:([^\\]]+)\\]|\\[BUTTON:([^|]+)\\|([^\\]]+)\\]|\\[LINK:([^|]+)\\|([^\\]]+)\\]|\\[BOLD:([^\\]]+)\\]|\\[ITALIC:([^\\]]+)\\]|\\[UNDERLINE:([^\\]]+)\\]|\\[STRIKE:([^\\]]+)\\]|\\[MARK:([^\\]]+)\\]|\\[CODE:([^\\]]+)\\]|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})|(https?:\\/\\/[^\\s<>\"]+|(?:www\\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.(?:${DOMAIN_TLDS})(?::[0-9]{1,5})?(?:\\/[^\\s<>\"]*)?)|(mailto:[^\\s<>\"]+)|(tel:[^\\s<>\"]+)`,
+    `\\[([^\\]\\n]+)\\]\\((https?:\\/\\/[^\\s\\)]+)\\)` +
+    `|\\[BUTTON:([^|]+)\\|([^\\]]+)\\]` +
+    `|\\[LINK:([^|]+)\\|([^\\]]+)\\]` +
+    `|\\[IMG:([^\\]]+)\\]` +
+    `|\\[BOLD:([\\s\\S]*?)\\]` +
+    `|\\[ITALIC:([\\s\\S]*?)\\]` +
+    `|\\[UNDERLINE:([\\s\\S]*?)\\]` +
+    `|\\[STRIKE:([\\s\\S]*?)\\]` +
+    `|\\[MARK:([\\s\\S]*?)\\]` +
+    `|\\[CODE:([\\s\\S]*?)\\]` +
+    `|\\*\\*([^\\*\\n]+)\\*\\*` +
+    `|\\*([^\\*\\n]+)\\*` +
+    `|_([^_\n]+)_` +
+    `|~([^~\\n]+)~` +
+    `|\`([^\`\\n]+)\`` +
+    `|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})` +
+    `|(https?:\\/\\/[^\\s<>\"]+|(?:www\\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.(?:${DOMAIN_TLDS})(?::[0-9]{1,5})?(?:\\/[^\\s<>\"]*)?)` +
+    `|(mailto:[^\\s<>\"]+)` +
+    `|(tel:[^\\s<>\"]+)`,
     'gi',
   );
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  let match;
+  let match: RegExpExecArray | null;
 
   while ((match = tokenRegex.exec(text)) !== null) {
     const matchIndex = match.index;
@@ -614,163 +734,94 @@ function renderRichText(text: string): React.ReactNode {
 
     const [
       fullMatch,
-      imgUrl,
-      buttonLabel,
-      buttonUrl,
+      mdLabel,
+      mdUrl,
+      btnLabel,
+      btnUrl,
       linkLabel,
       linkUrl,
+      imgUrl,
       boldText,
       italicText,
       underlineText,
       strikeText,
       markText,
       codeText,
-      emailAddress,
+      mdBold2,
+      mdBold1,
+      mdItalic,
+      mdStrike,
+      mdCode,
+      emailAddr,
       rawUrl,
       mailtoUrl,
       telUrl,
     ] = match;
 
-    if (imgUrl) {
-      // Natural signature / inline image rendering
-      parts.push(
-        <span key={matchIndex} style={{ display: 'inline-block', margin: '4px 0', verticalAlign: 'middle' }}>
-          <img
-            src={imgUrl}
-            alt="Signature Logo"
-            style={{
-              maxWidth: '220px',
-              maxHeight: '65px',
-              objectFit: 'contain',
-              display: 'block',
-              borderRadius: '4px',
-            }}
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        </span>,
-      );
-    } else if (buttonUrl) {
-      const destination = buttonUrl.startsWith('http://') || buttonUrl.startsWith('https://') || buttonUrl.startsWith('mailto:') || buttonUrl.startsWith('tel:')
-        ? buttonUrl
-        : `https://${buttonUrl}`;
+    const matchKey = `${keyPrefix}-${matchIndex}`;
 
-      parts.push(
-        <span key={matchIndex} style={{ display: 'inline-block', margin: '6px 4px 6px 0', verticalAlign: 'middle' }}>
-          <a
-            href={destination}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              padding: '7px 16px',
-              backgroundColor: 'var(--primary, #2563eb)',
-              color: '#ffffff',
-              fontSize: '13px',
-              fontWeight: 600,
-              textDecoration: 'none',
-              borderRadius: '6px',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-              lineHeight: 1.4,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--primary-hover, #1d4ed8)';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.08)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--primary, #2563eb)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)';
-            }}
-          >
-            <span>{buttonLabel || 'Open Link'}</span>
-            <ExternalLink size={13} style={{ opacity: 0.9 }} />
-          </a>
-        </span>,
-      );
-    } else if (linkUrl) {
-      const destination = linkUrl.startsWith('http://') || linkUrl.startsWith('https://')
-        ? linkUrl
-        : `https://${linkUrl}`;
-
-      if (isImageUrl(linkUrl)) {
-        parts.push(
-          <div key={matchIndex} style={{ margin: '8px 0' }}>
-            <img
-              src={destination}
-              alt="Inline Attachment"
-              style={{
-                maxWidth: '280px',
-                maxHeight: '160px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-subtle, #e2e8f0)',
-                objectFit: 'contain',
-                display: 'block',
-                backgroundColor: '#ffffff',
-              }}
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <a
-              href={destination}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                fontSize: '11px',
-                color: 'var(--primary, #2563eb)',
-                textDecoration: 'underline',
-                marginTop: '4px',
-              }}
-            >
-              <span>Open image</span>
-              <ExternalLink size={10} />
-            </a>
-          </div>,
-        );
+    if (mdUrl && mdLabel) {
+      const isCta = mdLabel.length <= 50 && CTA_KEYWORDS.test(mdLabel);
+      if (isCta) {
+        parts.push(renderButton(btnLabel || mdLabel, mdUrl, matchKey));
       } else {
-        parts.push(
-          <a
-            key={matchIndex}
-            href={destination}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              color: 'var(--primary, #2563eb)',
-              fontWeight: 600,
-              textDecoration: 'underline',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '2px',
-            }}
-          >
-            <span>{linkLabel || linkUrl}</span>
-            <ExternalLink size={11} style={{ opacity: 0.8 }} />
-          </a>,
-        );
+        parts.push(renderAnchor(mdLabel, mdUrl, matchKey));
       }
-    } else if (boldText) {
-      parts.push(<strong key={matchIndex} style={{ fontWeight: 700 }}>{renderRichText(boldText)}</strong>);
-    } else if (italicText) {
-      parts.push(<em key={matchIndex} style={{ fontStyle: 'italic' }}>{renderRichText(italicText)}</em>);
+    } else if (btnUrl) {
+      parts.push(renderButton(btnLabel || 'Open Link', btnUrl, matchKey));
+    } else if (linkUrl) {
+      parts.push(renderAnchor(linkLabel || linkUrl, linkUrl, matchKey));
+    } else if (imgUrl) {
+      parts.push(
+        <img
+          key={matchKey}
+          src={imgUrl}
+          alt="Inline Attachment"
+          style={{
+            maxWidth: '180px',
+            maxHeight: '45px',
+            objectFit: 'contain',
+            display: 'inline-block',
+            verticalAlign: 'middle',
+            borderRadius: '4px',
+            margin: '2px 0',
+          }}
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+          }}
+        />,
+      );
+    } else if (boldText || mdBold2 || mdBold1) {
+      const content = boldText || mdBold2 || mdBold1 || '';
+      parts.push(
+        <strong key={matchKey} style={{ fontWeight: 700 }}>
+          {renderTextWithLinks(content, `${matchKey}-b`)}
+        </strong>,
+      );
+    } else if (italicText || mdItalic) {
+      const content = italicText || mdItalic || '';
+      parts.push(
+        <em key={matchKey} style={{ fontStyle: 'italic' }}>
+          {renderTextWithLinks(content, `${matchKey}-i`)}
+        </em>,
+      );
     } else if (underlineText) {
-      parts.push(<span key={matchIndex} style={{ textDecoration: 'underline' }}>{renderRichText(underlineText)}</span>);
-    } else if (strikeText) {
-      parts.push(<del key={matchIndex} style={{ textDecoration: 'line-through', opacity: 0.75 }}>{renderRichText(strikeText)}</del>);
+      parts.push(
+        <u key={matchKey} style={{ textDecoration: 'underline' }}>
+          {renderTextWithLinks(underlineText, `${matchKey}-u`)}
+        </u>,
+      );
+    } else if (strikeText || mdStrike) {
+      const content = strikeText || mdStrike || '';
+      parts.push(
+        <del key={matchKey} style={{ textDecoration: 'line-through', opacity: 0.75 }}>
+          {renderTextWithLinks(content, `${matchKey}-s`)}
+        </del>,
+      );
     } else if (markText) {
       parts.push(
         <mark
-          key={matchIndex}
+          key={matchKey}
           style={{
             backgroundColor: '#fef08a',
             color: '#713f12',
@@ -781,51 +832,52 @@ function renderRichText(text: string): React.ReactNode {
           {markText}
         </mark>,
       );
-    } else if (codeText) {
+    } else if (codeText || mdCode) {
+      const content = codeText || mdCode || '';
       parts.push(
         <code
-          key={matchIndex}
+          key={matchKey}
           style={{
             backgroundColor: 'var(--bg-surface-elevated, #f1f5f9)',
             border: '1px solid var(--border-subtle, #e2e8f0)',
-            padding: '2px 5px',
-            borderRadius: '4px',
+            padding: '1px 4px',
+            borderRadius: '3px',
             fontSize: '12px',
-            fontFamily: 'monospace',
+            fontFamily: 'Consolas, Monaco, "Courier New", monospace',
             color: 'var(--text-primary)',
           }}
         >
-          {codeText}
+          {content}
         </code>,
       );
-    } else if (emailAddress) {
+    } else if (emailAddr) {
       parts.push(
         <a
-          key={matchIndex}
-          href={`mailto:${emailAddress}`}
+          key={matchKey}
+          href={`mailto:${emailAddr}`}
           style={{
             color: 'var(--primary, #2563eb)',
             textDecoration: 'underline',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '3px',
+            gap: '2px',
           }}
         >
           <Mail size={12} />
-          <span>{emailAddress}</span>
+          <span>{emailAddr}</span>
         </a>,
       );
     } else if (mailtoUrl) {
       parts.push(
         <a
-          key={matchIndex}
+          key={matchKey}
           href={mailtoUrl}
           style={{
             color: 'var(--primary, #2563eb)',
             textDecoration: 'underline',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '3px',
+            gap: '2px',
           }}
         >
           <Mail size={12} />
@@ -835,14 +887,14 @@ function renderRichText(text: string): React.ReactNode {
     } else if (telUrl) {
       parts.push(
         <a
-          key={matchIndex}
+          key={matchKey}
           href={telUrl}
           style={{
             color: 'var(--primary, #2563eb)',
             textDecoration: 'underline',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '3px',
+            gap: '2px',
           }}
         >
           <Phone size={12} />
@@ -854,65 +906,25 @@ function renderRichText(text: string): React.ReactNode {
         ? rawUrl
         : `https://${rawUrl}`;
 
-      if (isImageUrl(rawUrl)) {
-        parts.push(
-          <div key={matchIndex} style={{ margin: '8px 0' }}>
-            <img
-              src={destination}
-              alt="Inline Attachment"
-              style={{
-                maxWidth: '280px',
-                maxHeight: '160px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-subtle, #e2e8f0)',
-                objectFit: 'contain',
-                display: 'block',
-                backgroundColor: '#ffffff',
-              }}
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-            <a
-              href={destination}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                fontSize: '11px',
-                color: 'var(--primary, #2563eb)',
-                textDecoration: 'underline',
-                marginTop: '4px',
-              }}
-            >
-              <span>Open image</span>
-              <ExternalLink size={10} />
-            </a>
-          </div>,
-        );
-      } else {
-        parts.push(
-          <a
-            key={matchIndex}
-            href={destination}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              color: 'var(--primary, #2563eb)',
-              textDecoration: 'underline',
-              wordBreak: 'break-all',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '2px',
-            }}
-          >
-            <span>{rawUrl}</span>
-            <ExternalLink size={11} style={{ opacity: 0.8 }} />
-          </a>,
-        );
-      }
+      parts.push(
+        <a
+          key={matchKey}
+          href={destination}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: 'var(--primary, #2563eb)',
+            textDecoration: 'underline',
+            wordBreak: 'break-all',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '2px',
+          }}
+        >
+          <span>{rawUrl}</span>
+          <ExternalLink size={11} style={{ opacity: 0.8 }} />
+        </a>,
+      );
     }
 
     lastIndex = matchIndex + fullMatch.length;
@@ -923,4 +935,72 @@ function renderRichText(text: string): React.ReactNode {
   }
 
   return parts.length > 0 ? parts : text;
+}
+
+function renderButton(label: string, url: string, key: string) {
+  const destination =
+    url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:') || url.startsWith('tel:')
+      ? url
+      : `https://${url}`;
+
+  return (
+    <span key={key} style={{ display: 'inline-block', margin: '4px 4px 4px 0', verticalAlign: 'middle' }}>
+      <a
+        href={destination}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '5px',
+          padding: '5px 12px',
+          backgroundColor: 'var(--primary, #2563eb)',
+          color: '#ffffff',
+          fontSize: '12px',
+          fontWeight: 600,
+          textDecoration: 'none',
+          borderRadius: '5px',
+          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.08)',
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+          lineHeight: 1.3,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--primary-hover, #1d4ed8)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--primary, #2563eb)';
+        }}
+      >
+        <span>{label}</span>
+        <ExternalLink size={12} style={{ opacity: 0.9 }} />
+      </a>
+    </span>
+  );
+}
+
+function renderAnchor(label: string, url: string, key: string) {
+  const destination =
+    url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
+
+  return (
+    <a
+      key={key}
+      href={destination}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        color: 'var(--primary, #2563eb)',
+        fontWeight: 600,
+        textDecoration: 'underline',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '2px',
+      }}
+    >
+      <span>{label}</span>
+      <ExternalLink size={11} style={{ opacity: 0.8 }} />
+    </a>
+  );
 }
