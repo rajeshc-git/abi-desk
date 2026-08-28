@@ -725,7 +725,7 @@ export class WorkflowService {
         message = `Your ticket <strong>#${ticket.number}</strong> has been escalated to our engineering and senior support specialists for in-depth investigation.`;
       }
 
-      await this.mailService.send({
+      await this.mailService.sendTicketMail({
         to: { email: ticket.requester.email, name: ticket.requester.fullName },
         subject,
         text: `${title}\n\nHello ${ticket.requester.fullName},\n\n${message.replace(/<[^>]+>/g, '')}\n\n${comment ? `Note: ${comment}\n\n` : ''}Best regards,\n${brandName}`,

@@ -18,6 +18,8 @@ import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { TicketCard, TicketSummary } from '../components/tickets/TicketCard';
 import { CreateTicketModal } from '../components/tickets/CreateTicketModal';
+import { TicketTagManager } from '../components/tickets/TicketTagManager';
+import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
 import { MediaPlayer, MediaAssetItem } from '../components/media/MediaPlayer';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -61,11 +63,25 @@ export const InboxPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL_OPEN');
   const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [tierFilter, setTierFilter] = useState<string>('');
-  const { debouncedSearchQuery } = useSearch();
+  const {
+    debouncedSearchQuery,
+    selectedTag,
+    setSelectedTag,
+    selectedCategory,
+    setSelectedCategory,
+  } = useSearch();
 
   useEffect(() => {
     loadTickets();
-  }, [activeBrandId, statusFilter, priorityFilter, tierFilter, debouncedSearchQuery]);
+  }, [
+    activeBrandId,
+    statusFilter,
+    priorityFilter,
+    tierFilter,
+    debouncedSearchQuery,
+    selectedTag,
+    selectedCategory,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,6 +211,8 @@ export const InboxPage: React.FC = () => {
         brandId: activeBrandId || undefined,
         priority: priorityFilter || undefined,
         tier: tierFilter || undefined,
+        tag: selectedTag?.slug || undefined,
+        category: selectedCategory?.name || undefined,
         q:
           debouncedSearchQuery && debouncedSearchQuery.trim().length >= 2
             ? debouncedSearchQuery.trim()
@@ -248,6 +266,8 @@ export const InboxPage: React.FC = () => {
         brandId: activeBrandId || undefined,
         priority: priorityFilter || undefined,
         tier: tierFilter || undefined,
+        tag: selectedTag?.slug || undefined,
+        category: selectedCategory?.name || undefined,
         q:
           debouncedSearchQuery && debouncedSearchQuery.trim().length >= 2
             ? debouncedSearchQuery.trim()
@@ -611,7 +631,7 @@ export const InboxPage: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <span
                     style={{
                       fontFamily: 'var(--font-mono)',
@@ -625,6 +645,26 @@ export const InboxPage: React.FC = () => {
                   <TierBadge tier={selectedTicket.tier} />
                   <StatusBadge status={selectedTicket.status} />
                   <PriorityPill priority={selectedTicket.priority} />
+                  <TicketCategoryManager
+                    ticketId={selectedTicket.id}
+                    category={selectedTicket.category}
+                    onCategoryChange={(newCategory) => {
+                      setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
+                      setTickets((prev) =>
+                        prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
+                      );
+                    }}
+                  />
+                  <TicketTagManager
+                    ticketId={selectedTicket.id}
+                    tags={selectedTicket.tags}
+                    onTagsChange={(newTags) => {
+                      setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
+                      setTickets((prev) =>
+                        prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
+                      );
+                    }}
+                  />
                 </div>
                 <h1 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                   {selectedTicket.subject}

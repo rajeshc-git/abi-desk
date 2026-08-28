@@ -198,6 +198,8 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       // "Optional": on by default, revocable by the tenant.
       optional('ticket:escalate', true),
       optional('ticket:close', true),
+      allow('ticket:tag'),
+      allow('ticket:update:tenant'),
 
       // Deliberately absent, matching the matrix: ticket:note:internal (✗),
       // ticket:assign:agent (Queue only), ticket:bulk_update (✗),

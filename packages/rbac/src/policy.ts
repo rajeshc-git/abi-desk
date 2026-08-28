@@ -134,7 +134,14 @@ export function canEditTicket(
     return false;
   }
 
-  if (can(subject, 'ticket:update:tenant')) return true;
+  if (
+    can(subject, 'ticket:update:tenant') ||
+    can(subject, 'ticket:tag') ||
+    can(subject, 'brand:update:tenant') ||
+    can(subject, 'admin:brand:manage')
+  ) {
+    return true;
+  }
 
   return can(subject, 'ticket:update:own') && ticket.requesterId === subject.userId;
 }

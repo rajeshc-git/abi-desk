@@ -17,6 +17,8 @@ import { MediaPlayer, MediaAssetItem } from '../components/media/MediaPlayer';
 import { ReplyComposer } from '../components/tickets/ReplyComposer';
 import { SlaCountdown } from '../components/tickets/SlaCountdown';
 import { TimelineView, CommentItem } from '../components/tickets/TimelineView';
+import { TicketTagManager } from '../components/tickets/TicketTagManager';
+import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
 import { FormattedEmailContent } from '../components/common/FormattedEmailContent';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -260,6 +262,16 @@ export const TicketDetailPage: React.FC = () => {
               <TierBadge tier={ticket.tier} />
               <StatusBadge status={ticket.status} />
               <PriorityPill priority={ticket.priority} />
+              <TicketCategoryManager
+                ticketId={ticket.id}
+                category={ticket.category}
+                onCategoryChange={(newCategory) => setTicket((prev: any) => ({ ...prev, category: newCategory }))}
+              />
+              <TicketTagManager
+                ticketId={ticket.id}
+                tags={ticket.tags}
+                onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
+              />
             </div>
             <h2
               style={{

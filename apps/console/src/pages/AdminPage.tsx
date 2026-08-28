@@ -24,6 +24,8 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
+  Tag as TagIcon,
+  Folder,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { Modal } from '../components/common/Modal';
@@ -40,11 +42,31 @@ export const AdminPage: React.FC = () => {
   const toast = useToast();
   const { debouncedSearchQuery, setSearchQuery } = useSearch();
   const [activeTab, setActiveTab] = useState<
-    'brands' | 'widget' | 'teams' | 'users' | 'customers' | 'keys' | 'webhooks' | 'compliance' | 'sso'
+    'brands' | 'widget' | 'tags' | 'categories' | 'teams' | 'users' | 'customers' | 'sso'
   >('brands');
   const [selectedThemeColor, setSelectedThemeColor] = useState(
     () => localStorage.getItem('abidesk_theme_color') || '#2563eb',
   );
+
+  // Tags State
+  const [tagsList, setTagsList] = useState<any[]>([]);
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false);
+  const [editingTag, setEditingTag] = useState<any | null>(null);
+  const [tagName, setTagName] = useState('');
+  const [tagColor, setTagColor] = useState('#3b82f6');
+  const [tagDomainList, setTagDomainList] = useState<string[]>([]);
+  const [tagDomainInput, setTagDomainInput] = useState('');
+  const [isTagSubmitting, setIsTagSubmitting] = useState(false);
+
+  // Categories State
+  const [categoriesList, setCategoriesList] = useState<any[]>([]);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<any | null>(null);
+  const [categoryName, setCategoryName] = useState('');
+  const [categoryColor, setCategoryColor] = useState('#6366f1');
+  const [categoryKeywordList, setCategoryKeywordList] = useState<string[]>([]);
+  const [categoryKeywordInput, setCategoryKeywordInput] = useState('');
+  const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
 
   const [brandsList, setBrandsList] = useState<any[]>([]);
   const [ssoProviders, setSsoProviders] = useState<any[]>([]);
@@ -71,9 +93,6 @@ export const AdminPage: React.FC = () => {
   const [queuesList, setQueuesList] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
-  const [apiKeys, setApiKeys] = useState<any[]>([]);
-  const [webhooks, setWebhooks] = useState<any[]>([]);
-  const [dsrList, setDsrList] = useState<any[]>([]);
 
   // Memoized search-filtered lists for each tab
   const filteredBrands = React.useMemo(() => {
@@ -99,6 +118,28 @@ export const AdminPage: React.FC = () => {
         p.emailDomains.some((d: string) => d.toLowerCase().includes(query)),
     );
   }, [ssoProviders, debouncedSearchQuery]);
+
+  const filteredTags = React.useMemo(() => {
+    if (!debouncedSearchQuery.trim()) return tagsList;
+    const q = debouncedSearchQuery.toLowerCase().trim();
+    return tagsList.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.slug.toLowerCase().includes(q) ||
+        (t.domains && t.domains.toLowerCase().includes(q)),
+    );
+  }, [tagsList, debouncedSearchQuery]);
+
+  const filteredCategories = React.useMemo(() => {
+    if (!debouncedSearchQuery.trim()) return categoriesList;
+    const q = debouncedSearchQuery.toLowerCase().trim();
+    return categoriesList.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.slug.toLowerCase().includes(q) ||
+        (c.keywords && c.keywords.toLowerCase().includes(q)),
+    );
+  }, [categoriesList, debouncedSearchQuery]);
 
   const filteredTeams = React.useMemo(() => {
     if (!debouncedSearchQuery.trim()) return teams;
@@ -205,34 +246,6 @@ export const AdminPage: React.FC = () => {
     });
   }, [usersList, debouncedSearchQuery, customerSearchText, customerStatusFilter]);
 
-  const filteredApiKeys = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return apiKeys;
-    const query = debouncedSearchQuery.toLowerCase();
-    return apiKeys.filter(
-      (k) => k.name.toLowerCase().includes(query) || k.prefix.toLowerCase().includes(query),
-    );
-  }, [apiKeys, debouncedSearchQuery]);
-
-  const filteredWebhooks = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return webhooks;
-    const query = debouncedSearchQuery.toLowerCase();
-    return webhooks.filter(
-      (w) =>
-        w.url.toLowerCase().includes(query) ||
-        (w.events && w.events.some((e: string) => e.toLowerCase().includes(query))),
-    );
-  }, [webhooks, debouncedSearchQuery]);
-
-  const filteredDsrList = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return dsrList;
-    const query = debouncedSearchQuery.toLowerCase();
-    return dsrList.filter(
-      (d) =>
-        d.email.toLowerCase().includes(query) ||
-        d.requestType.toLowerCase().includes(query) ||
-        d.status.toLowerCase().includes(query),
-    );
-  }, [dsrList, debouncedSearchQuery]);
   const [isLoading, setIsLoading] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
 
@@ -240,11 +253,8 @@ export const AdminPage: React.FC = () => {
   const [isCreateBrandOpen, setIsCreateBrandOpen] = useState(false);
   const [isEditBrandOpen, setIsEditBrandOpen] = useState(false);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const [isKeyOpen, setIsKeyOpen] = useState(false);
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [isCreateQueueOpen, setIsCreateQueueOpen] = useState(false);
-  const [isWebhookOpen, setIsWebhookOpen] = useState(false);
-  const [isDsrOpen, setIsDsrOpen] = useState(false);
 
   // Form states
   // Brand Form
@@ -300,23 +310,6 @@ export const AdminPage: React.FC = () => {
   const [inviteBrandId, setInviteBrandId] = useState('');
   const [inviteMessage, setInviteMessage] = useState('');
   const [isInviting, setIsInviting] = useState(false);
-
-  // Create API Key Form
-  const [keyName, setKeyName] = useState('');
-  const [createdRawKey, setCreatedRawKey] = useState<string | null>(null);
-  const [copiedKey, setCopiedKey] = useState(false);
-
-  // Create Webhook Form
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [webhookEvents, setWebhookEvents] = useState<string[]>([
-    'ticket.created',
-    'ticket.updated',
-  ]);
-
-  // DSR Form
-  const [dsrEmail, setDsrEmail] = useState('');
-  const [dsrType, setDsrType] = useState<'EXPORT' | 'ERASURE'>('EXPORT');
-  const [dsrReason, setDsrReason] = useState('');
 
   useEffect(() => {
     loadData();
@@ -384,15 +377,12 @@ export const AdminPage: React.FC = () => {
         setUsersList(usersData?.users || usersData || []);
         setRoles(rolesData || []);
         setBrandsList(brandsData || []);
-      } else if (activeTab === 'keys') {
-        const res = await ApiClient.get('/admin/api-keys');
-        setApiKeys(res?.apiKeys || res || []);
-      } else if (activeTab === 'webhooks') {
-        const res = await ApiClient.get('/admin/webhooks');
-        setWebhooks(res?.endpoints || res || []);
-      } else if (activeTab === 'compliance') {
-        const dsrRes = await ApiClient.get('/compliance/dsr');
-        setDsrList(dsrRes || []);
+      } else if (activeTab === 'tags') {
+        const tagsData = await ApiClient.get('/tags');
+        setTagsList(Array.isArray(tagsData) ? tagsData : []);
+      } else if (activeTab === 'categories') {
+        const catData = await ApiClient.get('/categories');
+        setCategoriesList(Array.isArray(catData) ? catData : []);
       } else if (activeTab === 'sso') {
         const res = await ApiClient.get('/admin/sso');
         setSsoProviders(res || []);
@@ -401,6 +391,192 @@ export const AdminPage: React.FC = () => {
       console.error('Failed to load administrative records', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const sanitizeDomainChip = (str: string) =>
+    str
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '');
+
+  const addTagDomainChip = (input: string) => {
+    const val = sanitizeDomainChip(input);
+    if (val && !tagDomainList.includes(val)) {
+      setTagDomainList((prev) => [...prev, val]);
+    }
+  };
+
+  const openCreateTagModal = () => {
+    setEditingTag(null);
+    setTagName('');
+    setTagColor('#3b82f6');
+    setTagDomainList([]);
+    setTagDomainInput('');
+    setIsTagModalOpen(true);
+  };
+
+  const openEditTagModal = (tag: any) => {
+    setEditingTag(tag);
+    setTagName(tag.name || '');
+    setTagColor(tag.color || '#3b82f6');
+    const existing = tag.domains
+      ? tag.domains
+          .split(/[\s,;]+/)
+          .map(sanitizeDomainChip)
+          .filter(Boolean)
+      : [];
+    setTagDomainList(existing);
+    setTagDomainInput('');
+    setIsTagModalOpen(true);
+  };
+
+  const handleSaveTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tagName.trim()) {
+      toast.error('Tag name is required');
+      return;
+    }
+    setIsTagSubmitting(true);
+    try {
+      const finalDomains = [...tagDomainList];
+      const pending = sanitizeDomainChip(tagDomainInput);
+      if (pending && !finalDomains.includes(pending)) {
+        finalDomains.push(pending);
+        setTagDomainList(finalDomains);
+        setTagDomainInput('');
+      }
+
+      const domainString = finalDomains.join(', ');
+
+      if (editingTag) {
+        await ApiClient.patch(`/tags/${editingTag.id}`, {
+          name: tagName.trim(),
+          color: tagColor,
+          domains: domainString || null,
+        });
+        toast.success('Tag updated successfully');
+      } else {
+        await ApiClient.post('/tags', {
+          name: tagName.trim(),
+          color: tagColor,
+          domains: domainString || undefined,
+        });
+        toast.success('Tag created successfully');
+      }
+      setIsTagModalOpen(false);
+      const updated = await ApiClient.get('/tags');
+      setTagsList(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save tag');
+    } finally {
+      setIsTagSubmitting(false);
+    }
+  };
+
+  const handleDeleteTag = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete the tag "${name}"?`)) return;
+    try {
+      await ApiClient.delete(`/tags/${id}`);
+      toast.success('Tag deleted successfully');
+      const updated = await ApiClient.get('/tags');
+      setTagsList(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete tag');
+    }
+  };
+
+  // Categories Handlers
+  const sanitizeKeywordChip = (str: string) => str.trim().toLowerCase();
+
+  const addCategoryKeywordChip = (input: string) => {
+    const val = sanitizeKeywordChip(input);
+    if (!val) return;
+    if (categoryKeywordList.includes(val)) return;
+    if (categoryKeywordList.length >= 10) {
+      toast.error('Maximum 10 keywords allowed per category');
+      return;
+    }
+    setCategoryKeywordList((prev) => [...prev, val]);
+  };
+
+  const openCreateCategoryModal = () => {
+    setEditingCategory(null);
+    setCategoryName('');
+    setCategoryColor('#6366f1');
+    setCategoryKeywordList([]);
+    setCategoryKeywordInput('');
+    setIsCategoryModalOpen(true);
+  };
+
+  const openEditCategoryModal = (cat: any) => {
+    setEditingCategory(cat);
+    setCategoryName(cat.name || '');
+    setCategoryColor(cat.color || '#6366f1');
+    const existing = cat.keywords
+      ? cat.keywords
+          .split(/[\s,;]+/)
+          .map(sanitizeKeywordChip)
+          .filter(Boolean)
+      : [];
+    setCategoryKeywordList(existing);
+    setCategoryKeywordInput('');
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!categoryName.trim()) {
+      toast.error('Category name is required');
+      return;
+    }
+    setIsCategorySubmitting(true);
+    try {
+      const finalKeywords = [...categoryKeywordList];
+      const pending = sanitizeKeywordChip(categoryKeywordInput);
+      if (pending && !finalKeywords.includes(pending) && finalKeywords.length < 10) {
+        finalKeywords.push(pending);
+        setCategoryKeywordList(finalKeywords);
+        setCategoryKeywordInput('');
+      }
+
+      const keywordString = finalKeywords.join(', ');
+
+      if (editingCategory) {
+        await ApiClient.patch(`/categories/${editingCategory.id}`, {
+          name: categoryName.trim(),
+          color: categoryColor,
+          keywords: keywordString || null,
+        });
+        toast.success('Category updated successfully');
+      } else {
+        await ApiClient.post('/categories', {
+          name: categoryName.trim(),
+          color: categoryColor,
+          keywords: keywordString || undefined,
+        });
+        toast.success('Category created successfully');
+      }
+      setIsCategoryModalOpen(false);
+      const updated = await ApiClient.get('/categories');
+      setCategoriesList(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save category');
+    } finally {
+      setIsCategorySubmitting(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete the category "${name}"?`)) return;
+    try {
+      await ApiClient.delete(`/categories/${id}`);
+      toast.success('Category deleted successfully');
+      const updated = await ApiClient.get('/categories');
+      setCategoriesList(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete category');
     }
   };
 
@@ -795,22 +971,6 @@ export const AdminPage: React.FC = () => {
     }
   };
 
-  // Create API Key Submit
-  const handleCreateApiKey = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await ApiClient.post('/admin/api-keys', {
-        name: keyName,
-        scopes: ['ticket:create', 'ticket:read:tenant', 'ticket:update:tenant'],
-      });
-      setCreatedRawKey(res.secretKey);
-      loadData();
-      toast.success('API Key created successfully!');
-    } catch (err: any) {
-      toast.error(`API Key error: ${err.message}`);
-    }
-  };
-
   const copyTextToClipboard = async (text: string, onSuccess: () => void, toastMsg: string) => {
     let success = false;
     try {
@@ -847,96 +1007,6 @@ export const AdminPage: React.FC = () => {
       toast.success(toastMsg);
     } else {
       toast.error('Failed to copy to clipboard');
-    }
-  };
-
-  const handleCopyKey = () => {
-    if (createdRawKey) {
-      copyTextToClipboard(
-        createdRawKey,
-        () => {
-          setCopiedKey(true);
-          setTimeout(() => setCopiedKey(false), 2000);
-        },
-        'API key copied to clipboard!',
-      );
-    }
-  };
-
-  // Revoke API Key Submit
-  const handleRevokeApiKey = async (id: string) => {
-    if (!confirm('Are you sure you want to revoke this API key? This cannot be undone.')) return;
-    try {
-      await ApiClient.delete(`/admin/api-keys/${id}`);
-      loadData();
-      toast.success('API Key revoked successfully!');
-    } catch (err: any) {
-      toast.error(`Error revoking key: ${err.message}`);
-    }
-  };
-
-  // Create Webhook Submit
-  const handleCreateWebhook = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await ApiClient.post('/admin/webhooks', {
-        url: webhookUrl,
-        events: webhookEvents,
-      });
-      setIsWebhookOpen(false);
-      setWebhookUrl('');
-      loadData();
-      toast.success('Webhook created successfully!');
-    } catch (err: any) {
-      toast.error(`Webhook error: ${err.message}`);
-    }
-  };
-
-  // Delete Webhook Submit
-  const handleDeleteWebhook = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this webhook?')) return;
-    try {
-      await ApiClient.delete(`/admin/webhooks/${id}`);
-      loadData();
-      toast.success('Webhook deleted successfully!');
-    } catch (err: any) {
-      toast.error(`Webhook delete failed: ${err.message}`);
-    }
-  };
-
-  // Create GDPR DSR request
-  const handleCreateDsr = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await ApiClient.post('/compliance/dsr', {
-        email: dsrEmail,
-        requestType: dsrType,
-        reason: dsrReason || undefined,
-      });
-      setIsDsrOpen(false);
-      setDsrEmail('');
-      setDsrReason('');
-      loadData();
-      toast.success('GDPR DSR request registered successfully!');
-    } catch (err: any) {
-      toast.error(`Failed to create request: ${err.message}`);
-    }
-  };
-
-  // Run GDPR Retention Policy
-  const handleExecuteRetention = async (scope: string) => {
-    if (
-      !confirm(
-        `Are you sure you want to run the retention purge for ${scope}? This will permanently delete records older than your configured limits.`,
-      )
-    )
-      return;
-    try {
-      await ApiClient.post(`/compliance/retention/${scope}/run`);
-      loadData();
-      toast.success(`GDPR Retention policy run successfully for ${scope}!`);
-    } catch (err: any) {
-      toast.error(`Failed to run retention: ${err.message}`);
     }
   };
 
@@ -1027,13 +1097,12 @@ export const AdminPage: React.FC = () => {
         {[
           { id: 'brands', label: 'Brands', icon: Settings },
           { id: 'widget', label: 'Embeddable Widget', icon: Code },
+          { id: 'tags', label: 'Tags & Auto-Tagging', icon: TagIcon },
+          { id: 'categories', label: 'Categories & Keywords', icon: Folder },
           { id: 'teams', label: 'Teams & Queues', icon: Users },
           { id: 'users', label: 'Staff Directory', icon: UserPlus },
           { id: 'customers', label: 'Customer Directory', icon: UserCheck },
           { id: 'sso', label: 'Single Sign-On (SSO)', icon: Shield },
-          { id: 'keys', label: 'API Keys', icon: Key },
-          { id: 'webhooks', label: 'Webhooks', icon: Webhook },
-          { id: 'compliance', label: 'GDPR & Compliance', icon: Shield },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1616,6 +1685,398 @@ export const AdminPage: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          )}
+
+          {activeTab === 'tags' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="card">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px',
+                    paddingBottom: '16px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <div>
+                    <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                      Ticket Tags & Sender Domain Auto-Rules
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', margin: 0 }}>
+                      Organize tickets with custom color-coded tags and configure sender email domains to automatically tag new tickets on arrival.
+                    </p>
+                  </div>
+                  <button onClick={openCreateTagModal} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Plus size={14} /> Create Tag
+                  </button>
+                </div>
+
+                {filteredTags.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '40px 20px',
+                      textAlign: 'center',
+                      backgroundColor: 'var(--bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px dashed var(--border-subtle)',
+                    }}
+                  >
+                    <TagIcon size={32} style={{ color: 'var(--text-muted)', marginBottom: '8px', opacity: 0.7 }} />
+                    <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>
+                      {debouncedSearchQuery ? 'No tags match your search' : 'No tags created yet'}
+                    </h4>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                      {debouncedSearchQuery
+                        ? 'Try clearing your search query.'
+                        : 'Create your first tag to organize tickets and set up auto-tagging rules based on sender email domains.'}
+                    </p>
+                    {!debouncedSearchQuery && (
+                      <button onClick={openCreateTagModal} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <Plus size={14} /> Create First Tag
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            TAG PREVIEW & NAME
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            AUTO-TAG SENDER DOMAINS
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            USAGE
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)', textAlign: 'right' }}>
+                            ACTIONS
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredTags.map((tag: any) => {
+                          const domains = tag.domains
+                            ? tag.domains
+                                .split(/[\s,;]+/)
+                                .map((d: string) => d.trim().replace(/^@/, ''))
+                                .filter(Boolean)
+                            : [];
+
+                          return (
+                            <tr key={tag.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                              <td style={{ padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span
+                                    style={{
+                                      backgroundColor: tag.color ? `${tag.color}15` : '#f1f5f9',
+                                      color: tag.color || '#334155',
+                                      border: `1px solid ${tag.color ? `${tag.color}40` : '#cbd5e1'}`,
+                                      borderRadius: '4px',
+                                      padding: '3px 9px',
+                                      fontSize: '12px',
+                                      fontWeight: 650,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        backgroundColor: tag.color || '#64748b',
+                                      }}
+                                    />
+                                    {tag.name}
+                                  </span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                    slug: {tag.slug}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td style={{ padding: '12px 14px' }}>
+                                {domains.length > 0 ? (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {domains.map((d: string, idx: number) => (
+                                      <span
+                                        key={idx}
+                                        style={{
+                                          fontSize: '11px',
+                                          fontWeight: 600,
+                                          backgroundColor: '#eff6ff',
+                                          color: '#1d4ed8',
+                                          border: '1px solid #bfdbfe',
+                                          padding: '2px 7px',
+                                          borderRadius: '4px',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                        }}
+                                      >
+                                        {d.includes('@') ? d : `@${d}`}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                    None (Manual tagging only)
+                                  </span>
+                                )}
+                              </td>
+
+                              <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {tag.usageCount || 0}
+                                </span>{' '}
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>tickets</span>
+                              </td>
+
+                              <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <button
+                                    onClick={() => openEditTagModal(tag)}
+                                    title="Edit Tag"
+                                    style={{
+                                      padding: '5px 8px',
+                                      border: '1px solid var(--border-subtle)',
+                                      borderRadius: '4px',
+                                      backgroundColor: 'transparent',
+                                      cursor: 'pointer',
+                                      color: 'var(--text-secondary)',
+                                    }}
+                                  >
+                                    <Edit size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTag(tag.id, tag.name)}
+                                    title="Delete Tag"
+                                    style={{
+                                      padding: '5px 8px',
+                                      border: '1px solid #fee2e2',
+                                      borderRadius: '4px',
+                                      backgroundColor: 'transparent',
+                                      cursor: 'pointer',
+                                      color: '#dc2626',
+                                    }}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'categories' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="card">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px',
+                    paddingBottom: '16px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <div>
+                    <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                      Ticket Categories & Keyword Auto-Matching
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', margin: 0 }}>
+                      Categorize support tickets and define up to 10 keywords per category to automatically classify inbound customer messages.
+                    </p>
+                  </div>
+                  <button onClick={openCreateCategoryModal} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Plus size={14} /> Create Category
+                  </button>
+                </div>
+
+                {filteredCategories.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '40px 20px',
+                      textAlign: 'center',
+                      backgroundColor: 'var(--bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px dashed var(--border-subtle)',
+                    }}
+                  >
+                    <Folder size={32} style={{ color: 'var(--text-muted)', marginBottom: '8px', opacity: 0.7 }} />
+                    <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>
+                      {debouncedSearchQuery ? 'No categories match your search' : 'No categories created yet'}
+                    </h4>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                      {debouncedSearchQuery
+                        ? 'Try clearing your search query.'
+                        : 'Create your first category and add keywords like "billing, payment, refund" to classify incoming tickets.'}
+                    </p>
+                    {!debouncedSearchQuery && (
+                      <button onClick={openCreateCategoryModal} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <Plus size={14} /> Create First Category
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            CATEGORY & PREVIEW
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            KEYWORD RULES (MAX 10)
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            USAGE
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)', textAlign: 'right' }}>
+                            ACTIONS
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredCategories.map((cat: any) => {
+                          const keywords = cat.keywords
+                            ? cat.keywords
+                                .split(/[\s,;]+/)
+                                .map((k: string) => k.trim())
+                                .filter(Boolean)
+                            : [];
+
+                          const catColor = cat.color || '#6366f1';
+
+                          return (
+                            <tr
+                              key={cat.id}
+                              style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                            >
+                              <td style={{ padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span
+                                    style={{
+                                      fontSize: '12px',
+                                      fontWeight: 600,
+                                      backgroundColor: `${catColor}15`,
+                                      color: catColor,
+                                      border: `1px solid ${catColor}40`,
+                                      padding: '3px 9px',
+                                      borderRadius: '4px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        width: '7px',
+                                        height: '7px',
+                                        borderRadius: '50%',
+                                        backgroundColor: catColor,
+                                      }}
+                                    />
+                                    {cat.name}
+                                  </span>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                    slug: {cat.slug}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td style={{ padding: '12px 14px' }}>
+                                {keywords.length > 0 ? (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                                    {keywords.map((k: string, idx: number) => (
+                                      <span
+                                        key={idx}
+                                        style={{
+                                          fontSize: '11px',
+                                          fontWeight: 600,
+                                          backgroundColor: '#f5f3ff',
+                                          color: '#7c3aed',
+                                          border: '1px solid #ddd6fe',
+                                          padding: '2px 7px',
+                                          borderRadius: '4px',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                        }}
+                                      >
+                                        {k}
+                                      </span>
+                                    ))}
+                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                      ({keywords.length}/10)
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                    None (Manual assignment only)
+                                  </span>
+                                )}
+                              </td>
+
+                              <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {cat.usageCount || 0}
+                                </span>{' '}
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>tickets</span>
+                              </td>
+
+                              <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <button
+                                    onClick={() => openEditCategoryModal(cat)}
+                                    title="Edit Category"
+                                    style={{
+                                      padding: '5px 8px',
+                                      border: '1px solid var(--border-subtle)',
+                                      borderRadius: '4px',
+                                      backgroundColor: 'transparent',
+                                      cursor: 'pointer',
+                                      color: 'var(--text-secondary)',
+                                    }}
+                                  >
+                                    <Edit size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                                    title="Delete Category"
+                                    style={{
+                                      padding: '5px 8px',
+                                      border: '1px solid #fee2e2',
+                                      borderRadius: '4px',
+                                      backgroundColor: 'transparent',
+                                      cursor: 'pointer',
+                                      color: '#dc2626',
+                                    }}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -2270,261 +2731,6 @@ export const AdminPage: React.FC = () => {
                     );
                   })
                 )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'keys' && (
-            <div className="card">
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '16px',
-                }}
-              >
-                <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Server API Keys</h3>
-                <button
-                  onClick={() => {
-                    setCreatedRawKey(null);
-                    setIsKeyOpen(true);
-                  }}
-                  className="btn btn-primary btn-sm"
-                >
-                  <Plus size={14} /> Generate API Key
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {filteredApiKeys.length === 0 ? (
-                  <div
-                    style={{
-                      fontSize: '13px',
-                      color: 'var(--text-muted)',
-                      textAlign: 'center',
-                      padding: '16px 0',
-                    }}
-                  >
-                    No API keys configured or matching search.
-                  </div>
-                ) : (
-                  filteredApiKeys.map((k) => (
-                    <div
-                      key={k.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '12px 16px',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 600 }}>{k.name}</div>
-                        <div
-                          style={{
-                            fontSize: '11px',
-                            fontFamily: 'var(--font-mono)',
-                            color: 'var(--text-muted)',
-                          }}
-                        >
-                          Key: {k.prefix}... | Uses: {k.useCount?.toString() || '0'} | Created:{' '}
-                          {safeFormatDate(k.createdAt)}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {k.revokedAt ? (
-                          <span className="badge badge-closed">Revoked</span>
-                        ) : (
-                          <>
-                            <span className="badge badge-open">Active</span>
-                            <button
-                              onClick={() => handleRevokeApiKey(k.id)}
-                              className="btn btn-secondary btn-sm"
-                              style={{ color: '#ef4444' }}
-                            >
-                              <Trash2 size={12} /> Revoke
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'webhooks' && (
-            <div className="card">
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '16px',
-                }}
-              >
-                <h3 style={{ fontSize: '15px', fontWeight: 700 }}>
-                  Outbound Webhooks (HMAC-SHA256)
-                </h3>
-                <button onClick={() => setIsWebhookOpen(true)} className="btn btn-primary btn-sm">
-                  <Plus size={14} /> Add Webhook
-                </button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {filteredWebhooks.length === 0 ? (
-                  <div
-                    style={{
-                      fontSize: '13px',
-                      color: 'var(--text-muted)',
-                      textAlign: 'center',
-                      padding: '16px 0',
-                    }}
-                  >
-                    No webhooks configured or matching search.
-                  </div>
-                ) : (
-                  filteredWebhooks.map((w) => (
-                    <div
-                      key={w.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '12px 16px',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 600, wordBreak: 'break-all' }}>
-                          {w.url}
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          Events: {(w.events || ['*']).join(', ')} | Status:{' '}
-                          {w.isActive ? 'Active' : 'Disabled'}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="badge badge-open">
-                          {w.isActive ? 'Enabled' : 'Disabled'}
-                        </span>
-                        <button
-                          onClick={() => handleDeleteWebhook(w.id)}
-                          className="btn btn-secondary btn-sm"
-                          style={{ color: '#ef4444' }}
-                        >
-                          <Trash2 size={12} /> Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'compliance' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {/* GDP & DPDPA controls */}
-              <div className="card">
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '16px',
-                  }}
-                >
-                  <div>
-                    <h3 style={{ fontSize: '15px', fontWeight: 700 }}>
-                      GDPR & DPDPA Compliance Requests
-                    </h3>
-                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      Submit and monitor Art. 15 Data Subject Access requests or Art. 17 Erasure
-                      requests.
-                    </p>
-                  </div>
-                  <button onClick={() => setIsDsrOpen(true)} className="btn btn-primary btn-sm">
-                    <Plus size={14} /> Submit Request
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {filteredDsrList.length === 0 ? (
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        color: 'var(--text-muted)',
-                        textAlign: 'center',
-                        padding: '16px 0',
-                      }}
-                    >
-                      No compliance requests submitted or matching search.
-                    </div>
-                  ) : (
-                    filteredDsrList.map((d) => (
-                      <div
-                        key={d.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '10px 14px',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--bg-surface-elevated)',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600 }}>{d.email}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Type: {d.requestType} | Submitted: {safeFormatDate(d.createdAt)}
-                          </div>
-                        </div>
-                        <span
-                          className={`badge ${d.status === 'COMPLETED' ? 'badge-open' : 'badge-closed'}`}
-                        >
-                          {d.status}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Data retention purge triggers */}
-              <div className="card">
-                <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '8px' }}>
-                  Execute Data Retention Policies
-                </h3>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                  Immediately run cleanups of records exceeding the data retention limits configured
-                  for your tenant.
-                </p>
-                <div
-                  style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}
-                >
-                  {[
-                    { label: 'Purge Old Tickets', scope: 'TICKET' },
-                    { label: 'Purge Diagnostic Telemetry', scope: 'DIAGNOSTIC' },
-                    { label: 'Purge Attachments & Media', scope: 'MEDIA' },
-                    { label: 'Purge Audit Logs', scope: 'AUDIT' },
-                    { label: 'Purge Chat Records', scope: 'CHAT' },
-                    { label: 'Purge Webhook Logs', scope: 'WEBHOOK_DELIVERY' },
-                  ].map((pol, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleExecuteRetention(pol.scope)}
-                      className="btn btn-secondary btn-sm"
-                      style={{ padding: '12px', justifyContent: 'center' }}
-                    >
-                      {pol.label}
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
           )}
@@ -3786,363 +3992,403 @@ export const AdminPage: React.FC = () => {
         </form>
       </Modal>
 
-      {/* Generate API Key Modal */}
+      {/* Create / Edit Tag Modal */}
       <Modal
-        isOpen={isKeyOpen}
-        onClose={() => {
-          setIsKeyOpen(false);
-          setCreatedRawKey(null);
-          setKeyName('');
-        }}
-        title="Generate Server API Key"
+        isOpen={isTagModalOpen}
+        onClose={() => setIsTagModalOpen(false)}
+        title={editingTag ? 'Edit Ticket Tag' : 'Create New Ticket Tag'}
       >
-        {createdRawKey ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div
-              style={{
-                padding: '12px 16px',
-                borderRadius: 'var(--radius-md)',
-                backgroundColor: 'var(--bg-surface-elevated)',
-                border: '1px solid var(--border-medium)',
-                fontSize: '13px',
-                color: 'var(--text-secondary)',
-                lineHeight: '1.5',
-              }}
-            >
-              Please save this secret key somewhere safe. For security reasons,{' '}
-              <strong>you will not be able to view it again</strong> through the Setup panel. If you
-              lose this key, you will need to revoke it and create a new one.
-            </div>
-
-            <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: 'var(--text-muted)',
-                  marginBottom: '6px',
-                }}
-              >
-                Key Name / Description
-              </label>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                {keyName}
-              </div>
-            </div>
-
-            <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: 'var(--text-muted)',
-                  marginBottom: '6px',
-                }}
-              >
-                Secret Key
-              </label>
-              <div
-                style={{
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  width: '100%',
-                }}
-              >
-                <input
-                  type="text"
-                  readOnly
-                  value={createdRawKey}
-                  style={{
-                    width: '100%',
-                    padding: '12px 48px 12px 16px',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '13px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--bg-input)',
-                    border: '1px solid var(--border-medium)',
-                    color: 'var(--text-primary)',
-                    outline: 'none',
-                    cursor: 'text',
-                  }}
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
-                <button
-                  type="button"
-                  onClick={handleCopyKey}
-                  style={{
-                    position: 'absolute',
-                    right: '8px',
-                    background: 'transparent',
-                    border: 'none',
-                    color: copiedKey ? '#10b981' : 'var(--text-muted)',
-                    cursor: 'pointer',
-                    padding: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    borderRadius: 'var(--radius-sm)',
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!copiedKey) e.currentTarget.style.color = 'var(--text-primary)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!copiedKey) e.currentTarget.style.color = 'var(--text-muted)';
-                  }}
-                  title="Copy to clipboard"
-                >
-                  {copiedKey ? <Check size={16} /> : <Copy size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-              <button
-                onClick={() => {
-                  setIsKeyOpen(false);
-                  setCreatedRawKey(null);
-                  setKeyName('');
-                }}
-                className="btn btn-primary"
-                style={{ padding: '8px 24px', fontSize: '13px', fontWeight: 600 }}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        ) : (
-          <form
-            onSubmit={handleCreateApiKey}
-            style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
-          >
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-              >
-                Key Description / Name
-              </label>
-              <input
-                type="text"
-                value={keyName}
-                onChange={(e) => setKeyName(e.target.value)}
-                placeholder="e.g. CI Integration Key"
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-input)',
-                  border: '1px solid var(--border-medium)',
-                  color: 'var(--text-primary)',
-                }}
-                required
-              />
-            </div>
-            <div
-              style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setIsKeyOpen(false);
-                  setCreatedRawKey(null);
-                  setKeyName('');
-                }}
-                className="btn btn-secondary btn-sm"
-              >
-                Cancel
-              </button>
-              <button type="submit" className="btn btn-primary btn-sm">
-                Generate Key
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
-
-      {/* Add Webhook Modal */}
-      <Modal
-        isOpen={isWebhookOpen}
-        onClose={() => {
-          setIsWebhookOpen(false);
-          setWebhookUrl('');
-          setWebhookEvents(['ticket.created', 'ticket.updated']);
-        }}
-        title="Register Webhook Endpoint"
-      >
-        <form
-          onSubmit={handleCreateWebhook}
-          style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
-        >
+        <form onSubmit={handleSaveTag} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Payload URL *
+            <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
+              Tag Name *
             </label>
             <input
-              type="url"
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="e.g. https://api.mycompany.com/webhook"
-              className="form-control"
+              type="text"
+              required
+              placeholder="e.g. VIP Enterprise, Billing, Partner"
+              value={tagName}
+              onChange={(e) => setTagName(e.target.value)}
+              className="form-input"
               style={{
                 width: '100%',
-                padding: '8px',
+                padding: '8px 12px',
                 border: '1px solid var(--border-medium)',
                 borderRadius: 'var(--radius-md)',
+                fontSize: '13px',
               }}
-              required
             />
           </div>
+
           <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}
-            >
-              Event Subscriptions
+            <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
+              Tag Color
             </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {[
-                { label: 'ticket.created - Raised support tickets', val: 'ticket.created' },
-                { label: 'ticket.updated - Field updates', val: 'ticket.updated' },
-                { label: 'ticket.commented - Replies & Notes added', val: 'ticket.commented' },
-                { label: 'ticket.resolved - Resolution confirmations', val: 'ticket.resolved' },
-              ].map((ev) => {
-                const isChecked = webhookEvents.includes(ev.val);
-                return (
-                  <label
-                    key={ev.val}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <input
+                type="color"
+                value={tagColor}
+                onChange={(e) => setTagColor(e.target.value)}
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  padding: '2px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-medium)',
+                  cursor: 'pointer',
+                }}
+              />
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'].map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setTagColor(hex)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontSize: '12px',
-                      fontWeight: 600,
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      backgroundColor: hex,
+                      border: tagColor === hex ? '2px solid #0f172a' : '2px solid transparent',
                       cursor: 'pointer',
+                      boxShadow: tagColor === hex ? '0 0 0 1px white inset' : 'none',
                     }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setWebhookEvents([...webhookEvents, ev.val]);
-                        } else {
-                          setWebhookEvents(webhookEvents.filter((item) => item !== ev.val));
-                        }
-                      }}
-                    />
-                    <span>{ev.label}</span>
-                  </label>
-                );
-              })}
+                  />
+                ))}
+              </div>
             </div>
           </div>
-          <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
-          >
+
+          <div>
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+              Auto-Tag Sender Emails / Domains (Optional)
+            </label>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                padding: '6px 10px',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--bg-surface)',
+                alignItems: 'center',
+                minHeight: '42px',
+                cursor: 'text',
+              }}
+              onClick={() => document.getElementById('tag-domains-input')?.focus()}
+            >
+              {tagDomainList.map((domain, index) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    backgroundColor: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '12px',
+                    color: '#1d4ed8',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>{domain.includes('@') ? domain : `@${domain}`}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTagDomainList(tagDomainList.filter((_, i) => i !== index));
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#60a5fa',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      lineHeight: 1,
+                      borderRadius: '50%',
+                      width: '14px',
+                      height: '14px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#fee2e2';
+                      e.currentTarget.style.color = '#ef4444';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = '#60a5fa';
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <input
+                id="tag-domains-input"
+                type="text"
+                value={tagDomainInput}
+                onChange={(e) => setTagDomainInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addTagDomainChip(tagDomainInput);
+                    setTagDomainInput('');
+                  }
+                }}
+                onBlur={() => {
+                  addTagDomainChip(tagDomainInput);
+                  setTagDomainInput('');
+                }}
+                placeholder={
+                  tagDomainList.length === 0
+                    ? 'e.g. user@gmail.com, company.com (Press Enter or comma to add)'
+                    : 'Add more email or domain...'
+                }
+                style={{
+                  flex: 1,
+                  minWidth: '130px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  outline: 'none',
+                  fontSize: '12px',
+                  padding: '4px 0',
+                }}
+              />
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+              Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add multiple emails or domains. Any incoming ticket submitted by customers matching these exact emails or email domains will automatically have this tag attached.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
             <button
               type="button"
-              onClick={() => setIsWebhookOpen(false)}
+              onClick={() => setIsTagModalOpen(false)}
               className="btn btn-secondary btn-sm"
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-sm">
-              Add Webhook
+            <button type="submit" disabled={isTagSubmitting} className="btn btn-primary btn-sm">
+              {isTagSubmitting ? 'Saving...' : editingTag ? 'Save Changes' : 'Create Tag'}
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* Submit DSR Modal */}
+      {/* Category Create / Edit Modal */}
       <Modal
-        isOpen={isDsrOpen}
-        onClose={() => setIsDsrOpen(false)}
-        title="Submit GDPR Data Subject Request"
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
+        title={editingCategory ? 'Edit Category' : 'Create New Category'}
       >
-        <form
-          onSubmit={handleCreateDsr}
-          style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
-        >
+        <form onSubmit={handleSaveCategory} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              User Email Address *
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+              Category Name *
             </label>
             <input
-              type="email"
-              value={dsrEmail}
-              onChange={(e) => setDsrEmail(e.target.value)}
-              placeholder="e.g. customer@example.com"
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
+              type="text"
               required
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              DSR Request Type *
-            </label>
-            <select
-              value={dsrType}
-              onChange={(e) => setDsrType(e.target.value as any)}
-              className="form-control"
+              value={categoryName}
+              onChange={(e) => setCategoryName(e.target.value)}
+              placeholder="e.g. Billing & Payments, Bug Reports, Account Access"
               style={{
                 width: '100%',
-                padding: '8px',
+                padding: '8px 12px',
                 border: '1px solid var(--border-medium)',
                 borderRadius: 'var(--radius-md)',
-              }}
-            >
-              <option value="EXPORT">Art. 15 Personal Data Export (JSON format)</option>
-              <option value="ERASURE">
-                Art. 17 In-place PII Anonymization (Right to be Forgotten)
-              </option>
-            </select>
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Reason / Notes
-            </label>
-            <textarea
-              value={dsrReason}
-              onChange={(e) => setDsrReason(e.target.value)}
-              placeholder="e.g. Requested by customer support ticket."
-              style={{
-                width: '100%',
-                minHeight: '60px',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--bg-surface)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                outline: 'none',
               }}
             />
           </div>
-          <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
-          >
+
+          <div>
+            <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
+              Category Color
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+              {[
+                '#6366f1',
+                '#3b82f6',
+                '#0ea5e9',
+                '#10b981',
+                '#8b5cf6',
+                '#ec4899',
+                '#f59e0b',
+                '#ef4444',
+                '#64748b',
+                '#14b8a6',
+              ].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCategoryColor(c)}
+                  style={{
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '50%',
+                    backgroundColor: c,
+                    border: categoryColor === c ? '2px solid #ffffff' : 'none',
+                    boxShadow: categoryColor === c ? `0 0 0 2px ${c}` : 'none',
+                    cursor: 'pointer',
+                  }}
+                />
+              ))}
+              <input
+                type="color"
+                value={categoryColor}
+                onChange={(e) => setCategoryColor(e.target.value)}
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  backgroundColor: 'transparent',
+                }}
+                title="Custom Color"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
+                Keyword Matching Rules (Max 10)
+              </label>
+              <span style={{ fontSize: '11px', color: categoryKeywordList.length >= 10 ? '#ef4444' : 'var(--text-muted)', fontWeight: 600 }}>
+                {categoryKeywordList.length} / 10 keywords
+              </span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                padding: '6px 10px',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--bg-surface)',
+                alignItems: 'center',
+                minHeight: '42px',
+                cursor: 'text',
+              }}
+              onClick={() => document.getElementById('category-keywords-input')?.focus()}
+            >
+              {categoryKeywordList.map((kw, index) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    backgroundColor: '#f5f3ff',
+                    border: '1px solid #ddd6fe',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '12px',
+                    color: '#7c3aed',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>{kw}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCategoryKeywordList(categoryKeywordList.filter((_, i) => i !== index));
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#a78bfa',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      lineHeight: 1,
+                      borderRadius: '50%',
+                      width: '14px',
+                      height: '14px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#fee2e2';
+                      e.currentTarget.style.color = '#ef4444';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = '#a78bfa';
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <input
+                id="category-keywords-input"
+                type="text"
+                value={categoryKeywordInput}
+                disabled={categoryKeywordList.length >= 10}
+                onChange={(e) => setCategoryKeywordInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addCategoryKeywordChip(categoryKeywordInput);
+                    setCategoryKeywordInput('');
+                  }
+                }}
+                onBlur={() => {
+                  addCategoryKeywordChip(categoryKeywordInput);
+                  setCategoryKeywordInput('');
+                }}
+                placeholder={
+                  categoryKeywordList.length >= 10
+                    ? 'Maximum 10 keywords reached'
+                    : categoryKeywordList.length === 0
+                    ? 'e.g. refund, payment, invoice (Press Enter or comma to add)'
+                    : 'Add more keyword...'
+                }
+                style={{
+                  flex: 1,
+                  minWidth: '130px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  outline: 'none',
+                  fontSize: '12px',
+                  padding: '4px 0',
+                }}
+              />
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+              Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add up to 10 keywords. Any incoming email or ticket matching these keywords in the subject, message body, or metadata will be automatically classified into this category.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
             <button
               type="button"
-              onClick={() => setIsDsrOpen(false)}
+              onClick={() => setIsCategoryModalOpen(false)}
               className="btn btn-secondary btn-sm"
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-sm">
-              Submit Request
+            <button type="submit" disabled={isCategorySubmitting} className="btn btn-primary btn-sm">
+              {isCategorySubmitting ? 'Saving...' : editingCategory ? 'Save Changes' : 'Create Category'}
             </button>
           </div>
         </form>
@@ -4150,3 +4396,4 @@ export const AdminPage: React.FC = () => {
     </div>
   );
 };
+

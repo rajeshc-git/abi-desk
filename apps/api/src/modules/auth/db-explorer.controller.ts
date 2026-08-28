@@ -24,21 +24,71 @@ export class DbExplorerController {
   @HttpCode(HttpStatus.OK)
   async runQuery(@Body() dto: { sql: string }) {
     const client = this.getClient();
+    const startTime = Date.now();
+    const notices: string[] = [];
+
+    // Capture postgres notices and warnings
+    client.on('notice', (msg) => {
+      if (msg && msg.message) {
+        notices.push(msg.message);
+      }
+    });
+
     try {
       await client.connect();
       const res = await client.query(dto.sql);
+      const executionTimeMs = Date.now() - startTime;
+
+      const results: any[] = Array.isArray(res) ? res : [res];
+      const lastResult = results[results.length - 1] || {};
+
+      // Find if any statement produced rows (e.g. SELECT)
+      const resultWithRows =
+        results.slice().reverse().find((r) => r.rows && r.rows.length > 0) || lastResult;
+
+      const command = results.map((r) => r.command || 'QUERY').join('; ');
+      const totalRowCount = results.reduce(
+        (acc, r) => acc + (typeof r.rowCount === 'number' ? r.rowCount : 0),
+        0,
+      );
+      const fields = (resultWithRows.fields || []).map((f: any) => ({ name: f.name }));
+      const rows = resultWithRows.rows || [];
+
+      // Generate message lines for each statement in multi-query execution
+      const statementMessages = results.map((r) => {
+        const cmd = (r.command || 'QUERY').toUpperCase();
+        const count = typeof r.rowCount === 'number' ? r.rowCount : 0;
+        if (['UPDATE', 'DELETE', 'INSERT'].includes(cmd)) {
+          return `${cmd} ${count} (${count} row(s) affected)`;
+        } else if (cmd === 'SELECT') {
+          return `SELECT (${(r.rows || []).length} row(s) returned)`;
+        }
+        return `${r.command || 'COMMAND'} executed successfully`;
+      });
+
+      const message = `${statementMessages.join(' | ')} (in ${executionTimeMs} ms)`;
 
       return {
         success: true,
-        command: res.command,
-        rowCount: res.rowCount,
-        fields: res.fields.map((f) => ({ name: f.name })),
-        rows: res.rows,
+        command,
+        rowCount: totalRowCount,
+        fields,
+        rows,
+        executionTimeMs,
+        notices,
+        message,
+        statementMessages,
       };
     } catch (err: any) {
+      const executionTimeMs = Date.now() - startTime;
       return {
         success: false,
         error: err.message || String(err),
+        executionTimeMs,
+        notices,
+        position: err.position,
+        detail: err.detail,
+        hint: err.hint,
       };
     } finally {
       await client.end().catch(() => {});

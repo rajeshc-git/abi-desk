@@ -1,5 +1,7 @@
 import React from 'react';
+import { Folder } from 'lucide-react';
 import { PriorityPill, StatusBadge, TierBadge } from '../common/Badge';
+import { useSearch } from '../../context/SearchContext';
 
 export interface TicketSummary {
   id: string;
@@ -10,9 +12,10 @@ export interface TicketSummary {
   priority: string;
   tier: string;
   channel: string;
-  category?: string;
+  category?: string | null;
   requester?: { fullName: string; email: string };
   assignee?: { fullName: string; email: string } | null;
+  tags?: Array<{ tag: { name: string; slug: string; color?: string } }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -25,6 +28,7 @@ interface TicketCardProps {
 }
 
 export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUnread, onClick }) => {
+  const { setSelectedTag, setSelectedCategory } = useSearch();
   const rawDate = ticket.createdAt || ticket.updatedAt;
   const dateObj = rawDate ? new Date(rawDate) : new Date();
   const formattedDate = isNaN(dateObj.getTime())
@@ -133,6 +137,67 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
       >
         {ticket.subject}
       </div>
+
+      {/* Category and Tags pills container */}
+      {(ticket.category || (ticket.tags && ticket.tags.length > 0)) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+          {ticket.category && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedCategory({ name: ticket.category!, slug: ticket.category!.toLowerCase().replace(/\s+/g, '-') });
+              }}
+              style={{
+                fontSize: '10px',
+                fontWeight: 600,
+                backgroundColor: '#f5f3ff',
+                color: '#7c3aed',
+                border: '1px solid #ddd6fe',
+                borderRadius: '3px',
+                padding: '1px 5px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                cursor: 'pointer',
+                transition: 'opacity 0.15s',
+              }}
+              title={`Filter by category: ${ticket.category}`}
+            >
+              <Folder size={9} />
+              {ticket.category}
+            </span>
+          )}
+          {ticket.tags?.map((tItem, idx) => {
+            const tag = tItem.tag;
+            if (!tag) return null;
+            return (
+              <span
+                key={idx}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedTag({ name: tag.name, slug: tag.slug, color: tag.color });
+                }}
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  backgroundColor: tag.color ? `${tag.color}15` : '#f1f5f9',
+                  color: tag.color || '#475569',
+                  border: `1px solid ${tag.color ? `${tag.color}40` : '#e2e8f0'}`,
+                  borderRadius: '3px',
+                  padding: '1px 5px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  transition: 'opacity 0.15s',
+                }}
+                title={`Filter by tag: ${tag.name}`}
+              >
+                {tag.name}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <div
         style={{

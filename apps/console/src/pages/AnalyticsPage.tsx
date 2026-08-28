@@ -67,7 +67,6 @@ export const AnalyticsPage: React.FC = () => {
   } | null>(null);
   const [volume, setVolume] = useState<any | null>(null);
   const [slaMetrics, setSlaMetrics] = useState<any | null>(null);
-  const [csat, setCsat] = useState<any | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
@@ -95,20 +94,18 @@ export const AnalyticsPage: React.FC = () => {
           ApiClient.get(`/analytics/heatmap${queryStr}`),
           ApiClient.get(`/analytics/volume${queryStr}`),
           ApiClient.get(`/analytics/sla${queryStr}`),
-          ApiClient.get(`/analytics/csat`),
           hasTenantView ? ApiClient.get(`/analytics/agents${queryStr}`) : Promise.resolve([]),
           hasTenantView ? ApiClient.get(`/analytics/queues`) : Promise.resolve([]),
           hasBrandManage ? ApiClient.get(`/admin/brands`) : Promise.resolve([]),
         ];
 
-        const [ov, tl, hm, vol, sla, cs, ag, q, br] = await Promise.all(promises);
+        const [ov, tl, hm, vol, sla, ag, q, br] = await Promise.all(promises);
 
         setOverview(ov);
         setTimeline(tl?.points || []);
         setHeatmap(hm);
         setVolume(vol);
         setSlaMetrics(sla);
-        setCsat(cs);
         setAgents(Array.isArray(ag) ? ag : ag?.agents || []);
         setQueues(Array.isArray(q) ? q : []);
         setBrands(Array.isArray(br) ? br : []);
@@ -610,7 +607,7 @@ export const AnalyticsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* KPI 4: CSAT Satisfaction */}
+            {/* KPI 4: Active Staff Online */}
             <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
               <div
                 style={{
@@ -627,17 +624,29 @@ export const AnalyticsPage: React.FC = () => {
                     textTransform: 'uppercase',
                   }}
                 >
-                  CSAT Satisfaction
+                  Active Staff
                 </span>
                 <span
                   className="badge"
                   style={{
-                    backgroundColor: 'rgba(236, 72, 153, 0.15)',
-                    color: '#ec4899',
+                    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                    color: '#10b981',
                     fontSize: '10px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
                   }}
                 >
-                  {overview?.csatResponseCount ?? 0} Surveys
+                  <span
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: '#10b981',
+                      boxShadow: '0 0 6px #10b981',
+                    }}
+                  />
+                  Live Presence
                 </span>
               </div>
               <div
@@ -645,37 +654,19 @@ export const AnalyticsPage: React.FC = () => {
                   fontSize: '28px',
                   fontWeight: 800,
                   marginTop: '8px',
-                  color:
-                    overview?.csatAverage !== null && overview?.csatAverage !== undefined
-                      ? '#ec4899'
-                      : 'var(--text-muted)',
+                  color: '#10b981',
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
+                  alignItems: 'baseline',
+                  gap: '6px',
                 }}
               >
-                <Star
-                  size={24}
-                  fill={
-                    overview?.csatAverage !== null && overview?.csatAverage !== undefined
-                      ? '#ec4899'
-                      : 'transparent'
-                  }
-                  style={{
-                    color:
-                      overview?.csatAverage !== null && overview?.csatAverage !== undefined
-                        ? '#ec4899'
-                        : 'var(--text-muted)',
-                  }}
-                />
-                <span>
-                  {overview?.csatAverage !== null && overview?.csatAverage !== undefined
-                    ? `${overview.csatAverage} / 5.0`
-                    : 'N/A'}
+                <span>{overview?.onlineStaffCount ?? 0}</span>
+                <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  / {overview?.totalStaffCount ?? agents.length} Online
                 </span>
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                Customer post-resolution score
+                Currently active in workspace
               </div>
             </div>
           </div>
@@ -1313,11 +1304,11 @@ export const AnalyticsPage: React.FC = () => {
                       }}
                     >
                       <th style={{ padding: '8px 12px' }}>Staff Member</th>
+                      <th style={{ padding: '8px 12px' }}>Status</th>
                       <th style={{ padding: '8px 12px' }}>Assigned</th>
                       <th style={{ padding: '8px 12px' }}>Resolved</th>
                       <th style={{ padding: '8px 12px' }}>Resolution Velocity</th>
-                      <th style={{ padding: '8px 12px' }}>Avg Resolution Time</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>CSAT Rating</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Avg Resolution Time</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1334,6 +1325,60 @@ export const AnalyticsPage: React.FC = () => {
                               {agent.jobTitle || agent.email}
                             </div>
                           </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            {agent.isOnline ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  backgroundColor: '#ecfdf5',
+                                  color: '#059669',
+                                  border: '1px solid #a7f3d0',
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '6px',
+                                    height: '6px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#10b981',
+                                    boxShadow: '0 0 5px #10b981',
+                                  }}
+                                />
+                                Online
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: 500,
+                                  backgroundColor: '#f1f5f9',
+                                  color: '#64748b',
+                                  border: '1px solid #e2e8f0',
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '6px',
+                                    height: '6px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#94a3b8',
+                                  }}
+                                />
+                                Offline
+                              </span>
+                            )}
+                          </td>
                           <td style={{ padding: '10px 12px', fontWeight: 600 }}>
                             {agent.assignedCount}
                           </td>
@@ -1349,7 +1394,7 @@ export const AnalyticsPage: React.FC = () => {
                                   backgroundColor: 'var(--bg-surface-elevated)',
                                   borderRadius: 'var(--radius-full)',
                                   overflow: 'hidden',
-                                }}
+                                } }
                               >
                                 <div
                                   style={{
@@ -1369,31 +1414,12 @@ export const AnalyticsPage: React.FC = () => {
                               padding: '10px 12px',
                               fontSize: '12px',
                               color: 'var(--text-secondary)',
+                              textAlign: 'right',
                             }}
                           >
                             {agent.avgResolutionHours !== null
                               ? `${agent.avgResolutionHours} hrs`
                               : 'N/A'}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                            {agent.csatAverage !== null ? (
-                              <span
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  color: '#ec4899',
-                                  fontWeight: 700,
-                                }}
-                              >
-                                <Star size={13} fill="#ec4899" /> {agent.csatAverage} (
-                                {agent.csatCount})
-                              </span>
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-                                No surveys
-                              </span>
-                            )}
                           </td>
                         </tr>
                       ))}

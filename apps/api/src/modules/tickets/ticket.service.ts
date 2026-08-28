@@ -18,9 +18,13 @@ import { StorageService } from '../../infra/storage/storage.service';
 import { SlaService } from '../sla/sla.service';
 import {
   type AddCommentDto,
+  type CreateCategoryDto,
+  type CreateTagDto,
   type CreateTicketDto,
   type ListCommentsDto,
   type ListTicketsDto,
+  type UpdateCategoryDto,
+  type UpdateTagDto,
   type UpdateTicketDto,
 } from './ticket.dto';
 import { ticketFilterFor, toPolicySubject } from './ticket-scope';
@@ -155,6 +159,9 @@ export class TicketService {
       if (dto.tags?.length) {
         await this.attachTags(tx, tenantId, created.id, dto.tags, principal.userId);
       }
+
+      await this.applyAutoDomainTags(tx, tenantId, created.id, requesterId);
+      await this.applyAutoCategoryKeywords(tx, tenantId, created.id, created.subject, dto.description, dto.customFields);
 
       const attachmentCount = await this.media.attachToTicket(
         tx,
@@ -669,7 +676,7 @@ export class TicketService {
 
       // Outbound email notification for staff public comments on email/support tickets:
       if (isPublic && isStaff) {
-        this.mailService.send({
+        this.mailService.sendTicketMail({
           to: {
             email: ticket.requester.email,
             name: ticket.requester.fullName,
@@ -1022,6 +1029,266 @@ export class TicketService {
     }
   }
 
+  /** List all tags for the tenant with usage counts and auto-tagging domain rules. */
+  async listTags(principal: AuthenticatedPrincipal) {
+    const tenantId = this.requireTenant(principal);
+    return this.prisma.client.tag.findMany({
+      where: { tenantId },
+      orderBy: [{ usageCount: 'desc' }, { name: 'asc' }],
+    });
+  }
+
+  /** Creates a new tag or updates its domain rules. */
+  async createTag(principal: AuthenticatedPrincipal, dto: CreateTagDto) {
+    const tenantId = this.requireTenant(principal);
+    const slug = slugify(dto.name);
+    return this.prisma.client.tag.upsert({
+      where: { tenantId_slug: { tenantId, slug } },
+      update: {
+        name: dto.name,
+        color: dto.color ?? undefined,
+        domains: dto.domains !== undefined ? dto.domains : undefined,
+      },
+      create: {
+        tenantId,
+        name: dto.name,
+        slug,
+        color: dto.color ?? '#64748B',
+        domains: dto.domains ?? null,
+      },
+    });
+  }
+
+  /** Updates an existing tag by id. */
+  async updateTag(principal: AuthenticatedPrincipal, id: string, dto: UpdateTagDto) {
+    const tenantId = this.requireTenant(principal);
+    const existing = await this.prisma.client.tag.findFirstOrThrow({
+      where: { id, tenantId },
+    });
+
+    const slug = dto.name ? slugify(dto.name) : undefined;
+    return this.prisma.client.tag.update({
+      where: { id: existing.id },
+      data: {
+        name: dto.name ?? undefined,
+        slug,
+        color: dto.color ?? undefined,
+        domains: dto.domains !== undefined ? dto.domains : undefined,
+      },
+    });
+  }
+
+  /** Deletes a tag by id. */
+  async deleteTag(principal: AuthenticatedPrincipal, id: string) {
+    const tenantId = this.requireTenant(principal);
+    const existing = await this.prisma.client.tag.findFirstOrThrow({
+      where: { id, tenantId },
+    });
+    await this.prisma.client.tag.delete({
+      where: { id: existing.id },
+    });
+  }
+
+  /** List all ticket categories for the tenant with usage counts and keyword rules. */
+  async listCategories(principal: AuthenticatedPrincipal) {
+    const tenantId = this.requireTenant(principal);
+    const categoryDelegate = (this.prisma.client as any).category;
+    return categoryDelegate.findMany({
+      where: { tenantId },
+      orderBy: [{ usageCount: 'desc' }, { name: 'asc' }],
+    });
+  }
+
+  /** Creates a new category or updates its keyword rules. */
+  async createCategory(principal: AuthenticatedPrincipal, dto: CreateCategoryDto) {
+    const tenantId = this.requireTenant(principal);
+    const slug = slugify(dto.name);
+    const categoryDelegate = (this.prisma.client as any).category;
+    return categoryDelegate.upsert({
+      where: { tenantId_slug: { tenantId, slug } },
+      update: {
+        name: dto.name,
+        color: dto.color ?? undefined,
+        keywords: dto.keywords !== undefined ? dto.keywords : undefined,
+      },
+      create: {
+        tenantId,
+        name: dto.name,
+        slug,
+        color: dto.color ?? '#6366f1',
+        keywords: dto.keywords ?? null,
+      },
+    });
+  }
+
+  /** Updates an existing category by id. */
+  async updateCategory(principal: AuthenticatedPrincipal, id: string, dto: UpdateCategoryDto) {
+    const tenantId = this.requireTenant(principal);
+    const categoryDelegate = (this.prisma.client as any).category;
+    const existing = await categoryDelegate.findFirstOrThrow({
+      where: { id, tenantId },
+    });
+
+    const slug = dto.name ? slugify(dto.name) : undefined;
+    return categoryDelegate.update({
+      where: { id: existing.id },
+      data: {
+        name: dto.name ?? undefined,
+        slug,
+        color: dto.color ?? undefined,
+        keywords: dto.keywords !== undefined ? dto.keywords : undefined,
+      },
+    });
+  }
+
+  /** Deletes a category by id. */
+  async deleteCategory(principal: AuthenticatedPrincipal, id: string) {
+    const tenantId = this.requireTenant(principal);
+    const categoryDelegate = (this.prisma.client as any).category;
+    const existing = await categoryDelegate.findFirstOrThrow({
+      where: { id, tenantId },
+    });
+    await categoryDelegate.delete({
+      where: { id: existing.id },
+    });
+  }
+
+  /** Automatically matches ticket subject, description, and custom fields against category keyword rules. */
+  private async applyAutoCategoryKeywords(
+    tx: TenantTransaction,
+    tenantId: string,
+    ticketId: string,
+    subject: string,
+    description?: string | null,
+    customFields?: any,
+  ): Promise<void> {
+    try {
+      const currentTicket = await tx.ticket.findUnique({
+        where: { id: ticketId },
+        select: { category: true },
+      });
+      if (currentTicket?.category) return;
+
+      const categoryDelegate = (tx as any).category || (this.prisma.client as any).category;
+      const allCategories = await categoryDelegate.findMany({
+        where: { tenantId, keywords: { not: null } },
+      });
+
+      if (allCategories.length === 0) return;
+
+      const searchableText = [
+        subject || '',
+        description || '',
+        typeof customFields === 'object' && customFields !== null
+          ? JSON.stringify(customFields)
+          : String(customFields || ''),
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      for (const cat of allCategories) {
+        if (!cat.keywords) continue;
+        const keywordList = cat.keywords
+          .split(/[,;\n]+/)
+          .map((k: string) => k.toLowerCase().trim())
+          .filter(Boolean);
+
+        const isMatch = keywordList.some((kw: string) => {
+          if (kw.length < 2) return false;
+          // Word boundary or substring match in content
+          return searchableText.includes(kw);
+        });
+
+        if (isMatch) {
+          await tx.ticket.update({
+            where: { id: ticketId },
+            data: { category: cat.name },
+          });
+
+          await categoryDelegate.update({
+            where: { id: cat.id },
+            data: { usageCount: { increment: 1 } },
+          });
+
+          await this.recordEvent(tx, {
+            tenantId,
+            ticketId,
+            type: 'CATEGORY_CHANGED',
+            toValue: cat.name,
+            metadata: { autoCategoryRule: cat.name },
+          });
+
+          break; // Stop after first matched category
+        }
+      }
+    } catch (err) {
+      this.logger.warn({ err, ticketId }, 'Failed to apply auto category keywords');
+    }
+  }
+
+  /** Automatically matches requester email or email domain against tag auto-rules and tags ticket. */
+  private async applyAutoDomainTags(
+    tx: TenantTransaction,
+    tenantId: string,
+    ticketId: string,
+    requesterId: string,
+  ): Promise<void> {
+    try {
+      const requester = await tx.user.findUnique({
+        where: { id: requesterId },
+        select: { email: true },
+      });
+      if (!requester?.email || !requester.email.includes('@')) return;
+
+      const requesterEmail = requester.email.toLowerCase().trim();
+      const emailDomain = requesterEmail.split('@')[1]?.toLowerCase().trim();
+      if (!emailDomain) return;
+
+      const allTags = await tx.tag.findMany({
+        where: { tenantId, domains: { not: null } },
+      });
+
+      for (const tag of allTags) {
+        if (!tag.domains) continue;
+        const ruleList = tag.domains
+          .split(/[\s,;]+/)
+          .map((d) => d.toLowerCase().trim())
+          .filter(Boolean);
+
+        // Matches exact full email (e.g. "vip.client@gmail.com") OR domain (e.g. "company.com" or "@company.com")
+        const isMatch = ruleList.some((rule) => {
+          const cleanRule = rule.replace(/^@/, '');
+          return rule === requesterEmail || cleanRule === requesterEmail || cleanRule === emailDomain;
+        });
+
+        if (isMatch) {
+          const existing = await tx.ticketTag.findFirst({
+            where: { ticketId, tagId: tag.id },
+            select: { ticketId: true },
+          });
+          if (!existing) {
+            await tx.ticketTag.create({
+              data: { tenantId, ticketId, tagId: tag.id },
+            });
+            await tx.tag.update({
+              where: { id: tag.id },
+              data: { usageCount: { increment: 1 } },
+            });
+            await this.recordEvent(tx, {
+              tenantId,
+              ticketId,
+              type: 'TAG_ADDED',
+              toValue: tag.name,
+              metadata: { autoTagRule: requesterEmail },
+            });
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn({ err, ticketId }, 'Failed to apply auto domain tags');
+    }
+  }
+
   /** Appends a timeline event. */
   private async recordEvent(
     tx: TenantTransaction,
@@ -1150,8 +1417,9 @@ export class TicketService {
     query: ListTicketsDto,
     where: Prisma.TicketWhereInput,
   ) {
-    const term = query.q!;
+    const term = query.q!.trim();
     const skip = (query.page - 1) * query.pageSize;
+    const likePattern = `%${term}%`;
 
     const scoped = await this.prisma.client.ticket.findMany({
       where,
@@ -1168,19 +1436,55 @@ export class TicketService {
     const allowedIds = scoped.map((row) => row.id);
 
     const ranked = await this.prisma.client.$queryRaw<Array<{ id: string; rank: number }>>`
-      SELECT id, ts_rank("searchVector", websearch_to_tsquery('english', ${term})) AS rank
-      FROM ticket
-      WHERE id = ANY(${allowedIds}::uuid[])
-        AND "searchVector" @@ websearch_to_tsquery('english', ${term})
-      ORDER BY rank DESC, "lastActivityAt" DESC
+      SELECT t.id,
+        (
+          COALESCE(ts_rank(t."searchVector", websearch_to_tsquery('english', ${term})), 0.0) +
+          CASE WHEN t.number ILIKE ${likePattern} THEN 3.0 ELSE 0.0 END +
+          CASE WHEN u.email ILIKE ${likePattern} THEN 2.5 ELSE 0.0 END +
+          CASE WHEN u."fullName" ILIKE ${likePattern} THEN 2.0 ELSE 0.0 END +
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ticket_tag tt 
+            JOIN tag tg ON tt."tagId" = tg.id 
+            WHERE tt."ticketId" = t.id AND (tg.name ILIKE ${likePattern} OR tg.slug ILIKE ${likePattern})
+          ) THEN 2.0 ELSE 0.0 END +
+          CASE WHEN t."customFields"::text ILIKE ${likePattern} THEN 1.0 ELSE 0.0 END
+        )::float AS rank
+      FROM ticket t
+      LEFT JOIN "user" u ON t."requesterId" = u.id
+      WHERE t.id = ANY(${allowedIds}::uuid[])
+        AND (
+          t."searchVector" @@ websearch_to_tsquery('english', ${term})
+          OR t.number ILIKE ${likePattern}
+          OR u.email ILIKE ${likePattern}
+          OR u."fullName" ILIKE ${likePattern}
+          OR t."customFields"::text ILIKE ${likePattern}
+          OR EXISTS (
+            SELECT 1 FROM ticket_tag tt 
+            JOIN tag tg ON tt."tagId" = tg.id 
+            WHERE tt."ticketId" = t.id AND (tg.name ILIKE ${likePattern} OR tg.slug ILIKE ${likePattern})
+          )
+        )
+      ORDER BY rank DESC, t."lastActivityAt" DESC
       LIMIT ${query.pageSize} OFFSET ${skip}
     `;
 
     const total = await this.prisma.client.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*)::bigint AS count
-      FROM ticket
-      WHERE id = ANY(${allowedIds}::uuid[])
-        AND "searchVector" @@ websearch_to_tsquery('english', ${term})
+      FROM ticket t
+      LEFT JOIN "user" u ON t."requesterId" = u.id
+      WHERE t.id = ANY(${allowedIds}::uuid[])
+        AND (
+          t."searchVector" @@ websearch_to_tsquery('english', ${term})
+          OR t.number ILIKE ${likePattern}
+          OR u.email ILIKE ${likePattern}
+          OR u."fullName" ILIKE ${likePattern}
+          OR t."customFields"::text ILIKE ${likePattern}
+          OR EXISTS (
+            SELECT 1 FROM ticket_tag tt 
+            JOIN tag tg ON tt."tagId" = tg.id 
+            WHERE tt."ticketId" = t.id AND (tg.name ILIKE ${likePattern} OR tg.slug ILIKE ${likePattern})
+          )
+        )
     `;
 
     const rankedIds = ranked.map((row) => row.id);
@@ -1507,6 +1811,9 @@ export class TicketService {
         metadata: { channel: 'EMAIL', priority: 'NORMAL', attachmentCount: ticketAttachmentCount },
       });
 
+      await this.applyAutoDomainTags(tx, tenantId, created.id, requester.id);
+      await this.applyAutoCategoryKeywords(tx, tenantId, created.id, created.subject, payload.body || created.description);
+
       if (this.gateway) {
         this.gateway.broadcastTicketCreated(tenantId, {
           ...created,
@@ -1519,8 +1826,8 @@ export class TicketService {
         });
       }
 
-      // Send automated acknowledgment email to customer
-      this.mailService.send({
+      // Send automated acknowledgment email to customer via ServiceDesk SMTP
+      this.mailService.sendTicketMail({
         to: { email: senderEmail, name: senderName || senderEmail.split('@')[0] || 'Customer' },
         subject: `[Ticket #${created.number}] Received: ${created.subject}`,
         text: `Hello ${senderName || senderEmail.split('@')[0] || 'Customer'},\n\nWe have received your support request regarding "${created.subject}" (Ticket #${created.number}). Our team is actively reviewing it and will get back to you shortly.\n\nYou can reply directly to this email at any time to provide additional details.\n\nBest regards,\nSupport Team`,

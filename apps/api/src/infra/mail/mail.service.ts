@@ -21,6 +21,7 @@ import { type MailMessage, type MailSendResult } from './mail.types';
 @Injectable()
 export class MailService implements OnModuleInit, OnModuleDestroy {
   private transporter!: Transporter;
+  private ticketTransporter!: Transporter;
   private readonly logger: Logger;
 
   constructor(
@@ -32,7 +33,9 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     const mail = this.config.mail;
+    const ticketMail = this.config.ticketMail;
 
+    // 1. Primary System & Auth Transporter (donotreply@abi-health.in)
     this.transporter = createTransport({
       host: mail.host,
       port: mail.port,
@@ -47,17 +50,37 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
       maxMessages: 100,
     });
 
-    this.logger.info({ host: mail.host, port: mail.port }, 'SMTP transport ready');
+    this.logger.info({ host: mail.host, port: mail.port, user: mail.user }, 'System SMTP transport ready');
+
+    // 2. Dedicated ServiceDesk / Ticket Transporter (servicedesk@abi-health.com)
+    this.ticketTransporter = createTransport({
+      host: ticketMail.host,
+      port: ticketMail.port,
+      secure: ticketMail.secure,
+      ...(ticketMail.user ? { auth: { user: ticketMail.user, pass: ticketMail.password ?? '' } } : {}),
+      tls: {
+        rejectUnauthorized: false,
+        ciphers: 'SSLv3',
+      },
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+    });
+
+    this.logger.info(
+      { host: ticketMail.host, port: ticketMail.port, user: ticketMail.user },
+      'ServiceDesk Ticket SMTP transport ready',
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
     this.transporter?.close();
+    this.ticketTransporter?.close();
   }
 
   /**
-   * Sends a message. Never throws.
-   *
-   * @returns the provider result, or null when delivery failed.
+   * Sends a general system/auth message (OTP, invitations, password reset).
+   * Routed via donotreply@abi-health.in. Never throws.
    */
   async send(message: MailMessage): Promise<MailSendResult | null> {
     const to = message.to.name
@@ -74,14 +97,13 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
         headers: {
           'X-ABIDesk-Tag': message.tag,
-          // Transactional mail must never be auto-replied to or bulk-filtered.
           'Auto-Submitted': 'auto-generated',
         },
       });
 
       this.logger.info(
         { tag: message.tag, messageId: info.messageId, accepted: info.accepted?.length ?? 0 },
-        'Mail sent',
+        'System mail sent',
       );
 
       return {
@@ -90,9 +112,46 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
         rejected: (info.rejected ?? []).map(String),
       };
     } catch (error: unknown) {
-      // The recipient address is deliberately not logged at error level alongside
-      // the failure reason, to keep mail addresses out of alerting pipelines.
-      this.logger.error({ err: error, tag: message.tag }, 'Mail delivery failed');
+      this.logger.error({ err: error, tag: message.tag }, 'System mail delivery failed');
+      return null;
+    }
+  }
+
+  /**
+   * Sends a support ticket message (Ticket Creation Acknowledgment & Staff Outbound Replies).
+   * Routed via servicedesk@abi-health.com. Never throws.
+   */
+  async sendTicketMail(message: MailMessage): Promise<MailSendResult | null> {
+    const to = message.to.name
+      ? `"${message.to.name.replace(/"/g, '')}" <${message.to.email}>`
+      : message.to.email;
+
+    try {
+      const info = await this.ticketTransporter.sendMail({
+        from: this.config.ticketMail.from,
+        to,
+        subject: message.subject,
+        text: message.text,
+        html: message.html,
+        ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        headers: {
+          'X-ABIDesk-Tag': message.tag,
+          'Auto-Submitted': 'auto-generated',
+        },
+      });
+
+      this.logger.info(
+        { tag: message.tag, messageId: info.messageId, accepted: info.accepted?.length ?? 0 },
+        'ServiceDesk ticket mail sent',
+      );
+
+      return {
+        messageId: info.messageId,
+        accepted: (info.accepted ?? []).map(String),
+        rejected: (info.rejected ?? []).map(String),
+      };
+    } catch (error: unknown) {
+      this.logger.error({ err: error, tag: message.tag }, 'ServiceDesk ticket mail delivery failed');
       return null;
     }
   }

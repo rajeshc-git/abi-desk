@@ -7,9 +7,15 @@ import { TenantPrismaService } from '../../infra/tenancy/tenant-prisma.service';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { type AnalyticsFilterDto, type ExportReportDto } from './analytics.dto';
 
+export interface PresenceProvider {
+  getOnlineStaffUserIds(tenantId: string): string[];
+  isUserOnline(userId: string): boolean;
+}
+
 @Injectable()
 export class AnalyticsService {
   private readonly logger: Logger;
+  private presenceProvider?: PresenceProvider;
 
   constructor(
     private readonly db: TenantPrismaService,
@@ -17,6 +23,10 @@ export class AnalyticsService {
     @Inject(PINO_LOGGER) rootLogger: Logger,
   ) {
     this.logger = rootLogger.child({ context: 'AnalyticsService' });
+  }
+
+  registerGateway(gateway: PresenceProvider) {
+    this.presenceProvider = gateway;
   }
 
   /**
@@ -102,6 +112,13 @@ export class AnalyticsService {
     const slaComplianceRate =
       totalFinished > 0 ? Math.round((metCount / totalFinished) * 100) : null;
 
+    const onlineUserIds = this.presenceProvider
+      ? this.presenceProvider.getOnlineStaffUserIds(tenantId)
+      : [];
+    const totalStaffCount = await this.db.client.user.count({
+      where: { tenantId, kind: 'STAFF', deletedAt: null },
+    });
+
     return {
       totalCreated,
       totalResolved,
@@ -112,8 +129,8 @@ export class AnalyticsService {
       avgFirstResponseMinutes,
       avgResolutionHours,
       slaComplianceRate,
-      csatAverage: csatStats._avg.rating ? Math.round(csatStats._avg.rating * 10) / 10 : null,
-      csatResponseCount: csatStats._count.id,
+      onlineStaffCount: onlineUserIds.length,
+      totalStaffCount,
     };
   }
 
@@ -526,18 +543,20 @@ export class AnalyticsService {
       const assigned = assignedMap.get(agent.id) ?? 0;
       const resolved = resolvedMap.get(agent.id) ?? 0;
       const resolutionRate = assigned > 0 ? Math.round((resolved / assigned) * 100) : 100;
+      const isOnline = this.presenceProvider
+        ? this.presenceProvider.isUserOnline(agent.id)
+        : false;
 
       return {
         agentId: agent.id,
         fullName: agent.fullName,
         email: agent.email,
         jobTitle: agent.jobTitle,
+        isOnline,
         assignedCount: assigned,
         resolvedCount: resolved,
         resolutionRate,
         avgResolutionHours: avgHours,
-        csatAverage: csatMap.get(agent.id)?.rating ?? null,
-        csatCount: csatMap.get(agent.id)?.count ?? 0,
       };
     });
   }
@@ -591,6 +610,11 @@ export class AnalyticsService {
         tier: true,
         channel: true,
         category: true,
+        tags: {
+          select: {
+            tag: { select: { name: true } },
+          },
+        },
         createdAt: true,
         resolvedAt: true,
         closedAt: true,
@@ -610,6 +634,7 @@ export class AnalyticsService {
         'Tier',
         'Channel',
         'Category',
+        'Tags',
         'Requester Name',
         'Requester Email',
         'Assignee Name',
@@ -624,7 +649,8 @@ export class AnalyticsService {
         t.priority,
         t.tier,
         t.channel,
-        t.category ?? '',
+        `"${(t.category ?? '').replace(/"/g, '""')}"`,
+        `"${t.tags.map((tt) => tt.tag.name).join(', ').replace(/"/g, '""')}"`,
         `"${t.requester.fullName.replace(/"/g, '""')}"`,
         t.requester.email,
         t.assignee ? `"${t.assignee.fullName.replace(/"/g, '""')}"` : '',
@@ -637,7 +663,23 @@ export class AnalyticsService {
       return { contentType: 'text/csv', data: csvContent };
     }
 
-    return { contentType: 'application/json', data: JSON.stringify(tickets, null, 2) };
+    const jsonOutput = tickets.map((t) => ({
+      number: t.number,
+      subject: t.subject,
+      status: t.status,
+      priority: t.priority,
+      tier: t.tier,
+      channel: t.channel,
+      category: t.category ?? null,
+      tags: t.tags.map((tt) => tt.tag.name),
+      requester: t.requester,
+      assignee: t.assignee,
+      createdAt: t.createdAt,
+      resolvedAt: t.resolvedAt,
+      closedAt: t.closedAt,
+    }));
+
+    return { contentType: 'application/json', data: JSON.stringify(jsonOutput, null, 2) };
   }
 
   private buildTicketWhere(tenantId: string, filter: AnalyticsFilterDto): Prisma.TicketWhereInput {

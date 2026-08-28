@@ -18,6 +18,7 @@ import {
   type UpdateTypingDto,
 } from './chat.dto';
 import { ChatService } from './chat.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { TicketService } from '../tickets/ticket.service';
 
 interface AuthenticatedSocket extends Socket {
@@ -41,10 +42,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger: Logger;
+  private readonly activeSocketsByUser = new Map<string, Set<string>>();
+  private readonly userTenantMap = new Map<string, string>();
+  private readonly userKindMap = new Map<string, string>();
 
   constructor(
     private readonly chatService: ChatService,
     private readonly ticketService: TicketService,
+    private readonly analyticsService: AnalyticsService,
     private readonly tokens: TokenService,
     private readonly tenantContext: TenantContextService,
     @Inject(PINO_LOGGER) rootLogger: Logger,
@@ -52,6 +57,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger = rootLogger.child({ context: 'ChatGateway' });
     this.chatService.registerGateway(this);
     this.ticketService.registerGateway(this);
+    this.analyticsService.registerGateway(this);
+  }
+
+  getOnlineStaffUserIds(tenantId: string): string[] {
+    const online: string[] = [];
+    for (const [userId, sockets] of this.activeSocketsByUser.entries()) {
+      if (
+        sockets.size > 0 &&
+        this.userTenantMap.get(userId) === tenantId &&
+        this.userKindMap.get(userId) === 'STAFF'
+      ) {
+        online.push(userId);
+      }
+    }
+    return online;
+  }
+
+  isUserOnline(userId: string): boolean {
+    const sockets = this.activeSocketsByUser.get(userId);
+    return !!sockets && sockets.size > 0;
   }
 
   async handleConnection(socket: Socket) {
@@ -80,6 +105,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         roles: claims.rls,
       };
 
+      // Track active user sockets
+      const userId = claims.sub;
+      const tenantId = claims.tid;
+      const kind = claims.knd;
+
+      let userSockets = this.activeSocketsByUser.get(userId);
+      if (!userSockets) {
+        userSockets = new Set();
+        this.activeSocketsByUser.set(userId, userSockets);
+      }
+      userSockets.add(socket.id);
+      this.userTenantMap.set(userId, tenantId);
+      this.userKindMap.set(userId, kind);
+
       // Join tenant room and user personal room
       socket.join(`tenant:${claims.tid}`);
       socket.join(`user:${claims.sub}`);
@@ -95,6 +134,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(socket: Socket) {
+    const authSocket = socket as AuthenticatedSocket;
+    const userId = authSocket.data?.userId;
+    if (userId) {
+      const userSockets = this.activeSocketsByUser.get(userId);
+      if (userSockets) {
+        userSockets.delete(socket.id);
+        if (userSockets.size === 0) {
+          this.activeSocketsByUser.delete(userId);
+          this.userTenantMap.delete(userId);
+          this.userKindMap.delete(userId);
+        }
+      }
+    }
     this.logger.info({ socketId: socket.id }, 'Client disconnected from Chat Gateway');
   }
 

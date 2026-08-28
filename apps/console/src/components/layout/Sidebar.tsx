@@ -14,12 +14,17 @@ import {
   Building2,
   User,
   Clock,
+  Key,
+  Webhook,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ZohoDeskLogo } from '../common/ZohoDeskLogo';
 import { Modal } from '../common/Modal';
 import { ApiClient } from '../../api/client';
 import { THEME_PRESETS, applyPrimaryTheme } from '../../styles/theme-utils';
+import { ApiKeysSettings } from '../settings/ApiKeysSettings';
+import { WebhooksSettings } from '../settings/WebhooksSettings';
+import { ComplianceSettings } from '../settings/ComplianceSettings';
 
 export const Sidebar: React.FC = () => {
   const location = useLocation();
@@ -34,7 +39,9 @@ export const Sidebar: React.FC = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [logoutCountdown, setLogoutCountdown] = useState(10);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'theme'>('theme');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<
+    'theme' | 'api-keys' | 'webhooks' | 'compliance'
+  >('theme');
   const [saveTarget, setSaveTarget] = useState<'PERSONAL' | 'COMPANY'>('PERSONAL');
 
   useEffect(() => {
@@ -313,7 +320,12 @@ export const Sidebar: React.FC = () => {
               marginBottom: '4px',
             }}
           >
-            {[{ id: 'theme', label: 'Console Theme', icon: Palette }].map((tab) => {
+            {[
+              { id: 'theme', label: 'Console Theme', icon: Palette },
+              { id: 'api-keys', label: 'API Keys', icon: Key },
+              { id: 'webhooks', label: 'Webhooks', icon: Webhook },
+              { id: 'compliance', label: 'GDPR Compliance', icon: Shield },
+            ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeSettingsTab === tab.id;
               return (
@@ -586,6 +598,10 @@ export const Sidebar: React.FC = () => {
               </div>
             </div>
           )}
+
+          {activeSettingsTab === 'api-keys' && <ApiKeysSettings />}
+          {activeSettingsTab === 'webhooks' && <WebhooksSettings />}
+          {activeSettingsTab === 'compliance' && <ComplianceSettings />}
         </div>
       </Modal>
 

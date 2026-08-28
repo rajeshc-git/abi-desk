@@ -1,0 +1,382 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, X, Check, Search, Folder } from 'lucide-react';
+import { ApiClient } from '../../api/client';
+import { useToast } from '../../context/ToastContext';
+import { useSearch } from '../../context/SearchContext';
+
+export interface CategoryItem {
+  id?: string;
+  name: string;
+  slug: string;
+  color?: string;
+  keywords?: string | null;
+}
+
+interface TicketCategoryManagerProps {
+  ticketId: string;
+  category?: string | null;
+  onCategoryChange?: (category: string | null) => void;
+  readonly?: boolean;
+}
+
+export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
+  ticketId,
+  category,
+  onCategoryChange,
+  readonly = false,
+}) => {
+  const toast = useToast();
+  const { setSelectedCategory } = useSearch();
+  const [isOpen, setIsOpen] = useState(false);
+  const [availableCategories, setAvailableCategories] = useState<CategoryItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch all tenant categories when dropdown opens
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchCategories = async () => {
+      try {
+        const res = await ApiClient.get('/categories');
+        if (Array.isArray(res)) {
+          setAvailableCategories(res);
+        }
+      } catch {
+        // non-blocking
+      }
+    };
+    fetchCategories();
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+  }, [isOpen]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const matchedCat = availableCategories.find(
+    (c) => c.name.toLowerCase() === (category || '').toLowerCase(),
+  );
+  const categoryColor = matchedCat?.color || '#6366f1';
+
+  const handleSelectCategory = async (cat: CategoryItem) => {
+    if (isUpdating || readonly) return;
+    setIsUpdating(true);
+    const prev = category;
+    onCategoryChange?.(cat.name);
+    setIsOpen(false);
+
+    try {
+      await ApiClient.patch(`/tickets/${ticketId}`, { category: cat.name });
+      toast.success(`Category set to "${cat.name}"`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update category');
+      onCategoryChange?.(prev ?? null); // rollback
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleRemoveCategory = async () => {
+    if (isUpdating || readonly || !category) return;
+    setIsUpdating(true);
+    const prev = category;
+    onCategoryChange?.(null);
+
+    try {
+      await ApiClient.patch(`/tickets/${ticketId}`, { category: null });
+      toast.success('Category removed');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to remove category');
+      onCategoryChange?.(prev); // rollback
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const filtered = availableCategories.filter((c) => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.slug.toLowerCase().includes(q) ||
+      (c.keywords && c.keywords.toLowerCase().includes(q))
+    );
+  });
+
+  return (
+    <div
+      ref={dropdownRef}
+      style={{
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        flexWrap: 'wrap',
+      }}
+    >
+      {/* Assigned Category Badge */}
+      {category ? (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            backgroundColor: `${categoryColor}14`,
+            color: categoryColor,
+            border: `1px solid ${categoryColor}35`,
+            borderRadius: '4px',
+            padding: '2px 8px',
+            fontSize: '11px',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Folder size={11} />
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedCategory({ name: category, slug: category.toLowerCase().replace(/\s+/g, '-'), color: categoryColor });
+            }}
+            title="Click to filter by this category"
+            style={{ cursor: 'pointer', textDecoration: 'none' }}
+            onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+            onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+          >
+            {category}
+          </span>
+          {!readonly && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRemoveCategory();
+              }}
+              title="Remove category"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: categoryColor,
+                cursor: 'pointer',
+                padding: '1px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '10px',
+                lineHeight: 1,
+                borderRadius: '50%',
+                width: '13px',
+                height: '13px',
+                opacity: 0.7,
+                transition: 'opacity 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.backgroundColor = `${categoryColor}25`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.7';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <X size={10} />
+            </button>
+          )}
+        </span>
+      ) : null}
+
+      {/* Change / Add Category Trigger */}
+      {!readonly && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsOpen((prev) => !prev);
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            backgroundColor: isOpen ? '#f5f3ff' : 'transparent',
+            color: isOpen ? '#7c3aed' : 'var(--text-muted)',
+            border: isOpen ? '1px solid #ddd6fe' : '1px dashed var(--border-medium)',
+            borderRadius: '4px',
+            padding: '2px 7px',
+            fontSize: '11px',
+            fontWeight: 500,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={(e) => {
+            if (!isOpen) {
+              e.currentTarget.style.backgroundColor = 'var(--bg-subtle)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!isOpen) {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--text-muted)';
+            }
+          }}
+          title={category ? 'Change category' : 'Assign category'}
+        >
+          {category ? <Folder size={11} /> : <Plus size={11} />}
+          <span>{category ? 'Change' : 'Category'}</span>
+        </button>
+      )}
+
+      {/* Floating Category Picker Popover */}
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            width: '240px',
+            backgroundColor: 'var(--bg-surface)',
+            border: '1px solid var(--border-medium)',
+            borderRadius: '8px',
+            boxShadow:
+              '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            zIndex: 1000,
+            padding: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Search Input */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: 'var(--bg-subtle)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: '5px',
+              padding: '4px 8px',
+            }}
+          >
+            <Search size={12} style={{ color: 'var(--text-muted)' }} />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search category or keyword..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                outline: 'none',
+                fontSize: '12px',
+                color: 'var(--text-primary)',
+                width: '100%',
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+
+          {/* Categories List */}
+          <div
+            style={{
+              maxHeight: '180px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+            }}
+          >
+            {filtered.length === 0 ? (
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  padding: '12px 8px',
+                  textAlign: 'center',
+                }}
+              >
+                No categories found
+              </div>
+            ) : (
+              filtered.map((cat) => {
+                const isSelected =
+                  (category || '').toLowerCase() === cat.name.toLowerCase();
+                const color = cat.color || '#6366f1';
+
+                return (
+                  <button
+                    key={cat.id || cat.slug}
+                    type="button"
+                    onClick={() => handleSelectCategory(cat)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 8px',
+                      borderRadius: '5px',
+                      border: 'none',
+                      backgroundColor: isSelected ? `${color}15` : 'transparent',
+                      color: isSelected ? color : 'var(--text-primary)',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      textAlign: 'left',
+                      transition: 'background-color 0.12s ease',
+                      width: '100%',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span
+                        style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          backgroundColor: color,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span style={{ fontWeight: isSelected ? 600 : 500 }}>{cat.name}</span>
+                    </div>
+                    {isSelected && <Check size={12} style={{ color }} />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

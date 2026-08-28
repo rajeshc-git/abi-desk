@@ -58,6 +58,7 @@ model Tenant {
   ticketEvents   TicketEvent[]
   ticketWatchers TicketWatcher[]
   tags           Tag[]
+  categories     Category[]
   ticketTags     TicketTag[]
   ticketLinks    TicketLink[]
   csatResponses  CsatResponse[]

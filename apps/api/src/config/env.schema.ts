@@ -149,13 +149,21 @@ export const envSchema = z.object({
   /** MinIO needs path-style addressing; real S3 does not. */
   S3_FORCE_PATH_STYLE: booleanFromEnv(true),
 
-  // ---- Outbound mail ----------------------------------------------------
+  // ---- Outbound mail (System & Auth) -----------------------------------
   SMTP_HOST: z.string().min(1).default('mailpit'),
   SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(1025),
   SMTP_SECURE: booleanFromEnv(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   MAIL_FROM: z.string().default('ABI Desk <no-reply@abidesk.local>'),
+
+  // ---- Outbound mail (Dedicated ServiceDesk / Tickets) ------------------
+  TICKET_SMTP_HOST: z.string().optional(),
+  TICKET_SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+  TICKET_SMTP_SECURE: booleanFromEnv(false),
+  TICKET_SMTP_USER: z.string().optional(),
+  TICKET_SMTP_PASSWORD: z.string().optional(),
+  TICKET_MAIL_FROM: z.string().default('ABI Desk Support <servicedesk@abi-health.com>'),
 
   // ---- Cryptography ------------------------------------------------------
   /**

@@ -1006,10 +1006,26 @@ CREATE TABLE "tag" (
     "slug" VARCHAR(60) NOT NULL,
     "color" VARCHAR(9) NOT NULL DEFAULT '#64748B',
     "usageCount" INTEGER NOT NULL DEFAULT 0,
+    "domains" VARCHAR(500),
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ(6) NOT NULL,
 
     CONSTRAINT "tag_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ticket_category" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId" UUID NOT NULL,
+    "name" VARCHAR(120) NOT NULL,
+    "slug" VARCHAR(120) NOT NULL,
+    "color" VARCHAR(20) NOT NULL DEFAULT '#6366f1',
+    "keywords" VARCHAR(1000),
+    "usageCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ticket_category_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1668,6 +1684,12 @@ CREATE INDEX "tag_tenantId_usageCount_idx" ON "tag"("tenantId", "usageCount");
 CREATE UNIQUE INDEX "tag_tenantId_slug_key" ON "tag"("tenantId", "slug");
 
 -- CreateIndex
+CREATE INDEX "ticket_category_tenantId_usageCount_idx" ON "ticket_category"("tenantId", "usageCount");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ticket_category_tenantId_slug_key" ON "ticket_category"("tenantId", "slug");
+
+-- CreateIndex
 CREATE INDEX "ticket_tag_tenantId_tagId_idx" ON "ticket_tag"("tenantId", "tagId");
 
 -- CreateIndex
@@ -1984,6 +2006,9 @@ ALTER TABLE "ticket_watcher" ADD CONSTRAINT "ticket_watcher_userId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "tag" ADD CONSTRAINT "tag_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ticket_category" ADD CONSTRAINT "ticket_category_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ticket_tag" ADD CONSTRAINT "ticket_tag_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;

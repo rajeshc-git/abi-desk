@@ -86,6 +86,17 @@ export class AppConfig {
     } as const;
   }
 
+  get ticketMail() {
+    return {
+      host: this.env.TICKET_SMTP_HOST || this.env.SMTP_HOST,
+      port: this.env.TICKET_SMTP_PORT,
+      secure: this.env.TICKET_SMTP_SECURE,
+      user: this.env.TICKET_SMTP_USER || this.env.SMTP_USER,
+      password: this.env.TICKET_SMTP_PASSWORD || this.env.SMTP_PASSWORD,
+      from: this.env.TICKET_MAIL_FROM,
+    } as const;
+  }
+
   get auth() {
     return {
       accessSecret: this.env.JWT_ACCESS_SECRET,

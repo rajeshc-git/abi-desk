@@ -1,3 +1,4 @@
+
 // ---------------------------------------------------------------------------
 // Tickets
 //
@@ -362,6 +363,8 @@ model Tag {
   color String  @default("#64748B") @db.VarChar(9)
   /// Denormalized so tag pickers can order by popularity without a join.
   usageCount Int @default(0)
+  /// Comma-separated or space-separated list of email domains for auto-tagging (e.g. "abc.com,client.org")
+  domains    String? @db.VarChar(500)
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
@@ -372,6 +375,27 @@ model Tag {
   @@unique([tenantId, slug])
   @@index([tenantId, usageCount])
   @@map("tag")
+}
+
+model Category {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @db.Uuid
+
+  name       String   @db.VarChar(120)
+  slug       String   @db.VarChar(120)
+  color      String   @default("#6366f1") @db.VarChar(20)
+  /// Comma-separated list of keywords for auto-categorization (up to 10 keywords)
+  keywords   String?  @db.VarChar(1000)
+  usageCount Int      @default(0)
+
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, usageCount])
+  @@map("ticket_category")
 }
 
 model TicketTag {

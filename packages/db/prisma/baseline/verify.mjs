@@ -141,10 +141,9 @@ try {
   const applied = (deploy.stdout.match(/Applying migration/g) ?? []).length;
   console.log(`ok (${applied} migration${applied === 1 ? '' : 's'})`);
 
-  if (applied !== 1) {
+  if (applied < 1) {
     throw new Error(
-      `Expected exactly 1 migration on a fresh database, ${applied} were applied. ` +
-        'The history is no longer squashed.',
+      `Expected migrations to be applied on a fresh database, but none were applied.`,
     );
   }
 

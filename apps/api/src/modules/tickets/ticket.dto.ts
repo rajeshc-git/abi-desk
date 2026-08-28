@@ -190,3 +190,35 @@ export const linkTicketSchema = z.object({
 });
 
 export class LinkTicketDto extends createZodDto(linkTicketSchema) {}
+
+export const createTagSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(60),
+  color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
+  domains: z.string().trim().max(500).optional(),
+});
+
+export const updateTagSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
+  domains: z.string().trim().max(500).nullable().optional(),
+});
+
+export class CreateTagDto extends createZodDto(createTagSchema) {}
+export class UpdateTagDto extends createZodDto(updateTagSchema) {}
+
+export const createCategorySchema = z.object({
+  name: z.string().trim().min(1, 'Category name is required').max(120),
+  color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
+  keywords: z.string().trim().max(1000).optional(),
+});
+
+export const updateCategorySchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
+  keywords: z.string().trim().max(1000).nullable().optional(),
+});
+
+export class CreateCategoryDto extends createZodDto(createCategorySchema) {}
+export class UpdateCategoryDto extends createZodDto(updateCategorySchema) {}
+
+

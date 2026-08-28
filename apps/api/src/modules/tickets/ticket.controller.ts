@@ -185,7 +185,7 @@ export class TicketController {
    * Status is not editable here — status moves go through the workflow engine.
    */
   @Patch(':id')
-  @RequireAnyPermission('ticket:update:own', 'ticket:update:tenant')
+  @RequireAnyPermission('ticket:update:own', 'ticket:update:tenant', 'ticket:tag', 'brand:update:tenant', 'admin:brand:manage')
   @Audited({ action: 'ticket.updated', resourceType: 'ticket', idParam: 'id' })
   update(
     @CurrentUser() principal: AuthenticatedPrincipal,
@@ -246,7 +246,7 @@ export class TicketController {
   // -- Tags and links -------------------------------------------------------
 
   @Post(':id/tags')
-  @RequirePermission('ticket:tag')
+  @RequireAnyPermission('ticket:tag', 'brand:update:tenant', 'admin:brand:manage', 'admin:workflow:manage', 'ticket:update:tenant')
   @Audited({ action: 'ticket.tagged', resourceType: 'ticket', idParam: 'id' })
   @HttpCode(HttpStatus.OK)
   addTags(
@@ -258,7 +258,7 @@ export class TicketController {
   }
 
   @Delete(':id/tags/:slug')
-  @RequirePermission('ticket:tag')
+  @RequireAnyPermission('ticket:tag', 'brand:update:tenant', 'admin:brand:manage', 'admin:workflow:manage', 'ticket:update:tenant')
   @Audited({ action: 'ticket.untagged', resourceType: 'ticket', idParam: 'id' })
   @HttpCode(HttpStatus.OK)
   removeTag(
