@@ -42,7 +42,13 @@ export function formatUserFriendlyError(error: any): string {
   if (
     lower.includes('no active sso provider') ||
     lower.includes('sso provider') ||
-    lower.includes('authorized for this sso')
+    lower.includes('authorized for this sso') ||
+    lower.includes('staff account') ||
+    lower.includes('no account exists') ||
+    lower.includes('suspended or deactivated') ||
+    lower.includes('multiple workspaces') ||
+    lower.includes('invalid, expired, or already used') ||
+    lower.includes('invalid, expired, or has already been used')
   ) {
     return rawMsg;
   }

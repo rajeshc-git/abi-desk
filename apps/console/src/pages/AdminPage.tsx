@@ -256,6 +256,12 @@ export const AdminPage: React.FC = () => {
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [isCreateQueueOpen, setIsCreateQueueOpen] = useState(false);
 
+  // Edit Staff Role Form
+  const [editingStaffUser, setEditingStaffUser] = useState<any | null>(null);
+  const [editStaffRoleId, setEditStaffRoleId] = useState('');
+  const [editStaffBrandId, setEditStaffBrandId] = useState('');
+  const [isUpdatingStaffRole, setIsUpdatingStaffRole] = useState(false);
+
   // Form states
   // Brand Form
   const [editingBrand, setEditingBrand] = useState<any | null>(null);
@@ -968,6 +974,35 @@ export const AdminPage: React.FC = () => {
       toast.success(`User status updated to ${nextStatus}!`);
     } catch (err: any) {
       toast.error(`Failed to update status: ${err.message}`);
+    }
+  };
+
+  const handleOpenEditStaffRole = (user: any) => {
+    setEditingStaffUser(user);
+    setEditStaffRoleId(user.roles?.[0]?.role?.id || user.roles?.[0]?.roleId || '');
+    setEditStaffBrandId(user.roles?.[0]?.brandId || '');
+  };
+
+  const handleSaveStaffRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStaffUser || !editStaffRoleId) {
+      toast.error('Please select a valid role.');
+      return;
+    }
+
+    setIsUpdatingStaffRole(true);
+    try {
+      await ApiClient.patch(`/admin/users/${editingStaffUser.id}`, {
+        roleId: editStaffRoleId,
+        brandId: editStaffBrandId || null,
+      });
+      toast.success(`Role updated successfully for ${editingStaffUser.fullName || editingStaffUser.email}!`);
+      setEditingStaffUser(null);
+      await loadData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update staff role.');
+    } finally {
+      setIsUpdatingStaffRole(false);
     }
   };
 
@@ -2455,7 +2490,7 @@ export const AdminPage: React.FC = () => {
                             {u.email}
                           </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span className={tierPillClass} style={customStyle}>
                             {roleName}
                           </span>
@@ -2471,6 +2506,21 @@ export const AdminPage: React.FC = () => {
                           >
                             ● {u.status}
                           </span>
+                          <button
+                            onClick={() => handleOpenEditStaffRole(u)}
+                            className="btn btn-sm btn-secondary"
+                            style={{
+                              padding: '4px 10px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title="Change Role"
+                          >
+                            <Shield size={12} />
+                            Change Role
+                          </button>
                           <button
                             onClick={() => handleToggleUserStatus(u)}
                             className={`btn btn-sm ${isSuspended ? 'btn-primary' : 'btn-secondary'}`}
@@ -3506,6 +3556,179 @@ export const AdminPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Change Staff Role Modal */}
+      <Modal
+        isOpen={!!editingStaffUser}
+        onClose={() => setEditingStaffUser(null)}
+        title="Change Staff Role"
+      >
+        <div style={{ position: 'relative' }}>
+          {isUpdatingStaffRole && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(255, 255, 255, 0.65)',
+                backdropFilter: 'blur(2px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10,
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <LoadingSpinner size={24} text="Updating role..." />
+            </div>
+          )}
+
+          {editingStaffUser && (
+            <form
+              onSubmit={handleSaveStaffRole}
+              style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+            >
+              {/* User Summary Card */}
+              <div
+                style={{
+                  padding: '12px 14px',
+                  backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                  border: '1px solid var(--border-medium, #e2e8f0)',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {editingStaffUser.fullName || 'Unnamed Staff'}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {editingStaffUser.email}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '3px 8px',
+                    borderRadius: '12px',
+                    backgroundColor: '#eff6ff',
+                    color: '#2563eb',
+                    border: '1px solid #bfdbfe',
+                  }}
+                >
+                  Current: {editingStaffUser.roles?.[0]?.role?.name || 'Staff'}
+                </span>
+              </div>
+
+              <div>
+                <label
+                  style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}
+                >
+                  New Support Role *
+                </label>
+                <select
+                  value={editStaffRoleId}
+                  onChange={(e) => setEditStaffRoleId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                  }}
+                  required
+                >
+                  <option value="">Select a Role...</option>
+                  {[...roles]
+                    .filter((r) => r.isStaff)
+                    .sort((a, b) => {
+                      const ROLE_ORDER: Record<string, number> = {
+                        TENANT_ADMIN: 1,
+                        L1_SUPPORT: 2,
+                        L2_SUPPORT: 3,
+                        L3_SUPPORT: 4,
+                        DEV_TEAM: 5,
+                        QA_TEAM: 6,
+                      };
+                      const orderA = ROLE_ORDER[a.key] || 99;
+                      const orderB = ROLE_ORDER[b.key] || 99;
+                      return orderA - orderB;
+                    })
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}
+                >
+                  Assigned Brand (Optional)
+                </label>
+                <select
+                  value={editStaffBrandId}
+                  onChange={(e) => setEditStaffBrandId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="">All Brands (Tenant Wide)</option>
+                  {brandsList.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '10px',
+                  marginTop: '8px',
+                  paddingTop: '12px',
+                  borderTop: '1px solid var(--border-subtle, #f1f5f9)',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setEditingStaffUser(null)}
+                  className="btn btn-secondary btn-sm"
+                  disabled={isUpdatingStaffRole}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={isUpdatingStaffRole || !editStaffRoleId}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Shield size={13} />
+                  {isUpdatingStaffRole ? 'Updating...' : 'Save & Update Role'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </Modal>
 
       {/* Invite Modal */}

@@ -97,6 +97,29 @@ export class OneTimeTokenService {
   }
 
   /**
+   * Peeks at a token's payload without consuming it.
+   *
+   * Used by UI describe/preview screens to validate the token and show user
+   * details before the user submits a new password.
+   */
+  async peek<T extends OneTimeTokenPayload>(
+    purpose: OneTimeTokenPurpose,
+    rawToken: string,
+  ): Promise<T | null> {
+    const digest = this.tokens.digestOneTimeToken(rawToken);
+    const raw = await this.redis.client.get(this.key(purpose, digest));
+
+    if (!raw) return null;
+
+    try {
+      const payload = JSON.parse(raw) as T;
+      return payload.purpose === purpose ? payload : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Rate limit for token issuance, keyed by purpose and subject.
    *
    * Stops a magic-link or reset endpoint from being used to flood someone's inbox,

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Sparkles, ArrowRight, Mail, Lock, AlertCircle } from 'lucide-react';
+import { ArrowRight, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 import { ZohoDeskLogo } from '../components/common/ZohoDeskLogo';
@@ -38,7 +38,7 @@ export const LoginPage: React.FC = () => {
         await login(email, password);
         navigate('/inbox');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(formatUserFriendlyError(err));
     } finally {
       setIsLoading(false);
@@ -158,17 +158,35 @@ export const LoginPage: React.FC = () => {
 
             {!isSsoMode && (
               <div>
-                <label
+                <div
                   style={{
-                    display: 'block',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    color: '#334155',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                     marginBottom: '6px',
                   }}
                 >
-                  Password
-                </label>
+                  <label
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: '#334155',
+                    }}
+                  >
+                    Password
+                  </label>
+                  <Link
+                    to="/forgot-password"
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--primary)',
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <div style={{ position: 'relative' }}>
                   <Lock
                     size={16}

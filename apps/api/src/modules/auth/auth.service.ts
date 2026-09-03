@@ -915,46 +915,115 @@ export class AuthService {
       this.findLoginCandidates(email, input.tenantSlug),
     );
 
-    // Exactly one match, and only for accounts that can actually use a password.
-    if (candidates.length === 1) {
-      const user = candidates[0]!;
+    if (candidates.length === 0) {
+      const anyUser = await this.contexts.runWithBypass('authentication', {}, () =>
+        this.prisma.client.user.findFirst({
+          where: { email, deletedAt: null },
+          select: { kind: true },
+        }),
+      );
 
-      if (user.status === 'ACTIVE' || user.status === 'INVITED') {
-        const { token } = await this.oneTimeTokens.issue(
-          {
-            purpose: 'password-reset',
-            userId: user.id,
-            email: user.email,
-            tenantId: user.tenantId,
-          },
-          ttlMinutes * 60,
+      if (anyUser) {
+        throw new AppException(
+          ErrorCode.NOT_FOUND,
+          404,
+          'No staff account found with this email address.',
         );
-
-        const baseUrl = this.resolveConsoleBaseUrl(input.origin);
-        const url = `${baseUrl}/auth/reset-password?token=${encodeURIComponent(token)}`;
-
-        void this.mail.send(
-          passwordResetEmail({
-            email: user.email,
-            fullName: user.fullName,
-            url,
-            expiresInMinutes: ttlMinutes,
-          }),
-        );
-
-        await this.audit({
-          tenantId: user.tenantId,
-          actorId: user.id,
-          action: 'auth.password_reset_requested',
-          resourceType: 'user',
-          resourceId: user.id,
-          resourceLabel: user.email,
-          origin: input.origin,
-        });
       }
+
+      throw new AppException(
+        ErrorCode.NOT_FOUND,
+        404,
+        'No account exists with this email address.',
+      );
     }
 
+    if (candidates.length > 1) {
+      throw new AppException(
+        ErrorCode.TENANT_CONTEXT_MISSING,
+        409,
+        'This email belongs to multiple workspaces. Please specify your workspace identifier.',
+      );
+    }
+
+    const user = candidates[0]!;
+
+    if (user.status !== 'ACTIVE' && user.status !== 'INVITED') {
+      throw AppException.permissionDenied('This account is suspended or deactivated.');
+    }
+
+    const { token } = await this.oneTimeTokens.issue(
+      {
+        purpose: 'password-reset',
+        userId: user.id,
+        email: user.email,
+        tenantId: user.tenantId,
+      },
+      ttlMinutes * 60,
+    );
+
+    const baseUrl = this.resolveConsoleBaseUrl(input.origin);
+    const url = `${baseUrl}/auth/reset-password?token=${encodeURIComponent(token)}`;
+
+    void this.mail.send(
+      passwordResetEmail({
+        email: user.email,
+        fullName: user.fullName,
+        url,
+        expiresInMinutes: ttlMinutes,
+      }),
+    );
+
+    await this.audit({
+      tenantId: user.tenantId,
+      actorId: user.id,
+      action: 'auth.password_reset_requested',
+      resourceType: 'user',
+      resourceId: user.id,
+      resourceLabel: user.email,
+      origin: input.origin,
+    });
+
     return { expiresInMinutes: ttlMinutes };
+  }
+
+  /**
+   * Validates a password reset token and returns non-sensitive metadata for the UI.
+   * Does not consume the token.
+   */
+  async describeResetToken(rawToken: string): Promise<{
+    email: string;
+    tenantName?: string;
+  }> {
+    const payload = await this.oneTimeTokens.peek<{
+      purpose: 'password-reset';
+      userId: string;
+      email: string;
+      tenantId: string | null;
+    }>('password-reset', rawToken);
+
+    if (!payload) {
+      throw AppException.unauthenticated(
+        'This reset link is invalid, expired, or already used.',
+        ErrorCode.TOKEN_INVALID,
+      );
+    }
+
+    let tenantName: string | undefined;
+    if (payload.tenantId) {
+      const tenant = await this.contexts.runWithBypass('authentication', {}, async () => {
+        return this.prisma.client.tenant.findUnique({
+          where: { id: payload.tenantId! },
+          select: { name: true },
+        });
+      });
+      tenantName = tenant?.name;
+    }
+
+    return {
+      email: payload.email,
+      tenantName,
+    };
   }
 
   /**

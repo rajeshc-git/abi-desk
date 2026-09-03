@@ -312,6 +312,13 @@ export class AuthController {
 
   @Public()
   @SkipCsrf()
+  @Get('password/reset/:token')
+  async describeResetToken(@Param('token') token: string) {
+    return this.auth.describeResetToken(token);
+  }
+
+  @Public()
+  @SkipCsrf()
   @Post('password/reset')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resetPassword(
