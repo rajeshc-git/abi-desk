@@ -1188,10 +1188,14 @@ export class TicketService {
 
       for (const cat of allCategories) {
         if (!cat.keywords) continue;
-        const keywordList = cat.keywords
-          .split(/[,;\n]+/)
-          .map((k: string) => k.toLowerCase().trim())
-          .filter(Boolean);
+        const keywordList = Array.from<string>(
+          new Set(
+            cat.keywords
+              .split(/[,;\n]+/)
+              .map((k: string) => k.toLowerCase().trim())
+              .filter((k: string) => k.length >= 2),
+          ),
+        );
 
         const isMatch = keywordList.some((kw: string) => {
           if (kw.length < 2) return false;

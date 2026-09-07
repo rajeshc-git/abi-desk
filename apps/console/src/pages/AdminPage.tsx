@@ -497,14 +497,22 @@ export const AdminPage: React.FC = () => {
   const sanitizeKeywordChip = (str: string) => str.trim().toLowerCase();
 
   const addCategoryKeywordChip = (input: string) => {
-    const val = sanitizeKeywordChip(input);
-    if (!val) return;
-    if (categoryKeywordList.includes(val)) return;
-    if (categoryKeywordList.length >= 10) {
-      toast.error('Maximum 10 keywords allowed per category');
-      return;
-    }
-    setCategoryKeywordList((prev) => [...prev, val]);
+    if (!input || !input.trim()) return;
+    const rawTokens = input
+      .split(/[,;\n]+/)
+      .map(sanitizeKeywordChip)
+      .filter((k) => k.length >= 2);
+
+    if (rawTokens.length === 0) return;
+
+    setCategoryKeywordList((prev) => {
+      const combined = Array.from<string>(new Set([...prev, ...rawTokens]));
+      if (combined.length > 10) {
+        toast.info('Category limited to top 10 unique keywords');
+        return combined.slice(0, 10);
+      }
+      return combined;
+    });
   };
 
   const openCreateCategoryModal = () => {
@@ -521,10 +529,14 @@ export const AdminPage: React.FC = () => {
     setCategoryName(cat.name || '');
     setCategoryColor(cat.color || '#6366f1');
     const existing = cat.keywords
-      ? cat.keywords
-          .split(/[\s,;]+/)
-          .map(sanitizeKeywordChip)
-          .filter(Boolean)
+      ? Array.from<string>(
+          new Set(
+            cat.keywords
+              .split(/[,;\n]+/)
+              .map(sanitizeKeywordChip)
+              .filter((k: string) => k.length >= 2),
+          ),
+        )
       : [];
     setCategoryKeywordList(existing);
     setCategoryKeywordInput('');
@@ -539,21 +551,22 @@ export const AdminPage: React.FC = () => {
     }
     setIsCategorySubmitting(true);
     try {
-      const finalKeywords = [...categoryKeywordList];
+      let finalKeywords = [...categoryKeywordList];
       const pending = sanitizeKeywordChip(categoryKeywordInput);
-      if (pending && !finalKeywords.includes(pending) && finalKeywords.length < 10) {
+      if (pending && pending.length >= 2 && !finalKeywords.includes(pending)) {
         finalKeywords.push(pending);
-        setCategoryKeywordList(finalKeywords);
-        setCategoryKeywordInput('');
       }
+      finalKeywords = Array.from<string>(new Set(finalKeywords)).slice(0, 10);
+      setCategoryKeywordList(finalKeywords);
+      setCategoryKeywordInput('');
 
-      const keywordString = finalKeywords.join(', ');
+      const keywordString = finalKeywords.length > 0 ? finalKeywords.join(', ') : null;
 
       if (editingCategory) {
         await ApiClient.patch(`/categories/${editingCategory.id}`, {
           name: categoryName.trim(),
           color: categoryColor,
-          keywords: keywordString || null,
+          keywords: keywordString,
         });
         toast.success('Category updated successfully');
       } else {
@@ -1988,10 +2001,14 @@ export const AdminPage: React.FC = () => {
                       <tbody>
                         {filteredCategories.map((cat: any) => {
                           const keywords = cat.keywords
-                            ? cat.keywords
-                                .split(/[\s,;]+/)
-                                .map((k: string) => k.trim())
-                                .filter(Boolean)
+                            ? Array.from<string>(
+                                new Set(
+                                  cat.keywords
+                                    .split(/[,;\n]+/)
+                                    .map((k: string) => k.trim())
+                                    .filter((k: string) => k.length >= 2),
+                                ),
+                              ).slice(0, 10)
                             : [];
 
                           const catColor = cat.color || '#6366f1';
@@ -4567,6 +4584,14 @@ export const AdminPage: React.FC = () => {
                 value={categoryKeywordInput}
                 disabled={categoryKeywordList.length >= 10}
                 onChange={(e) => setCategoryKeywordInput(e.target.value)}
+                onPaste={(e) => {
+                  const pasteData = e.clipboardData.getData('text');
+                  if (pasteData && (pasteData.includes(',') || pasteData.includes(';') || pasteData.includes('\n'))) {
+                    e.preventDefault();
+                    addCategoryKeywordChip(pasteData);
+                    setCategoryKeywordInput('');
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ',') {
                     e.preventDefault();
@@ -4582,7 +4607,7 @@ export const AdminPage: React.FC = () => {
                   categoryKeywordList.length >= 10
                     ? 'Maximum 10 keywords reached'
                     : categoryKeywordList.length === 0
-                    ? 'e.g. refund, payment, invoice (Press Enter or comma to add)'
+                    ? 'e.g. refund, payment, invoice (Press Enter, comma, or paste)'
                     : 'Add more keyword...'
                 }
                 style={{
@@ -4597,6 +4622,40 @@ export const AdminPage: React.FC = () => {
                 }}
               />
             </div>
+            {categoryKeywordList.length > 10 && (
+              <div
+                style={{
+                  marginTop: '6px',
+                  padding: '6px 10px',
+                  backgroundColor: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '12px',
+                  color: '#b91c1c',
+                }}
+              >
+                <span>⚠️ Category currently has {categoryKeywordList.length} keywords. Max allowed is 10.</span>
+                <button
+                  type="button"
+                  onClick={() => setCategoryKeywordList((prev) => prev.slice(0, 10))}
+                  style={{
+                    backgroundColor: '#ef4444',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Trim to Top 10
+                </button>
+              </div>
+            )}
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
               Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add up to 10 keywords. Any incoming email or ticket matching these keywords in the subject, message body, or metadata will be automatically classified into this category.
             </p>
@@ -4610,7 +4669,11 @@ export const AdminPage: React.FC = () => {
             >
               Cancel
             </button>
-            <button type="submit" disabled={isCategorySubmitting} className="btn btn-primary btn-sm">
+            <button
+              type="submit"
+              disabled={isCategorySubmitting || categoryKeywordList.length > 10}
+              className="btn btn-primary btn-sm"
+            >
               {isCategorySubmitting ? 'Saving...' : editingCategory ? 'Save Changes' : 'Create Category'}
             </button>
           </div>

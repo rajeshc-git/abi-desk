@@ -206,16 +206,27 @@ export const updateTagSchema = z.object({
 export class CreateTagDto extends createZodDto(createTagSchema) {}
 export class UpdateTagDto extends createZodDto(updateTagSchema) {}
 
+export const normalizeCategoryKeywords = (raw?: string | null): string | null | undefined => {
+  if (raw === undefined) return undefined;
+  if (raw === null || raw.trim() === '') return null;
+  const tokens = raw
+    .split(/[,;\n]+/)
+    .map((k) => k.trim().toLowerCase())
+    .filter((k) => k.length >= 2);
+  const unique = Array.from(new Set(tokens)).slice(0, 10);
+  return unique.length > 0 ? unique.join(', ') : null;
+};
+
 export const createCategorySchema = z.object({
   name: z.string().trim().min(1, 'Category name is required').max(120),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
-  keywords: z.string().trim().max(1000).optional(),
+  keywords: z.string().trim().max(1000).optional().transform(normalizeCategoryKeywords),
 });
 
 export const updateCategorySchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
-  keywords: z.string().trim().max(1000).nullable().optional(),
+  keywords: z.string().trim().max(1000).nullable().optional().transform(normalizeCategoryKeywords),
 });
 
 export class CreateCategoryDto extends createZodDto(createCategorySchema) {}
