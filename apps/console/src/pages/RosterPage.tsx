@@ -355,9 +355,24 @@ export const RosterPage: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Non-admin agents only see teams they are members of; admins see all organization teams
+  const visibleTeams = useMemo(() => {
+    if (canManage || !user) return db.teams;
+    const myTeams = db.teams.filter((t) =>
+      t.members.some(
+        (m) =>
+          m.id === user.id ||
+          (user.fullName && m.name?.toLowerCase() === user.fullName.toLowerCase()) ||
+          (user.email && m.name?.toLowerCase() === user.email.toLowerCase()),
+      ),
+    );
+    return myTeams.length > 0 ? myTeams : db.teams;
+  }, [db.teams, canManage, user]);
+
   const activeTeam = useMemo(() => {
-    return db.teams.find((t) => t.id === db.activeTeamId) || db.teams[0];
-  }, [db]);
+    const list = visibleTeams.length > 0 ? visibleTeams : db.teams;
+    return list.find((t) => t.id === db.activeTeamId) || list[0] || db.teams[0];
+  }, [visibleTeams, db.teams, db.activeTeamId]);
 
   useEffect(() => {
     if (activeTeam && Array.isArray(activeTeam.rosters) && activeTeam.rosters.length > 0) {
@@ -569,12 +584,26 @@ export const RosterPage: React.FC = () => {
 
       const savedHolidays = loadInitialHolidays();
       if (!isMounted) return;
+
+      const userTeams = !canManage && user
+        ? teams.filter((t) =>
+            t.members.some(
+              (m) =>
+                m.id === user.id ||
+                (user.fullName && m.name?.toLowerCase() === user.fullName.toLowerCase()) ||
+                (user.email && m.name?.toLowerCase() === user.email.toLowerCase()),
+            ),
+          )
+        : teams;
+
+      const fallbackTeamId = userTeams.length > 0 ? userTeams[0].id : teams[0]?.id;
+
       setDb((prevDb) => ({
         products,
         tiers: ['L1', 'L2', 'L3', 'DEV', 'QA'],
         holidays: savedHolidays.length > 0 ? savedHolidays : prevDb.holidays,
         teams,
-        activeTeamId: teams.some((t) => t.id === prevDb.activeTeamId) ? prevDb.activeTeamId : teams[0].id,
+        activeTeamId: teams.some((t) => t.id === prevDb.activeTeamId) ? prevDb.activeTeamId : fallbackTeamId,
       }));
       setIsLoading(false);
     } catch (err) {
@@ -1409,7 +1438,7 @@ export const RosterPage: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
             <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Active Team:</span>
             <select
-              value={db.activeTeamId}
+              value={activeTeam?.id || db.activeTeamId}
               onChange={(e) => {
                 persistDB({ ...db, activeTeamId: e.target.value });
                 setCurrentRoster(null);
@@ -1417,7 +1446,7 @@ export const RosterPage: React.FC = () => {
               }}
               style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px', fontWeight: '600', background: 'var(--bg-app)', color: 'var(--text-primary)', cursor: 'pointer' }}
             >
-              {db.teams.map((t) => (
+              {visibleTeams.map((t) => (
                 <option key={t.id} value={t.id}>
                   {teamName(t)} ({t.members.length} {t.members.length === 1 ? 'member' : 'members'})
                 </option>
