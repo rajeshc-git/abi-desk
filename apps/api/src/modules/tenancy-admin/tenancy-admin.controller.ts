@@ -116,7 +116,7 @@ export class TenancyAdminController {
   }
 
   @Get('teams')
-  @RequirePermission('admin:team:manage')
+  @RequireAnyPermission('admin:team:manage', 'roster:read', 'roster:manage', 'ticket:read:tenant')
   listTeams(@CurrentUser() principal: AuthenticatedPrincipal) {
     return this.adminService.listTeams(principal);
   }
@@ -168,7 +168,7 @@ export class TenancyAdminController {
   // -------------------------------------------------------------------------
 
   @Get('users')
-  @RequirePermission('admin:user:read')
+  @RequireAnyPermission('admin:user:read', 'roster:read', 'ticket:read:tenant')
   listUsers(@CurrentUser() principal: AuthenticatedPrincipal) {
     return this.adminService.listUsers(principal);
   }
