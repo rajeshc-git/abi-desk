@@ -299,11 +299,23 @@ export function emptyInitialDB(): RosterDB {
 export const RosterPage: React.FC = () => {
   const { user, brands } = useAuth();
   const toast = useToast();
+
+  const canManage = Boolean(
+    user?.roles?.some((r: string) => ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r)) ||
+    user?.permissions?.includes('roster:manage')
+  );
+
   const [db, setDb] = useState<RosterDB>(() => emptyInitialDB());
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
     'generate' | 'teams' | 'members' | 'conditions' | 'history'
   >('generate');
+
+  useEffect(() => {
+    if (!canManage && ['teams', 'members', 'conditions'].includes(activeTab)) {
+      setActiveTab('generate');
+    }
+  }, [canManage, activeTab]);
 
   // Generator inputs
   const [startDate, setStartDate] = useState('2026-09-05');
@@ -1397,22 +1409,26 @@ export const RosterPage: React.FC = () => {
               ))}
             </select>
           </div>
-          <button
-            onClick={handleExportBackup}
-            className="btn btn-secondary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '7px 12px' }}
-            title="Export full JSON backup"
-          >
-            <Download size={14} /> Export Backup
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="btn btn-secondary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '7px 12px' }}
-            title="Import JSON backup"
-          >
-            <Upload size={14} /> Import
-          </button>
+          {canManage && (
+            <>
+              <button
+                onClick={handleExportBackup}
+                className="btn btn-secondary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '7px 12px' }}
+                title="Export full JSON backup"
+              >
+                <Download size={14} /> Export Backup
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="btn btn-secondary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '7px 12px' }}
+                title="Import JSON backup"
+              >
+                <Upload size={14} /> Import
+              </button>
+            </>
+          )}
           <button
             onClick={async () => {
               setIsLoading(true);
@@ -1443,13 +1459,19 @@ export const RosterPage: React.FC = () => {
 
       {/* Tabs Navigation */}
       <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid var(--border-subtle)', marginBottom: '20px' }}>
-        {[
-          { id: 'generate', label: 'Generate Roster', icon: Calendar },
-          { id: 'teams', label: 'Teams & Products Matrix', icon: Grid },
-          { id: 'members', label: 'Members & Rotation Rules', icon: Users },
-          { id: 'conditions', label: 'Conditions & Duty Hub', icon: Layers },
-          { id: 'history', label: `History (${activeTeam?.rosters?.length || 0})`, icon: Clock },
-        ].map((tab) => {
+        {(canManage
+          ? [
+              { id: 'generate', label: 'Generate Roster', icon: Calendar },
+              { id: 'teams', label: 'Teams & Products Matrix', icon: Grid },
+              { id: 'members', label: 'Members & Rotation Rules', icon: Users },
+              { id: 'conditions', label: 'Conditions & Duty Hub', icon: Layers },
+              { id: 'history', label: `History (${activeTeam?.rosters?.length || 0})`, icon: Clock },
+            ]
+          : [
+              { id: 'generate', label: 'Shift Schedule', icon: Calendar },
+              { id: 'history', label: `Published Schedules (${activeTeam?.rosters?.length || 0})`, icon: Clock },
+            ]
+        ).map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -1484,61 +1506,99 @@ export const RosterPage: React.FC = () => {
       {activeTab === 'generate' && (
         <div>
           {/* Controls Panel */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: '650', margin: '0 0 4px', color: 'var(--text-primary)' }}>
-              Roster Period &amp; Parameters
-            </h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
-              Select date range for <b>{teamName(activeTeam)}</b>. Rotation sequence will auto-calculate weekly Morning/Evening slots, off-days, and compensatory leaves.
-            </p>
+          {canManage ? (
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '650', margin: '0 0 4px', color: 'var(--text-primary)' }}>
+                Roster Period &amp; Parameters
+              </h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                Select date range for <b>{teamName(activeTeam)}</b>. Rotation sequence will auto-calculate weekly Morning/Evening slots, off-days, and compensatory leaves.
+              </p>
 
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                  Start Date
-                </label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px' }}
-                />
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                    Roster Title
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Sep 2026"
+                    value={rosterTitle}
+                    onChange={(e) => setRosterTitle(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px', minWidth: '200px' }}
+                  />
+                </div>
+
+                <button
+                  onClick={handleGenerate}
+                  className="btn btn-primary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '9px 18px', fontWeight: '600' }}
+                >
+                  <Sparkles size={16} /> Generate Roster
+                </button>
               </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                  End Date
-                </label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                  Roster Title
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Sep 2026"
-                  value={rosterTitle}
-                  onChange={(e) => setRosterTitle(e.target.value)}
-                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px', minWidth: '200px' }}
-                />
-              </div>
-
-              <button
-                onClick={handleGenerate}
-                className="btn btn-primary"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '9px 18px', fontWeight: '600' }}
-              >
-                <Sparkles size={16} /> Generate Roster
-              </button>
             </div>
-          </div>
+          ) : (
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: '12px' }}>
+                    Staff Schedule View
+                  </span>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', margin: 0, color: 'var(--text-primary)' }}>
+                    {currentRoster?.title || 'Active Shift Schedule'} — {teamName(activeTeam)}
+                  </h3>
+                </div>
+                <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: 0 }}>
+                  Period: <b>{currentRoster ? `${currentRoster.startISO} to ${currentRoster.endISO}` : `${startDate} to ${endDate}`}</b> • View team coverage and your scheduled shifts.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {currentRoster && (
+                  <>
+                    <button
+                      onClick={() => handleExportCsv(currentRoster)}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <FileSpreadsheet size={13} /> Export CSV
+                    </button>
+                    <button
+                      onClick={() => handlePrintRoster(currentRoster)}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <Printer size={13} /> Print Schedule
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Roster Result Grid */}
           {currentRoster ? (
@@ -1587,46 +1647,49 @@ export const RosterPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => {
-                      const { days, grid } = computeRoster(
-                        activeTeam,
-                        currentRoster.startISO,
-                        currentRoster.endISO,
-                        currentRoster.edits,
-                      );
-                      setCurrentRoster({
-                        ...currentRoster,
-                        days,
-                        grid,
-                        members: activeTeam.members.slice().map((m) => ({ id: m.id, name: m.name, grade: m.grade })),
-                      });
-                      toast.success('Re-generated from latest rules (manual edits preserved)');
-                    }}
-                    className="btn btn-secondary"
-                    style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                  >
-                    <RefreshCw size={13} /> Re-generate
-                  </button>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const { days, grid } = computeRoster(
+                            activeTeam,
+                            currentRoster.startISO,
+                            currentRoster.endISO,
+                            currentRoster.edits,
+                          );
+                          setCurrentRoster({
+                            ...currentRoster,
+                            days,
+                            grid,
+                            members: activeTeam.members.slice().map((m) => ({ id: m.id, name: m.name, grade: m.grade })),
+                          });
+                          toast.success('Re-generated from latest rules (manual edits preserved)');
+                        }}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                      >
+                        <RefreshCw size={13} /> Re-generate
+                      </button>
 
-                  <button
-                    onClick={() => handleSaveToHistory(true)}
-                    className="btn btn-primary"
-                    style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                  >
-                    <Edit2 size={13} /> Save New Revision
-                  </button>
+                      <button
+                        onClick={() => handleSaveToHistory(true)}
+                        className="btn btn-primary"
+                        style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                      >
+                        <Edit2 size={13} /> Save New Revision
+                      </button>
 
-                  {currentRoster.status !== 'Shared' && (
-                    <button
-                      onClick={handleMarkShared}
-                      className="btn btn-secondary"
-                      style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#15803d' }}
-                    >
-                      <Share2 size={13} /> Mark Shared
-                    </button>
+                      {currentRoster.status !== 'Shared' && (
+                        <button
+                          onClick={handleMarkShared}
+                          className="btn btn-secondary"
+                          style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#15803d' }}
+                        >
+                          <Share2 size={13} /> Mark Shared
+                        </button>
+                      )}
+                    </>
                   )}
 
                   <button
@@ -1748,27 +1811,50 @@ export const RosterPage: React.FC = () => {
                                 background: isWeekend ? 'rgba(0,0,0,0.015)' : undefined,
                               }}
                             >
-                              <button
-                                onClick={() => handleCycleCell(mem.id, ci)}
-                                style={{
-                                  display: 'block',
-                                  width: '100%',
-                                  height: '28px',
-                                  padding: '2px 0',
-                                  border: isEdited ? '2px solid var(--primary)' : '1px solid transparent',
-                                  borderRadius: '4px',
-                                  fontFamily: 'var(--font-mono)',
-                                  fontSize: '11.5px',
-                                  fontWeight: '700',
-                                  color: meta.color,
-                                  background: meta.bg,
-                                  cursor: 'pointer',
-                                  transition: 'transform 0.1s ease',
-                                }}
-                                title={`${meta.label} (${meta.desc}) - Click to change`}
-                              >
-                                {code}
-                              </button>
+                              {canManage ? (
+                                <button
+                                  onClick={() => handleCycleCell(mem.id, ci)}
+                                  style={{
+                                    display: 'block',
+                                    width: '100%',
+                                    height: '28px',
+                                    padding: '2px 0',
+                                    border: isEdited ? '2px solid var(--primary)' : '1px solid transparent',
+                                    borderRadius: '4px',
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: '11.5px',
+                                    fontWeight: '700',
+                                    color: meta.color,
+                                    background: meta.bg,
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.1s ease',
+                                  }}
+                                  title={`${meta.label} (${meta.desc}) - Click to change`}
+                                >
+                                  {code}
+                                </button>
+                              ) : (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '100%',
+                                    height: '28px',
+                                    borderRadius: '4px',
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: '11.5px',
+                                    fontWeight: '700',
+                                    color: meta.color,
+                                    background: meta.bg,
+                                    border: '1px solid transparent',
+                                    userSelect: 'none',
+                                  }}
+                                  title={`${meta.label} (${meta.desc})`}
+                                >
+                                  {code}
+                                </div>
+                              )}
                             </td>
                           );
                         })}
@@ -4228,7 +4314,7 @@ export const RosterPage: React.FC = () => {
                       className="btn btn-sm btn-primary"
                       style={{ flex: 1 }}
                     >
-                      Open &amp; Edit
+                      {canManage ? 'Open & Edit' : 'View Schedule'}
                     </button>
                     <button
                       onClick={() => handleExportCsv(r)}
@@ -4244,20 +4330,22 @@ export const RosterPage: React.FC = () => {
                     >
                       <Printer size={13} />
                     </button>
-                    <button
-                      onClick={() => {
-                        if (!window.confirm(`Delete saved roster ${r.title}?`)) return;
-                        const nextTeams = db.teams.map((t) =>
-                          t.id === activeTeam.id ? { ...t, rosters: t.rosters.filter((x) => x.id !== r.id) } : t,
-                        );
-                        persistDB({ ...db, teams: nextTeams });
-                        toast.success('Roster deleted');
-                      }}
-                      className="btn btn-sm btn-ghost"
-                      style={{ color: '#dc2626' }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {canManage && (
+                      <button
+                        onClick={() => {
+                          if (!window.confirm(`Delete saved roster ${r.title}?`)) return;
+                          const nextTeams = db.teams.map((t) =>
+                            t.id === activeTeam.id ? { ...t, rosters: t.rosters.filter((x) => x.id !== r.id) } : t,
+                          );
+                          persistDB({ ...db, teams: nextTeams });
+                          toast.success('Roster removed from history');
+                        }}
+                        className="btn btn-sm btn-danger"
+                        title="Delete Roster"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
