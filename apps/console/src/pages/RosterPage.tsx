@@ -312,7 +312,7 @@ export const RosterPage: React.FC = () => {
   >('generate');
 
   useEffect(() => {
-    if (!canManage && ['teams', 'members', 'conditions'].includes(activeTab)) {
+    if (!canManage && ['teams', 'members'].includes(activeTab)) {
       setActiveTab('generate');
     }
   }, [canManage, activeTab]);
@@ -1484,6 +1484,7 @@ export const RosterPage: React.FC = () => {
             ]
           : [
               { id: 'generate', label: 'Shift Schedule', icon: Calendar },
+              { id: 'conditions', label: 'Holidays & Team Duty', icon: Layers },
               { id: 'history', label: `Published Schedules (${activeTeam?.rosters?.length || 0})`, icon: Clock },
             ]
         ).map((tab) => {
@@ -2954,22 +2955,31 @@ export const RosterPage: React.FC = () => {
                   <span style={{ fontSize: '11px', background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: '12px', fontWeight: '600' }}>
                     {db.holidays.length} {db.holidays.length === 1 ? 'holiday' : 'holidays'}
                   </span>
+                  {!canManage && (
+                    <span style={{ fontSize: '11px', background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '12px', fontWeight: '700' }}>
+                      Read-Only
+                    </span>
+                  )}
                 </div>
                 <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                  Company-wide non-working days. Roster algorithm automatically exempts staff and triggers Compensatory Off (CO) rules.
+                  {canManage
+                    ? 'Company-wide non-working days. Roster algorithm automatically exempts staff and triggers Compensatory Off (CO) rules.'
+                    : 'Official organization-wide non-working holidays. Shifts are automatically exempted on these dates.'}
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  const newH: GlobalHoliday = { id: uid(), date: fmtISO(new Date()), reason: 'New Company Holiday' };
-                  persistDB({ ...db, holidays: [...db.holidays, newH] });
-                  toast.success('Added new company holiday');
-                }}
-                className="btn btn-secondary"
-                style={{ fontSize: '12px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Plus size={13} /> Add Holiday
-              </button>
+              {canManage && (
+                <button
+                  onClick={() => {
+                    const newH: GlobalHoliday = { id: uid(), date: fmtISO(new Date()), reason: 'New Company Holiday' };
+                    persistDB({ ...db, holidays: [...db.holidays, newH] });
+                    toast.success('Added new company holiday');
+                  }}
+                  className="btn btn-secondary"
+                  style={{ fontSize: '12px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Plus size={13} /> Add Holiday
+                </button>
+              )}
             </div>
 
             {db.holidays.length === 0 ? (
@@ -3050,85 +3060,100 @@ export const RosterPage: React.FC = () => {
 
                       {/* Symmetrical Inputs Column */}
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
-                        <input
-                          type="text"
-                          value={h.reason}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            persistDB({
-                              ...db,
-                              holidays: db.holidays.map((x) => (x.id === h.id ? { ...x, reason: val } : x)),
-                            });
-                          }}
-                          placeholder="Holiday Name / Festival"
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-medium)',
-                            fontSize: '13px',
-                            fontWeight: '600',
-                            color: 'var(--text-primary)',
-                            boxSizing: 'border-box',
-                            outline: 'none',
-                            background: '#ffffff',
-                          }}
-                        />
-                        <input
-                          type="date"
-                          value={h.date}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            persistDB({
-                              ...db,
-                              holidays: db.holidays.map((x) => (x.id === h.id ? { ...x, date: val } : x)),
-                            });
-                          }}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            padding: '5px 10px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-subtle)',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                            color: 'var(--text-secondary)',
-                            background: '#f8fafc',
-                            boxSizing: 'border-box',
-                            outline: 'none',
-                            cursor: 'pointer',
-                          }}
-                        />
+                        {canManage ? (
+                          <>
+                            <input
+                              type="text"
+                              value={h.reason}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                persistDB({
+                                  ...db,
+                                  holidays: db.holidays.map((x) => (x.id === h.id ? { ...x, reason: val } : x)),
+                                });
+                              }}
+                              placeholder="Holiday Name / Festival"
+                              style={{
+                                display: 'block',
+                                width: '100%',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-medium)',
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                color: 'var(--text-primary)',
+                                boxSizing: 'border-box',
+                                outline: 'none',
+                                background: '#ffffff',
+                              }}
+                            />
+                            <input
+                              type="date"
+                              value={h.date}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                persistDB({
+                                  ...db,
+                                  holidays: db.holidays.map((x) => (x.id === h.id ? { ...x, date: val } : x)),
+                                });
+                              }}
+                              style={{
+                                display: 'block',
+                                width: '100%',
+                                padding: '5px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-subtle)',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                color: 'var(--text-secondary)',
+                                background: '#f8fafc',
+                                boxSizing: 'border-box',
+                                outline: 'none',
+                                cursor: 'pointer',
+                              }}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {h.reason || 'Company Holiday'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '500' }}>
+                              {h.date} ({dow})
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       {/* Delete Action Button */}
-                      <button
-                        onClick={() => {
-                          persistDB({ ...db, holidays: db.holidays.filter((x) => x.id !== h.id) });
-                          toast.success('Holiday removed');
-                        }}
-                        className="btn btn-ghost"
-                        style={{
-                          color: '#dc2626',
-                          width: '36px',
-                          height: '36px',
-                          padding: 0,
-                          borderRadius: '8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          background: '#fff1f2',
-                          border: '1px solid #fecdd3',
-                          cursor: 'pointer',
-                          alignSelf: 'center',
-                          transition: 'all 0.15s ease',
-                        }}
-                        title="Delete Holiday"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      {canManage && (
+                        <button
+                          onClick={() => {
+                            persistDB({ ...db, holidays: db.holidays.filter((x) => x.id !== h.id) });
+                            toast.success('Holiday removed');
+                          }}
+                          className="btn btn-ghost"
+                          style={{
+                            color: '#dc2626',
+                            width: '36px',
+                            height: '36px',
+                            padding: 0,
+                            borderRadius: '8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            background: '#fff1f2',
+                            border: '1px solid #fecdd3',
+                            cursor: 'pointer',
+                            alignSelf: 'center',
+                            transition: 'all 0.15s ease',
+                          }}
+                          title="Delete Holiday"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -3152,25 +3177,27 @@ export const RosterPage: React.FC = () => {
                   Assigned staff cover Morning (7:30 AM) or Evening (2:00 PM) shifts on weekends/holidays. Compensatory Off (CO) is <b>automatically granted</b> on their next working day.
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  const newD: WeekendDutyEntry = {
-                    id: uid(),
-                    date: fmtISO(new Date()),
-                    morningId: activeTeam.members[0]?.id || '',
-                    eveningId: activeTeam.members[1]?.id || '',
-                  };
-                  const nextTeams = db.teams.map((t) =>
-                    t.id === activeTeam.id ? { ...t, weekendDuties: [...t.weekendDuties, newD] } : t,
-                  );
-                  persistDB({ ...db, teams: nextTeams });
-                  toast.success('Added weekend/holiday duty slot');
-                }}
-                className="btn btn-primary"
-                style={{ fontSize: '12px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Plus size={13} /> Add Duty Slot
-              </button>
+              {canManage && (
+                <button
+                  onClick={() => {
+                    const newD: WeekendDutyEntry = {
+                      id: uid(),
+                      date: fmtISO(new Date()),
+                      morningId: activeTeam.members[0]?.id || '',
+                      eveningId: activeTeam.members[1]?.id || '',
+                    };
+                    const nextTeams = db.teams.map((t) =>
+                      t.id === activeTeam.id ? { ...t, weekendDuties: [...t.weekendDuties, newD] } : t,
+                    );
+                    persistDB({ ...db, teams: nextTeams });
+                    toast.success('Added weekend/holiday duty slot');
+                  }}
+                  className="btn btn-primary"
+                  style={{ fontSize: '12px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Plus size={13} /> Add Duty Slot
+                </button>
+              )}
             </div>
 
             {/* Duty Load Balance Barometer & Staff Drag Deck */}
@@ -3705,14 +3732,16 @@ export const RosterPage: React.FC = () => {
                     Force staff onto a specific shift for a date range (swaps, manager requests).
                   </p>
                 </div>
-                <button
-                  onClick={openWovWizard}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: '600' }}
-                  title="Open Search & Multi-Select Override Wizard"
-                >
-                  <Plus size={13} /> Override
-                </button>
+                {canManage && (
+                  <button
+                    onClick={openWovWizard}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: '600' }}
+                    title="Open Search & Multi-Select Override Wizard"
+                  >
+                    <Plus size={13} /> Override
+                  </button>
+                )}
               </div>
 
               {activeTeam.wov.length === 0 ? (
@@ -3808,33 +3837,35 @@ export const RosterPage: React.FC = () => {
                             </select>
                           </div>
 
-                          <button
-                            onClick={() => {
-                              const nextTeams = db.teams.map((t) =>
-                                t.id === activeTeam.id ? { ...t, wov: t.wov.filter((x) => x.id !== o.id) } : t,
-                              );
-                              persistDB({ ...db, teams: nextTeams });
-                              toast.success('Override removed');
-                            }}
-                            className="btn btn-ghost"
-                            style={{
-                              color: '#dc2626',
-                              width: '32px',
-                              height: '32px',
-                              padding: 0,
-                              borderRadius: '6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                              background: '#fff1f2',
-                              border: '1px solid #fecdd3',
-                              cursor: 'pointer',
-                            }}
-                            title="Remove Override"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          {canManage && (
+                            <button
+                              onClick={() => {
+                                const nextTeams = db.teams.map((t) =>
+                                  t.id === activeTeam.id ? { ...t, wov: t.wov.filter((x) => x.id !== o.id) } : t,
+                                );
+                                persistDB({ ...db, teams: nextTeams });
+                                toast.success('Override removed');
+                              }}
+                              className="btn btn-ghost"
+                              style={{
+                                color: '#dc2626',
+                                width: '32px',
+                                height: '32px',
+                                padding: 0,
+                                borderRadius: '6px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                background: '#fff1f2',
+                                border: '1px solid #fecdd3',
+                                cursor: 'pointer',
+                              }}
+                              title="Remove Override"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
 
                         {/* Bottom Row: Dates + Reason */}
@@ -3904,14 +3935,16 @@ export const RosterPage: React.FC = () => {
                     Marks member as &apos;L&apos; for all days in the date range (exempted from shifts).
                   </p>
                 </div>
-                <button
-                  onClick={openLeaveWizard}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: '600' }}
-                  title="Open Search & Multi-Select Leave Wizard"
-                >
-                  <Plus size={13} /> Leave
-                </button>
+                {canManage && (
+                  <button
+                    onClick={openLeaveWizard}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: '600' }}
+                    title="Open Search & Multi-Select Leave Wizard"
+                  >
+                    <Plus size={13} /> Leave
+                  </button>
+                )}
               </div>
 
               {activeTeam.leaves.length === 0 ? (
@@ -3996,33 +4029,35 @@ export const RosterPage: React.FC = () => {
                           </span>
                         </div>
 
-                        <button
-                          onClick={() => {
-                            const nextTeams = db.teams.map((t) =>
-                              t.id === activeTeam.id ? { ...t, leaves: t.leaves.filter((x) => x.id !== l.id) } : t,
-                            );
-                            persistDB({ ...db, teams: nextTeams });
-                            toast.success('Leave removed');
-                          }}
-                          className="btn btn-ghost"
-                          style={{
-                            color: '#dc2626',
-                            width: '32px',
-                            height: '32px',
-                            padding: 0,
-                            borderRadius: '6px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                            background: '#fff1f2',
-                            border: '1px solid #fecdd3',
-                            cursor: 'pointer',
-                          }}
-                          title="Remove Leave"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        {canManage && (
+                          <button
+                            onClick={() => {
+                              const nextTeams = db.teams.map((t) =>
+                                t.id === activeTeam.id ? { ...t, leaves: t.leaves.filter((x) => x.id !== l.id) } : t,
+                              );
+                              persistDB({ ...db, teams: nextTeams });
+                              toast.success('Leave removed');
+                            }}
+                            className="btn btn-ghost"
+                            style={{
+                              color: '#dc2626',
+                              width: '32px',
+                              height: '32px',
+                              padding: 0,
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                              background: '#fff1f2',
+                              border: '1px solid #fecdd3',
+                              cursor: 'pointer',
+                            }}
+                            title="Remove Leave"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
                       </div>
 
                       {/* Bottom Row: Dates + Reason */}
@@ -4091,14 +4126,16 @@ export const RosterPage: React.FC = () => {
                     Manual comp-offs. Weekend/holiday duty adds its own CO automatically.
                   </p>
                 </div>
-                <button
-                  onClick={openCompWizard}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: '600' }}
-                  title="Open Search & Multi-Select Comp-Off Wizard"
-                >
-                  <Plus size={13} /> Comp-off
-                </button>
+                {canManage && (
+                  <button
+                    onClick={openCompWizard}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: '600' }}
+                    title="Open Search & Multi-Select Comp-Off Wizard"
+                  >
+                    <Plus size={13} /> Comp-off
+                  </button>
+                )}
               </div>
 
               {activeTeam.comps.length === 0 ? (
