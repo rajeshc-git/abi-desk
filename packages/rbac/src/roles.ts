@@ -136,6 +136,7 @@ const SUPPORT_BASELINE: PermissionKey[] = [
   'kb:read:internal',
   'approval:request',
   'report:view:own',
+  'roster:read',
 ];
 
 /** The full Tenant Administration list from the requirements. */
@@ -156,6 +157,7 @@ const TENANT_ADMINISTRATION: PermissionKey[] = [
   'admin:workflow:manage',
   'admin:retention:manage',
   'admin:dsr:manage',
+  'roster:manage',
 ];
 
 export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
@@ -199,7 +201,6 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       optional('ticket:escalate', true),
       optional('ticket:close', true),
       allow('ticket:tag'),
-      allow('ticket:update:tenant'),
 
       // Deliberately absent, matching the matrix: ticket:note:internal (✗),
       // ticket:assign:agent (Queue only), ticket:bulk_update (✗),
@@ -209,6 +210,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       allow('capture:diagnostics:read'),
 
       ...TENANT_ADMINISTRATION.map(allow),
+      allow('roster:read'),
       allow('audit:read'),
       allow('report:view:own'),
       allow('report:view:tenant'),

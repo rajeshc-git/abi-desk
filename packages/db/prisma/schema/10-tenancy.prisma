@@ -95,6 +95,10 @@ model Tenant {
   dataSubjectRequests     DataSubjectRequest[]
   retentionPolicies       RetentionPolicy[]
 
+  shiftRosters      ShiftRoster[]
+  rosterTeamConfigs RosterTeamConfig[]
+  products          Product[]
+
   @@index([status])
   @@index([deletedAt])
   @@map("tenant")
@@ -167,6 +171,8 @@ model Brand {
 
   tickets     Ticket[]
   queues      Queue[]
+  teams       Team[]
+  products    Product[]
   userRoles   UserRole[]
   invitations Invitation[]
 

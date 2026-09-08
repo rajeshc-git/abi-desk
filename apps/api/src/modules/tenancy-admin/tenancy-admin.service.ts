@@ -329,6 +329,7 @@ export class TenancyAdminService {
         slug: dto.slug,
         description: dto.description ?? null,
         tier: dto.tier ?? null,
+        brandId: dto.brandId ?? null,
         isActive: dto.isActive,
       },
     });
@@ -339,6 +340,7 @@ export class TenancyAdminService {
     return this.db.client.team.findMany({
       where: { tenantId },
       include: {
+        brand: true,
         members: {
           include: {
             user: {
@@ -361,8 +363,16 @@ export class TenancyAdminService {
         teamId,
         userId: dto.userId,
         isLead: dto.isLead,
+        defaultShift: dto.defaultShift || 'General Shift',
+        timing: dto.timing || '10:00 AM - 7:00 PM',
+        grade: dto.grade || 'Junior',
       },
-      update: { isLead: dto.isLead },
+      update: {
+        isLead: dto.isLead,
+        ...(dto.defaultShift !== undefined ? { defaultShift: dto.defaultShift } : {}),
+        ...(dto.timing !== undefined ? { timing: dto.timing } : {}),
+        ...(dto.grade !== undefined ? { grade: dto.grade } : {}),
+      },
     });
   }
 
@@ -374,6 +384,17 @@ export class TenancyAdminService {
     });
 
     return { success: true, teamId, userId };
+  }
+
+  async deleteTeam(_principal: AuthenticatedPrincipal, teamId: string) {
+    const tenantId = this.tenantContext.requireTenantId();
+
+    return this.db.run(async (tx) => {
+      await tx.teamMember.deleteMany({ where: { teamId, tenantId } });
+      await tx.rosterTeamConfig.deleteMany({ where: { teamId, tenantId } });
+      await tx.shiftRoster.deleteMany({ where: { teamId, tenantId } });
+      return tx.team.delete({ where: { id: teamId, tenantId } });
+    });
   }
 
   async createQueue(_principal: AuthenticatedPrincipal, dto: CreateQueueDto) {

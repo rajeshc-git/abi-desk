@@ -4,6 +4,7 @@ import {
   Inbox,
   MessageSquare,
   BarChart3,
+  Calendar,
   Settings,
   Shield,
   LogOut,
@@ -189,6 +190,13 @@ export const Sidebar: React.FC = () => {
       icon: BarChart3,
       roles: ['TENANT_ADMIN', 'L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'QA_TEAM'],
       permissions: ['report:view:tenant', 'report:view:own'],
+    },
+    {
+      title: 'Shift Roster',
+      path: '/roster',
+      icon: Calendar,
+      roles: ['TENANT_ADMIN', 'L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'QA_TEAM', 'ADMIN', 'PLATFORM_ADMIN'],
+      permissions: ['admin:team:manage', 'report:view:tenant', 'ticket:read:tenant'],
     },
     {
       title: 'Setup',

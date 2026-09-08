@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
+  Calendar,
   Settings,
   Users,
   Key,
@@ -173,15 +175,22 @@ export const AdminPage: React.FC = () => {
 
   // Helper to distinguish Guest/Customer users from Staff members
   const isCustomerUser = (u: any) => {
-    if (u.kind === 'CUSTOMER') return true;
+    if (!u) return false;
+    if (u.kind === 'CUSTOMER' || u.kind === 'SYSTEM') return true;
+    if (u.kind === 'STAFF') return false;
     const roleKey = u.roles?.[0]?.role?.key || '';
     const roleName = (u.roles?.[0]?.role?.name || '').toLowerCase();
-    if (roleKey === 'GUEST_CUSTOMER') return true;
+    if (roleKey === 'GUEST_CUSTOMER' || roleKey === 'CUSTOMER' || roleKey === 'GUEST') return true;
     if (roleName.includes('guest') || roleName.includes('customer')) return true;
     return false;
   };
 
-  const isStaffUser = (u: any) => !isCustomerUser(u);
+  const isStaffUser = (u: any) => {
+    if (!u) return false;
+    if (u.kind === 'CUSTOMER' || u.kind === 'SYSTEM') return false;
+    if (u.kind === 'STAFF') return true;
+    return !isCustomerUser(u);
+  };
 
   const totalStaffCount = React.useMemo(() => usersList.filter(isStaffUser).length, [usersList]);
   const totalCustomerCount = React.useMemo(() => usersList.filter(isCustomerUser).length, [usersList]);
@@ -256,6 +265,26 @@ export const AdminPage: React.FC = () => {
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [isCreateQueueOpen, setIsCreateQueueOpen] = useState(false);
 
+  // Manage Team Members State
+  const [selectedTeamForMembers, setSelectedTeamForMembers] = useState<any | null>(null);
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [isDragOverDropZone, setIsDragOverDropZone] = useState(false);
+  const [draggedStaffId, setDraggedStaffId] = useState<string | null>(null);
+  const [isAddingMemberLoading, setIsAddingMemberLoading] = useState(false);
+
+  const availableStaff = React.useMemo(() => {
+    const q = memberSearchQuery.trim().toLowerCase();
+    const assignedIds = new Set((selectedTeamForMembers?.members || []).map((m: any) => m.userId || m.user?.id));
+    return (usersList || []).filter((u) => {
+      if (!isStaffUser(u) || u.kind !== 'STAFF') return false;
+      if (assignedIds.has(u.id)) return false;
+      if (!q) return true;
+      const name = (u.fullName || u.displayName || '').toLowerCase();
+      const email = (u.email || '').toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [usersList, selectedTeamForMembers, memberSearchQuery]);
+
   // Edit Staff Role Form
   const [editingStaffUser, setEditingStaffUser] = useState<any | null>(null);
   const [editStaffRoleId, setEditStaffRoleId] = useState('');
@@ -321,6 +350,14 @@ export const AdminPage: React.FC = () => {
     loadData();
   }, [activeTab, activeBrandId]);
 
+  useEffect(() => {
+    if (selectedTeamForMembers && usersList.length === 0) {
+      ApiClient.get('/admin/users')
+        .then((res: any) => setUsersList(res?.users || res || []))
+        .catch((e) => console.warn('Failed to load users for modal', e));
+    }
+  }, [selectedTeamForMembers]);
+
   const loadData = async () => {
     setIsLoading(true);
     try {
@@ -366,14 +403,16 @@ export const AdminPage: React.FC = () => {
           }
         }
       } else if (activeTab === 'teams') {
-        const [teamsData, queuesData, brandsData] = await Promise.all([
+        const [teamsData, queuesData, brandsData, usersData] = await Promise.all([
           ApiClient.get('/admin/teams'),
           ApiClient.get('/admin/queues'),
           ApiClient.get('/admin/brands'),
+          ApiClient.get('/admin/users'),
         ]);
         setTeams(teamsData || []);
         setQueuesList(queuesData || []);
         setBrandsList(brandsData || []);
+        setUsersList(usersData?.users || usersData || []);
       } else if (activeTab === 'users' || activeTab === 'customers') {
         const [usersData, rolesData, brandsData] = await Promise.all([
           ApiClient.get('/admin/users'),
@@ -905,12 +944,20 @@ export const AdminPage: React.FC = () => {
   // Create Team Submit
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedName = teamName.trim();
+    if (!trimmedName) return;
     try {
+      const generatedSlug =
+        trimmedName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '') || `team-${Date.now().toString(36).slice(-4)}`;
+
       await ApiClient.post('/admin/teams', {
-        name: teamName,
-        slug: teamSlug.toLowerCase(),
+        name: trimmedName,
+        slug: generatedSlug,
         tier: teamTier,
-        description: teamDescription || undefined,
+        description: teamDescription.trim() || undefined,
         isActive: true,
       });
       setIsCreateTeamOpen(false);
@@ -921,6 +968,80 @@ export const AdminPage: React.FC = () => {
       toast.success('Team created successfully!');
     } catch (err: any) {
       toast.error(`Failed to create team: ${err.message}`);
+    }
+  };
+
+  // Quick Assign Staff Member (Drag/Drop or 1-Click +)
+  const handleQuickAssignStaff = async (userId: string, customGrade = 'Junior', customShift = 'General Shift') => {
+    if (!selectedTeamForMembers || !userId) return;
+    setIsAddingMemberLoading(true);
+    try {
+      const timing = customShift === 'Morning Shift' ? '7:30 AM - 4:30 PM' : customShift === 'Evening Shift' ? '2:00 PM - 11:00 PM' : '10:00 AM - 7:00 PM';
+      await ApiClient.post(`/admin/teams/${selectedTeamForMembers.id}/members`, {
+        userId,
+        isLead: false,
+        grade: customGrade,
+        defaultShift: customShift,
+        timing,
+      });
+      toast.success('Staff member assigned to team!');
+      await loadData();
+      const refreshedTeams = await ApiClient.get('/admin/teams');
+      const updated = (refreshedTeams || []).find((t: any) => t.id === selectedTeamForMembers.id);
+      if (updated) setSelectedTeamForMembers(updated);
+    } catch (err: any) {
+      toast.error(`Failed to assign member: ${err.message}`);
+    } finally {
+      setIsAddingMemberLoading(false);
+    }
+  };
+
+  // Update Member Preferences Inline (Grade, Shift, Lead Status)
+  const handleUpdateMemberInline = async (userId: string, updates: any) => {
+    if (!selectedTeamForMembers || !userId) return;
+    try {
+      const existing = (selectedTeamForMembers.members || []).find((m: any) => (m.user?.id || m.userId) === userId);
+      await ApiClient.post(`/admin/teams/${selectedTeamForMembers.id}/members`, {
+        userId,
+        isLead: updates.isLead !== undefined ? updates.isLead : (existing?.isLead || false),
+        grade: updates.grade !== undefined ? updates.grade : (existing?.grade || 'Junior'),
+        defaultShift: updates.defaultShift !== undefined ? updates.defaultShift : (existing?.defaultShift || 'General Shift'),
+        timing: updates.timing !== undefined ? updates.timing : (existing?.timing || '10:00 AM - 7:00 PM'),
+      });
+      toast.success('Member preferences updated');
+      await loadData();
+      const refreshedTeams = await ApiClient.get('/admin/teams');
+      const updated = (refreshedTeams || []).find((t: any) => t.id === selectedTeamForMembers.id);
+      if (updated) setSelectedTeamForMembers(updated);
+    } catch (err: any) {
+      toast.error(`Failed to update member: ${err.message}`);
+    }
+  };
+
+  // Remove Member from Team
+  const handleRemoveMemberFromTeam = async (userId: string) => {
+    if (!selectedTeamForMembers) return;
+    try {
+      await ApiClient.delete(`/admin/teams/${selectedTeamForMembers.id}/members/${userId}`);
+      toast.success('Member removed from team.');
+      await loadData();
+      const refreshedTeams = await ApiClient.get('/admin/teams');
+      const updated = (refreshedTeams || []).find((t: any) => t.id === selectedTeamForMembers.id);
+      if (updated) setSelectedTeamForMembers(updated);
+    } catch (err: any) {
+      toast.error(`Failed to remove team member: ${err.message}`);
+    }
+  };
+
+  // Delete Team
+  const handleDeleteTeam = async (team: any) => {
+    if (!confirm(`Are you sure you want to delete team "${team.name}"? All assigned members and associated roster configs will be removed.`)) return;
+    try {
+      await ApiClient.delete(`/admin/teams/${team.id}`);
+      toast.success(`Team "${team.name}" deleted.`);
+      loadData();
+    } catch (err: any) {
+      toast.error(`Failed to delete team: ${err.message}`);
     }
   };
 
@@ -2134,6 +2255,40 @@ export const AdminPage: React.FC = () => {
 
           {activeTab === 'teams' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Shift Roster & Product Matrix Callout */}
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '10px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Calendar size={18} style={{ color: 'var(--primary)' }} />
+                    <h4 style={{ margin: 0, fontSize: '14.5px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                      Shift Roster &amp; Multi-Tier Product Mapping
+                    </h4>
+                  </div>
+                  <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                    Map L1/L2/L3 tiers to your organization's products, configure weekly rotations, holiday duties &amp; generate live rosters.
+                  </p>
+                </div>
+                <Link
+                  to="/roster"
+                  className="btn btn-primary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: '600', padding: '8px 14px' }}
+                >
+                  <Calendar size={14} /> Open Roster Console
+                </Link>
+              </div>
+
               {/* Teams Section */}
               <div className="card">
                 <div
@@ -2170,23 +2325,92 @@ export const AdminPage: React.FC = () => {
                         key={t.id}
                         style={{
                           display: 'flex',
-                          alignItems: 'center',
+                          alignItems: 'flex-start',
                           justifyContent: 'space-between',
-                          padding: '10px 14px',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--bg-surface-elevated)',
+                          padding: '16px 18px',
+                          borderRadius: '10px',
+                          backgroundColor: '#ffffff',
+                          border: '1px solid var(--border-subtle)',
+                          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
+                          gap: '16px',
                         }}
                       >
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600 }}>
-                            {t.name} (Slug: {t.slug})
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '14.5px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {t.name}
+                            </span>
+                            <code style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'var(--bg-app)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                              {t.slug}
+                            </code>
+                            {t.tier && <span className="tier-pill L1" style={{ fontSize: '11px', padding: '2px 7px' }}>{t.tier} Tier</span>}
                           </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {t.description || 'No description provided.'} | Members:{' '}
-                            {t.members?.length || 0}
+                          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                            {t.description || 'No description provided.'}
+                          </div>
+                          <div style={{ marginTop: '6px', paddingTop: '8px', borderTop: '1px dashed var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '11.5px', fontWeight: 650, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <Users size={13} style={{ color: 'var(--primary)' }} /> {t.members?.length || 0} {t.members?.length === 1 ? 'member' : 'members'}:
+                              </span>
+                              {t.members && t.members.length > 0 ? (
+                                t.members.map((m: any) => (
+                                  <span
+                                    key={m.id}
+                                    style={{
+                                      fontSize: '11px',
+                                      padding: '3px 9px',
+                                      borderRadius: '6px',
+                                      background: m.isLead ? '#fef3c7' : '#f8fafc',
+                                      color: m.isLead ? '#92400e' : '#334155',
+                                      border: m.isLead ? '1px solid #fde68a' : '1px solid #e2e8f0',
+                                      fontWeight: m.isLead ? '600' : '500',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {m.isLead && <span style={{ color: '#d97706' }}>⭐ Lead:</span>}
+                                    <span>{m.user?.fullName || m.user?.displayName || m.user?.email || 'Staff'}</span>
+                                    <span style={{ fontSize: '10px', color: m.isLead ? '#b45309' : '#64748b', opacity: 0.85 }}>({m.grade || 'Junior'})</span>
+                                  </span>
+                                ))
+                              ) : (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                  No staff assigned yet
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        {t.tier && <span className="tier-pill L1">{t.tier} Tier</span>}
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, alignSelf: 'flex-start', marginTop: '2px' }}>
+                          <button
+                            onClick={() => setSelectedTeamForMembers(t)}
+                            className="btn btn-secondary btn-sm"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              whiteSpace: 'nowrap',
+                              height: '32px',
+                              padding: '0 12px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <Users size={13} /> Manage Members
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTeam(t)}
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: '#dc2626', height: '32px', width: '32px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            title="Delete Team"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -3945,63 +4169,27 @@ export const AdminPage: React.FC = () => {
           style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
         >
           <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Team Name *
+            <label className="form-label" style={{ marginBottom: '5px' }}>
+              Team Name <span style={{ color: '#dc2626' }}>*</span>
             </label>
             <input
               type="text"
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
-              placeholder="e.g. L2 Technical Escalations"
+              placeholder="e.g. Technical Escalations, Customer Success, QA"
               className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
               required
             />
           </div>
+
           <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Slug *
-            </label>
-            <input
-              type="text"
-              value={teamSlug}
-              onChange={(e) => setTeamSlug(e.target.value)}
-              placeholder="e.g. l2-tech (alphanumeric & hyphens)"
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-              required
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
+            <label className="form-label" style={{ marginBottom: '5px' }}>
               Support Tier
             </label>
             <select
               value={teamTier}
               onChange={(e) => setTeamTier(e.target.value)}
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
+              className="form-select"
             >
               <option value="L1">L1 - Frontline Support</option>
               <option value="L2">L2 - Technical Support</option>
@@ -4010,26 +4198,29 @@ export const AdminPage: React.FC = () => {
               <option value="QA">QA - Quality Testing</option>
             </select>
           </div>
+
           <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
+            <label className="form-label" style={{ marginBottom: '5px' }}>
               Description
             </label>
             <textarea
               value={teamDescription}
               onChange={(e) => setTeamDescription(e.target.value)}
-              style={{
-                width: '100%',
-                minHeight: '60px',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
+              placeholder="Brief summary of this team's responsibilities..."
+              className="form-textarea"
+              rows={3}
             />
           </div>
+
           <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '8px',
+              marginTop: '8px',
+              paddingTop: '12px',
+              borderTop: '1px solid var(--border-subtle)',
+            }}
           >
             <button
               type="button"
@@ -4043,6 +4234,312 @@ export const AdminPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Manage Team Members Drag & Drop Wizard Modal */}
+      <Modal
+        isOpen={!!selectedTeamForMembers}
+        onClose={() => setSelectedTeamForMembers(null)}
+        title={`Manage Members · ${selectedTeamForMembers?.name || 'Support Team'}`}
+        maxWidth="940px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Header Team Summary */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '12px 18px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                  {selectedTeamForMembers?.name}
+                </span>
+                <span className={`tier-pill ${selectedTeamForMembers?.tier || 'L1'}`}>
+                  {selectedTeamForMembers?.tier || 'General'} Tier
+                </span>
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {selectedTeamForMembers?.description || 'Frontline support & ticket routing team.'}
+              </div>
+            </div>
+            <Link
+              to="/roster"
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
+            >
+              <Calendar size={13} /> Open Roster Console
+            </Link>
+          </div>
+
+          {/* Dual-Column Interactive Wizard */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 330px) 1fr', gap: '16px', minHeight: '430px' }}>
+            {/* Left Column: Available Staff Directory (Draggable Source) */}
+            <div
+              style={{
+                background: '#ffffff',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '10px',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              }}
+            >
+              <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12.5px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Users size={14} style={{ color: 'var(--primary)' }} />
+                    Staff Directory
+                  </span>
+                  <span style={{ fontSize: '11px', fontWeight: '600', padding: '1px 7px', borderRadius: '10px', background: 'var(--bg-app)', color: 'var(--text-muted)' }}>
+                    {availableStaff.length} available
+                  </span>
+                </div>
+
+                {/* Search Box */}
+                <div style={{ position: 'relative' }}>
+                  <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    value={memberSearchQuery}
+                    onChange={(e) => setMemberSearchQuery(e.target.value)}
+                    placeholder="Search staff name or email..."
+                    className="form-control"
+                    style={{ paddingLeft: '28px', fontSize: '11.5px', height: '30px' }}
+                  />
+                </div>
+              </div>
+
+              {/* Draggable Staff Cards List */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '350px' }} className="custom-scrollbar">
+                {availableStaff.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '36px 12px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                    <UserCheck size={24} style={{ color: 'var(--border-strong)', margin: '0 auto 6px', display: 'block' }} />
+                    {memberSearchQuery ? 'No staff matching search.' : 'All staff members are already assigned to this team!'}
+                  </div>
+                ) : (
+                  availableStaff.map((u: any) => {
+                    const name = u.fullName || u.displayName || u.email;
+                    const initials = name.slice(0, 2).toUpperCase();
+                    return (
+                      <div
+                        key={u.id}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', u.id);
+                          setDraggedStaffId(u.id);
+                        }}
+                        onDragEnd={() => setDraggedStaffId(null)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          background: '#fbfcfd',
+                          border: '1px solid var(--border-subtle)',
+                          cursor: 'grab',
+                          transition: 'all 0.15s ease',
+                        }}
+                        title="Drag this card to the right or click + Add to assign"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                          <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#2563eb', fontWeight: '700', fontSize: '10.5px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            {initials}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: '12px', fontWeight: '650', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {name}
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {u.email}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAssignStaff(u.id)}
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '3px 8px', fontSize: '11px', height: '26px', flexShrink: 0 }}
+                          title="Assign to team"
+                        >
+                          <Plus size={12} /> Add
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div style={{ padding: '8px 12px', background: '#f8fafc', borderTop: '1px solid var(--border-subtle)', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                💡 Drag card &rarr; drop into team or click <b>+ Add</b>
+              </div>
+            </div>
+
+            {/* Right Column: Assigned Team Drop Zone & Member Config */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOverDropZone(true);
+              }}
+              onDragLeave={() => setIsDragOverDropZone(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOverDropZone(false);
+                const userId = e.dataTransfer.getData('text/plain') || draggedStaffId;
+                if (userId) handleQuickAssignStaff(userId);
+              }}
+              style={{
+                background: isDragOverDropZone ? 'rgba(37, 99, 235, 0.04)' : '#ffffff',
+                border: isDragOverDropZone ? '2px dashed var(--primary)' : '1px solid var(--border-subtle)',
+                borderRadius: '10px',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <UserCheck size={15} style={{ color: '#16a34a' }} />
+                  Assigned Team Members ({(selectedTeamForMembers?.members || []).length})
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Drag staff from left to assign
+                </span>
+              </div>
+
+              {/* Assigned Members List */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '350px' }} className="custom-scrollbar">
+                {(!selectedTeamForMembers?.members || selectedTeamForMembers.members.length === 0) ? (
+                  <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)', border: '1px dashed var(--border-medium)', borderRadius: '8px', background: '#fafbfc' }}>
+                    <Users size={32} style={{ color: 'var(--border-strong)', margin: '0 auto 8px', display: 'block' }} />
+                    <p style={{ fontSize: '13px', fontWeight: '650', color: 'var(--text-secondary)', margin: '0 0 4px' }}>
+                      Drop Staff Members Here
+                    </p>
+                    <p style={{ fontSize: '11.5px', margin: 0 }}>
+                      Drag staff cards from the left panel or click <b>+ Add</b> to assign them to {selectedTeamForMembers?.name}.
+                    </p>
+                  </div>
+                ) : (
+                  selectedTeamForMembers.members.map((m: any) => {
+                    const name = m.user?.fullName || m.user?.displayName || m.user?.email || 'Staff';
+                    const initials = name.slice(0, 2).toUpperCase();
+                    return (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px',
+                          padding: '12px 14px',
+                          borderRadius: '10px',
+                          background: '#ffffff',
+                          border: m.isLead ? '1px solid #fde68a' : '1px solid var(--border-subtle)',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {/* Top Row: User Identity & Actions */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: m.isLead ? '#fef3c7' : '#eff6ff', border: m.isLead ? '1px solid #fde68a' : '1px solid #bfdbfe', color: m.isLead ? '#b45309' : '#2563eb', fontWeight: '700', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              {initials}
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                <span>{name}</span>
+                                {m.isLead && <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '4px', background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', fontWeight: '700' }}>⭐ Lead</span>}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {m.user?.email || m.userId}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateMemberInline(m.user?.id || m.userId, { isLead: !m.isLead })}
+                              className={`btn btn-sm ${m.isLead ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{ fontSize: '11px', height: '28px', padding: '0 10px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              title={m.isLead ? 'Click to remove Team Lead status' : 'Promote to Team Lead'}
+                            >
+                              ⭐ {m.isLead ? 'Team Lead' : 'Make Lead'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMemberFromTeam(m.user?.id || m.userId)}
+                              className="btn btn-ghost btn-sm"
+                              style={{ color: '#dc2626', height: '28px', width: '28px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                              title="Remove member from team"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Bottom Row: Symmetrical 2-Column Controls Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', paddingTop: '8px', borderTop: '1px dashed var(--border-subtle)' }}>
+                          <div>
+                            <div style={{ fontSize: '10.5px', fontWeight: '650', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                              Classification / Grade
+                            </div>
+                            <select
+                              value={m.grade || 'Junior'}
+                              onChange={(e) => handleUpdateMemberInline(m.user?.id || m.userId, { grade: e.target.value })}
+                              className="form-select"
+                              style={{ fontSize: '11.5px', height: '30px', padding: '2px 24px 2px 8px', width: '100%' }}
+                            >
+                              <option value="Senior">Senior</option>
+                              <option value="Junior">Junior</option>
+                              <option value="Permanent General Shift">Permanent General Shift</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '10.5px', fontWeight: '650', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                              Default Shift &amp; Hours
+                            </div>
+                            <select
+                              value={m.defaultShift || 'General Shift'}
+                              onChange={(e) => {
+                                const s = e.target.value;
+                                const timing = s === 'Morning Shift' ? '7:30 AM - 4:30 PM' : s === 'Evening Shift' ? '2:00 PM - 11:00 PM' : '10:00 AM - 7:00 PM';
+                                handleUpdateMemberInline(m.user?.id || m.userId, { defaultShift: s, timing });
+                              }}
+                              className="form-select"
+                              style={{ fontSize: '11.5px', height: '30px', padding: '2px 24px 2px 8px', width: '100%' }}
+                            >
+                              <option value="General Shift">General (10:00 AM - 7:00 PM)</option>
+                              <option value="Morning Shift">Morning (7:30 AM - 4:30 PM)</option>
+                              <option value="Evening Shift">Evening (2:00 PM - 11:00 PM)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Modal Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Changes sync instantly to PostgreSQL in real-time.
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedTeamForMembers(null)}
+              className="btn btn-primary btn-sm"
+              style={{ padding: '7px 20px', fontSize: '12.5px', fontWeight: 600 }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Create Queue Modal */}

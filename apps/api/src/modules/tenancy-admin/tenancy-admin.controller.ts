@@ -143,6 +143,13 @@ export class TenancyAdminController {
     return this.adminService.removeTeamMember(principal, teamId, userId);
   }
 
+  @Delete('teams/:id')
+  @RequirePermission('admin:team:manage')
+  @Audited({ action: 'team.deleted', resourceType: 'team', idParam: 'id' })
+  deleteTeam(@CurrentUser() principal: AuthenticatedPrincipal, @Param('id') teamId: string) {
+    return this.adminService.deleteTeam(principal, teamId);
+  }
+
   @Post('queues')
   @RequirePermission('admin:queue:manage')
   @Audited({ action: 'queue.created', resourceType: 'queue' })

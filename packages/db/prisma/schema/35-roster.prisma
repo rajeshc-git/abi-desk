@@ -1,0 +1,86 @@
+// ---------------------------------------------------------------------------
+// Shift Roster & Team Rotation Configurations
+// ---------------------------------------------------------------------------
+
+enum ShiftRosterStatus {
+  DRAFT
+  PUBLISHED
+  AMENDED
+}
+
+/// Saved shift roster schedules per team with complete audit snapshot and changelog.
+model ShiftRoster {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String            @db.Uuid
+  teamId      String            @db.Uuid
+  title       String            @db.VarChar(120)
+  startDate   DateTime          @db.Date
+  endDate     DateTime          @db.Date
+  status      ShiftRosterStatus @default(DRAFT)
+  revision    Int               @default(1)
+  configSnap  Json
+  gridData    Json
+  manualEdits Json              @default("{}")
+  changelog   Json              @default("[]")
+  publishedAt DateTime?         @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, teamId])
+  @@index([tenantId, startDate, endDate])
+  @@map("shift_roster")
+}
+
+/// Team rotation parameters, leave records, comp-offs, and weekend duties.
+model RosterTeamConfig {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @db.Uuid
+  teamId           String   @unique @db.Uuid
+  morningPerDay    Int      @default(2)
+  eveningPerDay    Int      @default(2)
+  step             Int      @default(4)
+  anchorDate       DateTime @default(now()) @db.Date
+  offDay           Int      @default(0)
+  skeleton         Int      @default(1)
+  maxDuty          Int      @default(2)
+  rotationOrder    Json     @default("[]")
+  leaves           Json     @default("[]")
+  comps            Json     @default("[]")
+  weekendDuties    Json     @default("[]")
+  weekdayOverrides Json     @default("[]")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("roster_team_config")
+}
+
+/// Software products / applications supported by the organization.
+model Product {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  brandId     String?  @db.Uuid
+  name        String   @db.VarChar(120)
+  slug        String   @db.VarChar(64)
+  description String?  @db.VarChar(500)
+  isActive    Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand  Brand? @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  teams  Team[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, brandId])
+  @@map("product")
+}

@@ -328,8 +328,10 @@ model SsoProvider {
 
 /// A support team, usually aligned to a tier.
 model Team {
-  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId String @db.Uuid
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String       @db.Uuid
+  brandId   String?      @db.Uuid
+  productId String?      @db.Uuid
 
   name        String       @db.VarChar(120)
   slug        String       @db.VarChar(64)
@@ -340,13 +342,19 @@ model Team {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
-  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  members TeamMember[]
-  queues  Queue[]
-  tickets Ticket[]
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand        Brand?             @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  product      Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  members      TeamMember[]
+  queues       Queue[]
+  tickets      Ticket[]
+  shiftRosters ShiftRoster[]
+  rosterConfig RosterTeamConfig?
 
   @@unique([tenantId, slug])
   @@index([tenantId, tier])
+  @@index([tenantId, brandId])
+  @@index([tenantId, productId])
   @@map("team")
 }
 
@@ -357,8 +365,11 @@ model TeamMember {
   userId   String @db.Uuid
 
   /// Leads are the default approvers for escalations out of this team.
-  isLead    Boolean  @default(false)
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  isLead       Boolean  @default(false)
+  defaultShift String   @default("General Shift") @db.VarChar(60)
+  timing       String   @default("10:00 AM - 7:00 PM") @db.VarChar(60)
+  grade        String   @default("Junior") @db.VarChar(60)
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)

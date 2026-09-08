@@ -94,6 +94,7 @@ export const CreateTeamSchema = z.object({
     .regex(/^[a-z0-9-]+$/),
   description: z.string().max(500).optional(),
   tier: SupportTierEnum.optional(),
+  brandId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().default(true),
 });
 export type CreateTeamDto = z.infer<typeof CreateTeamSchema>;
@@ -104,6 +105,9 @@ export type UpdateTeamDto = z.infer<typeof UpdateTeamSchema>;
 export const TeamMemberInputSchema = z.object({
   userId: z.string().uuid(),
   isLead: z.boolean().default(false),
+  defaultShift: z.string().max(60).optional(),
+  timing: z.string().max(60).optional(),
+  grade: z.string().max(60).optional(),
 });
 export type TeamMemberInputDto = z.infer<typeof TeamMemberInputSchema>;
 

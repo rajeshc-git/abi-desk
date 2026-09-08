@@ -18,7 +18,7 @@
 -- before first release is standard practice (Prisma calls it baselining) and is safe
 -- precisely because there is no deployed data to preserve.
 --
--- Generated 2026-08-09T16:00:08.790Z
+-- Generated 2026-09-08T07:59:42.136Z
 -- =========================================================================
 
 -- =========================================================================
@@ -171,22 +171,6 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 -- that drifts. The assembled migration.sql is the committed artifact.
 -- =========================================================================
 
--- =========================================================================
--- BASELINE PART 2 of 3 - schema (02-schema.sql)
---
--- GENERATED FILE. DO NOT EDIT. NOT COMMITTED.
---
--- Every table, enum, index and foreign key, derived from the Prisma schema by:
---   prisma migrate diff --from-empty --to-schema-datamodel ./prisma/schema
---
--- Edit prisma/schema/*.prisma instead, then run:
---   pnpm --filter @abi-desk/db run baseline:rebuild
---
--- This file is gitignored on purpose. Committing it would create a second source of
--- truth for DDL that the Prisma schema already defines, and the copy is always the one
--- that drifts. The assembled migration.sql is the committed artifact.
--- =========================================================================
-
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
 
@@ -252,6 +236,9 @@ CREATE TYPE "RoleKey" AS ENUM ('GUEST_CUSTOMER', 'TENANT_ADMIN', 'L1_SUPPORT', '
 
 -- CreateEnum
 CREATE TYPE "RoleScope" AS ENUM ('PLATFORM', 'TENANT');
+
+-- CreateEnum
+CREATE TYPE "ShiftRosterStatus" AS ENUM ('DRAFT', 'PUBLISHED', 'AMENDED');
 
 -- CreateEnum
 CREATE TYPE "TicketStatus" AS ENUM ('NEW', 'TRIAGE', 'OPEN', 'PENDING_CUSTOMER', 'ON_HOLD', 'ESCALATED_L2', 'ESCALATED_L3', 'IN_DEVELOPMENT', 'IN_QA', 'PENDING_RELEASE', 'RELEASED', 'PENDING_VERIFICATION', 'AWAITING_CUSTOMER_CONFIRMATION', 'RESOLVED', 'CLOSED', 'REOPENED', 'CANCELLED');
@@ -378,6 +365,8 @@ CREATE TABLE "widget_config" (
     "signingSecretLast4" VARCHAR(4) NOT NULL,
     "signingSecretRotatedAt" TIMESTAMPTZ(6),
     "allowedOrigins" TEXT[],
+    "widgetEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "adminWidgetEnabled" BOOLEAN NOT NULL DEFAULT true,
     "screenshotEnabled" BOOLEAN NOT NULL DEFAULT true,
     "annotationEnabled" BOOLEAN NOT NULL DEFAULT true,
     "screenRecordingEnabled" BOOLEAN NOT NULL DEFAULT true,
@@ -783,6 +772,8 @@ CREATE TABLE "sso_provider" (
 CREATE TABLE "team" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "tenantId" UUID NOT NULL,
+    "brandId" UUID,
+    "productId" UUID,
     "name" VARCHAR(120) NOT NULL,
     "slug" VARCHAR(64) NOT NULL,
     "description" VARCHAR(500),
@@ -801,6 +792,9 @@ CREATE TABLE "team_member" (
     "teamId" UUID NOT NULL,
     "userId" UUID NOT NULL,
     "isLead" BOOLEAN NOT NULL DEFAULT false,
+    "defaultShift" VARCHAR(60) NOT NULL DEFAULT 'General Shift',
+    "timing" VARCHAR(60) NOT NULL DEFAULT '10:00 AM - 7:00 PM',
+    "grade" VARCHAR(60) NOT NULL DEFAULT 'Junior',
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "team_member_pkey" PRIMARY KEY ("id")
@@ -894,6 +888,65 @@ CREATE TABLE "user_role" (
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "user_role_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "shift_roster" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId" UUID NOT NULL,
+    "teamId" UUID NOT NULL,
+    "title" VARCHAR(120) NOT NULL,
+    "startDate" DATE NOT NULL,
+    "endDate" DATE NOT NULL,
+    "status" "ShiftRosterStatus" NOT NULL DEFAULT 'DRAFT',
+    "revision" INTEGER NOT NULL DEFAULT 1,
+    "configSnap" JSONB NOT NULL,
+    "gridData" JSONB NOT NULL,
+    "manualEdits" JSONB NOT NULL DEFAULT '{}',
+    "changelog" JSONB NOT NULL DEFAULT '[]',
+    "publishedAt" TIMESTAMPTZ(6),
+    "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ(6) NOT NULL,
+
+    CONSTRAINT "shift_roster_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "roster_team_config" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId" UUID NOT NULL,
+    "teamId" UUID NOT NULL,
+    "morningPerDay" INTEGER NOT NULL DEFAULT 2,
+    "eveningPerDay" INTEGER NOT NULL DEFAULT 2,
+    "step" INTEGER NOT NULL DEFAULT 4,
+    "anchorDate" DATE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "offDay" INTEGER NOT NULL DEFAULT 0,
+    "skeleton" INTEGER NOT NULL DEFAULT 1,
+    "maxDuty" INTEGER NOT NULL DEFAULT 2,
+    "rotationOrder" JSONB NOT NULL DEFAULT '[]',
+    "leaves" JSONB NOT NULL DEFAULT '[]',
+    "comps" JSONB NOT NULL DEFAULT '[]',
+    "weekendDuties" JSONB NOT NULL DEFAULT '[]',
+    "weekdayOverrides" JSONB NOT NULL DEFAULT '[]',
+    "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ(6) NOT NULL,
+
+    CONSTRAINT "roster_team_config_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "product" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId" UUID NOT NULL,
+    "brandId" UUID,
+    "name" VARCHAR(120) NOT NULL,
+    "slug" VARCHAR(64) NOT NULL,
+    "description" VARCHAR(500),
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ(6) NOT NULL,
+
+    CONSTRAINT "product_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1023,7 +1076,7 @@ CREATE TABLE "ticket_category" (
     "keywords" VARCHAR(1000),
     "usageCount" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ(6) NOT NULL,
 
     CONSTRAINT "ticket_category_pkey" PRIMARY KEY ("id")
 );
@@ -1570,6 +1623,12 @@ CREATE UNIQUE INDEX "sso_provider_tenantId_protocol_issuer_key" ON "sso_provider
 CREATE INDEX "team_tenantId_tier_idx" ON "team"("tenantId", "tier");
 
 -- CreateIndex
+CREATE INDEX "team_tenantId_brandId_idx" ON "team"("tenantId", "brandId");
+
+-- CreateIndex
+CREATE INDEX "team_tenantId_productId_idx" ON "team"("tenantId", "productId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "team_tenantId_slug_key" ON "team"("tenantId", "slug");
 
 -- CreateIndex
@@ -1616,6 +1675,24 @@ CREATE INDEX "user_role_tenantId_roleId_idx" ON "user_role"("tenantId", "roleId"
 
 -- CreateIndex
 CREATE INDEX "user_role_roleId_idx" ON "user_role"("roleId");
+
+-- CreateIndex
+CREATE INDEX "shift_roster_tenantId_teamId_idx" ON "shift_roster"("tenantId", "teamId");
+
+-- CreateIndex
+CREATE INDEX "shift_roster_tenantId_startDate_endDate_idx" ON "shift_roster"("tenantId", "startDate", "endDate");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "roster_team_config_teamId_key" ON "roster_team_config"("teamId");
+
+-- CreateIndex
+CREATE INDEX "roster_team_config_tenantId_idx" ON "roster_team_config"("tenantId");
+
+-- CreateIndex
+CREATE INDEX "product_tenantId_brandId_idx" ON "product"("tenantId", "brandId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "product_tenantId_slug_key" ON "product"("tenantId", "slug");
 
 -- CreateIndex
 CREATE INDEX "ticket_searchVector_idx" ON "ticket" USING GIN ("searchVector");
@@ -1915,6 +1992,12 @@ ALTER TABLE "sso_provider" ADD CONSTRAINT "sso_provider_tenantId_fkey" FOREIGN K
 ALTER TABLE "team" ADD CONSTRAINT "team_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "team" ADD CONSTRAINT "team_brandId_fkey" FOREIGN KEY ("brandId") REFERENCES "brand"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "team" ADD CONSTRAINT "team_productId_fkey" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "team_member" ADD CONSTRAINT "team_member_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -1958,6 +2041,24 @@ ALTER TABLE "user_role" ADD CONSTRAINT "user_role_roleId_fkey" FOREIGN KEY ("rol
 
 -- AddForeignKey
 ALTER TABLE "user_role" ADD CONSTRAINT "user_role_brandId_fkey" FOREIGN KEY ("brandId") REFERENCES "brand"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "shift_roster" ADD CONSTRAINT "shift_roster_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "shift_roster" ADD CONSTRAINT "shift_roster_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "team"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "roster_team_config" ADD CONSTRAINT "roster_team_config_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "roster_team_config" ADD CONSTRAINT "roster_team_config_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "team"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product" ADD CONSTRAINT "product_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "product" ADD CONSTRAINT "product_brandId_fkey" FOREIGN KEY ("brandId") REFERENCES "brand"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ticket_sequence" ADD CONSTRAINT "ticket_sequence_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;

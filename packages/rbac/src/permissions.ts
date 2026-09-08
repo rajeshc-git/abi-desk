@@ -150,6 +150,12 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
     'Administration',
     'Handle GDPR/DPDPA data subject export and erasure requests.',
   ),
+  define('roster:read', 'Administration', 'View shift rosters and rotation schedules.'),
+  define(
+    'roster:manage',
+    'Administration',
+    'Create, update, publish and manage shift rosters and rotation configurations.',
+  ),
 
   // ---- Integrations ------------------------------------------------------
   define(
