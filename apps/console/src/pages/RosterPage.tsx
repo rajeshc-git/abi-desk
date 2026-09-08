@@ -359,6 +359,21 @@ export const RosterPage: React.FC = () => {
     return db.teams.find((t) => t.id === db.activeTeamId) || db.teams[0];
   }, [db]);
 
+  useEffect(() => {
+    if (activeTeam && Array.isArray(activeTeam.rosters) && activeTeam.rosters.length > 0) {
+      if (!currentRoster || !activeTeam.rosters.some((r) => r.id === currentRoster.id)) {
+        const latest =
+          activeTeam.rosters.slice().reverse().find((r) => r.status === 'Shared') ||
+          activeTeam.rosters[activeTeam.rosters.length - 1];
+        if (latest) {
+          setCurrentRoster(latest);
+        }
+      }
+    } else if (activeTeam && (!activeTeam.rosters || activeTeam.rosters.length === 0) && !canManage) {
+      setCurrentRoster(null);
+    }
+  }, [activeTeam?.id, activeTeam?.rosters, canManage]);
+
   const productName = (id: string | null) => {
     if (!id) return 'Service Desk (Common)';
     const p = db.products.find((x) => x.id === id);
@@ -1974,10 +1989,18 @@ export const RosterPage: React.FC = () => {
             <div style={{ textAlign: 'center', padding: '48px 24px', background: 'var(--bg-surface)', border: '1px dashed var(--border-medium)', borderRadius: '12px' }}>
               <Calendar size={36} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
               <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 6px', color: 'var(--text-primary)' }}>
-                No Roster Generated Yet
+                {canManage ? 'No Roster Generated Yet' : 'No Published Roster Available Yet'}
               </h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '440px', margin: '0 auto 16px' }}>
-                Pick your date range and roster title above, then click <b>Generate Roster</b> to calculate the complete rotation and duty grid.
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '460px', margin: '0 auto 16px', lineHeight: '1.5' }}>
+                {canManage ? (
+                  <>
+                    Pick your date range and roster title above, then click <b>Generate Roster</b> to calculate the complete rotation and duty grid.
+                  </>
+                ) : (
+                  <>
+                    No published schedule is currently available for <b>{teamName(activeTeam)}</b>. Once your team manager or administrator generates and publishes the roster, your shift schedule will appear here automatically.
+                  </>
+                )}
               </p>
             </div>
           )}
