@@ -79,7 +79,7 @@ export class WidgetUI {
       position: 'bottom-right',
       primaryColor: '#2563EB',
       accentColor: '#1E40AF',
-      brandName: 'Help Desk',
+      brandName: 'ABI Desk Widget',
       launcherLabel: 'Support',
       widgetEnabled: true,
       isAdminConsole: false,
