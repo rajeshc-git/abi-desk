@@ -5668,7 +5668,10 @@ export const AdminPage: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setIsTagOrgOpen(!isTagOrgOpen)}
+                onClick={() => {
+                  setIsTagOrgOpen(!isTagOrgOpen);
+                  setIsTagProductOpen(false);
+                }}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -5689,7 +5692,10 @@ export const AdminPage: React.FC = () => {
             </div>
 
             <div
-              onClick={() => setIsTagOrgOpen(!isTagOrgOpen)}
+              onClick={() => {
+                setIsTagOrgOpen(!isTagOrgOpen);
+                setIsTagProductOpen(false);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -5985,7 +5991,10 @@ export const AdminPage: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setIsTagProductOpen(!isTagProductOpen)}
+                onClick={() => {
+                  setIsTagProductOpen(!isTagProductOpen);
+                  setIsTagOrgOpen(false);
+                }}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -6006,7 +6015,10 @@ export const AdminPage: React.FC = () => {
             </div>
 
             <div
-              onClick={() => setIsTagProductOpen(!isTagProductOpen)}
+              onClick={() => {
+                setIsTagProductOpen(!isTagProductOpen);
+                setIsTagOrgOpen(false);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -6075,19 +6087,19 @@ export const AdminPage: React.FC = () => {
               )}
             </div>
 
-            {/* Product Dropdown Popup Menu */}
+            {/* Product Dropdown Popup Menu (Opens upwards as a Dropup so it never overflows the modal bottom) */}
             {isTagProductOpen && (
               <div
                 style={{
                   position: 'absolute',
-                  top: '100%',
+                  bottom: '100%',
                   left: 0,
                   right: 0,
-                  marginTop: '4px',
+                  marginBottom: '6px',
                   backgroundColor: 'var(--bg-surface, #1e293b)',
                   border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.15))',
                   borderRadius: 'var(--radius-md, 8px)',
-                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
+                  boxShadow: '0 -10px 25px -5px rgba(0, 0, 0, 0.5), 0 -8px 10px -6px rgba(0, 0, 0, 0.4)',
                   zIndex: 100,
                   padding: '8px',
                 }}
