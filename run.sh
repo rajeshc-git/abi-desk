@@ -14,8 +14,9 @@ fi
 
 # Install dependencies if node_modules doesn't exist
 if [ ! -d node_modules ]; then
-    echo "[node_modules not found. Running pnpm install...]"
+    echo "[node_modules not found. Running pnpm install & prisma generate...]"
     pnpm install
+    pnpm db:generate
     echo ""
 fi
 

@@ -18,7 +18,7 @@
 -- before first release is standard practice (Prisma calls it baselining) and is safe
 -- precisely because there is no deployed data to preserve.
 --
--- Generated 2026-09-11T11:45:55.114Z
+-- Generated 2026-09-11T12:28:29.257Z
 -- =========================================================================
 
 -- =========================================================================
