@@ -6,7 +6,8 @@ import { FormattedEmailContent } from '../common/FormattedEmailContent';
 export interface CommentItem {
   id: string;
   body: string;
-  isInternal: boolean;
+  isInternal?: boolean;
+  visibility?: 'INTERNAL' | 'PUBLIC' | string;
   author?: { fullName: string; email: string; kind?: string };
   createdAt: string;
   attachments?: Array<{ id: string; originalFilename: string; mimeType: string }>;
@@ -38,9 +39,22 @@ const AttachmentItem: React.FC<{
 
   const containerRef = React.useRef<HTMLDivElement>(null);
 
-  const isImage = att.mimeType.startsWith('image/');
-  const isVideo = att.mimeType.startsWith('video/');
-  const isAudio = att.mimeType.startsWith('audio/');
+  const lowerName = (att.originalFilename || '').toLowerCase();
+  const mime = (att.mimeType || '').toLowerCase();
+
+  const isAudio =
+    mime.startsWith('audio/') ||
+    /\.(mp3|wav|ogg|m4a|aac|flac|weba)$/i.test(lowerName) ||
+    lowerName.includes('voice-note') ||
+    lowerName.includes('voice_recording') ||
+    lowerName.includes('audio-recording');
+  const isImage = !isAudio && (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lowerName));
+  const isVideo =
+    !isAudio &&
+    !isImage &&
+    (mime.startsWith('video/') ||
+      /\.(mp4|mov|avi|mkv)$/i.test(lowerName) ||
+      (lowerName.endsWith('.webm') && !mime.startsWith('audio/')));
 
   // Lazy load using IntersectionObserver
   React.useEffect(() => {
@@ -378,7 +392,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ comments }) => {
   return (
     <div className="timeline-list">
       {comments.map((comment) => {
-        const isInternal = comment.isInternal;
+        const isInternal = comment.isInternal === true || comment.visibility === 'INTERNAL';
         const authorName = comment.author?.fullName || 'Support User';
         const formattedDate = new Date(comment.createdAt).toLocaleString(undefined, {
           month: 'short',

@@ -180,7 +180,8 @@
 
 .search-input-wrapper {
   position: relative;
-  width: 320px;
+  width: 100%;
+  max-width: 860px;
 }
 
 .search-input-wrapper input {

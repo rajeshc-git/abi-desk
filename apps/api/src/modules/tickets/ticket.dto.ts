@@ -44,8 +44,10 @@ export const createTicketSchema = z.object({
   priority: z.enum(ticketPriorityValues).default('NORMAL'),
   type: z.enum(ticketTypeValues).default('INCIDENT'),
   channel: z.enum(ticketChannelValues).default('API'),
-  category: z.string().trim().max(120).optional(),
-  subcategory: z.string().trim().max(120).optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  subcategory: z.string().trim().max(120).nullable().optional(),
+  organization: z.string().trim().max(160).nullable().optional(),
+  product: z.string().trim().max(120).nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
   /**
    * Raise on behalf of another user. Staff-only; the service refuses it unless the
@@ -68,6 +70,8 @@ export const updateTicketSchema = z
     type: z.enum(ticketTypeValues).optional(),
     category: z.string().trim().max(120).nullable().optional(),
     subcategory: z.string().trim().max(120).nullable().optional(),
+    organization: z.string().trim().max(160).nullable().optional(),
+    product: z.string().trim().max(120).nullable().optional(),
     customFields: z.record(z.unknown()).optional(),
   })
   // An empty PATCH is almost always a client bug; failing loudly beats a silent no-op
@@ -120,6 +124,8 @@ export const listTicketsSchema = z.object({
   brandId: uuid.optional(),
   tag: z.string().trim().max(60).optional(),
   category: z.string().trim().max(120).optional(),
+  organization: z.string().trim().max(160).optional(),
+  product: z.string().trim().max(120).optional(),
 
   /** Excludes closed and cancelled, which is what "my open work" means. */
   openOnly: z
@@ -166,6 +172,8 @@ export const addCommentSchema = z.object({
   visibility: z.enum(commentVisibilityValues).default('PUBLIC'),
   bodyFormat: z.enum(['MARKDOWN', 'HTML', 'PLAIN']).default('MARKDOWN'),
   attachments: z.array(z.string().uuid()).optional(),
+  /** Optional CC email recipients for outbound email notification. */
+  cc: z.array(z.string().email()).optional(),
 });
 
 export class AddCommentDto extends createZodDto(addCommentSchema) {}
@@ -195,12 +203,16 @@ export const createTagSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(60),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
   domains: z.string().trim().max(500).optional(),
+  organization: z.string().trim().max(120).nullable().optional(),
+  product: z.string().trim().max(120).nullable().optional(),
 });
 
 export const updateTagSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
   domains: z.string().trim().max(500).nullable().optional(),
+  organization: z.string().trim().max(120).nullable().optional(),
+  product: z.string().trim().max(120).nullable().optional(),
 });
 
 export class CreateTagDto extends createZodDto(createTagSchema) {}
@@ -231,5 +243,29 @@ export const updateCategorySchema = z.object({
 
 export class CreateCategoryDto extends createZodDto(createCategorySchema) {}
 export class UpdateCategoryDto extends createZodDto(updateCategorySchema) {}
+
+export const createOrganizationSchema = z.object({
+  name: z.string().trim().min(1, 'Organization name is required').max(120),
+  domains: z.string().trim().max(500).nullable().optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
+  website: z.string().trim().max(255).nullable().optional(),
+  contactName: z.string().trim().max(120).nullable().optional(),
+  contactEmail: z.string().trim().max(255).nullable().optional(),
+  contactPhone: z.string().trim().max(50).nullable().optional(),
+});
+
+export const updateOrganizationSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  domains: z.string().trim().max(500).nullable().optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
+  website: z.string().trim().max(255).nullable().optional(),
+  contactName: z.string().trim().max(120).nullable().optional(),
+  contactEmail: z.string().trim().max(255).nullable().optional(),
+  contactPhone: z.string().trim().max(50).nullable().optional(),
+});
+
+export class CreateOrganizationDto extends createZodDto(createOrganizationSchema) {}
+export class UpdateOrganizationDto extends createZodDto(updateOrganizationSchema) {}
+
 
 

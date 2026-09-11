@@ -8,6 +8,8 @@ export interface CreateTicketDto {
   tier?: 'L1' | 'L2' | 'L3' | 'DEV' | 'QA';
   brandId?: string;
   queueId?: string;
+  organization?: string;
+  product?: string;
   requesterEmail: string;
   requesterName: string;
   tags?: string[];

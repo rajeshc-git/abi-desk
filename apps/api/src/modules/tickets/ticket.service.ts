@@ -19,11 +19,13 @@ import { SlaService } from '../sla/sla.service';
 import {
   type AddCommentDto,
   type CreateCategoryDto,
+  type CreateOrganizationDto,
   type CreateTagDto,
   type CreateTicketDto,
   type ListCommentsDto,
   type ListTicketsDto,
   type UpdateCategoryDto,
+  type UpdateOrganizationDto,
   type UpdateTagDto,
   type UpdateTicketDto,
 } from './ticket.dto';
@@ -60,6 +62,7 @@ const TICKET_LIST_SELECT = {
   assignee: { select: { id: true, fullName: true, email: true } },
   brand: { select: { id: true, name: true, slug: true, supportEmail: true } },
   tags: { select: { tag: { select: { name: true, slug: true, color: true } } } },
+  customFields: true,
 } satisfies Prisma.TicketSelect;
 
 /** Statuses that mean "no longer being worked". */
@@ -125,6 +128,20 @@ export class TicketService {
       const sequence = await this.prisma.nextTicketSequence(tx, tenantId);
       const number = `${tenant.ticketPrefix}-${sequence}`;
 
+      const requesterUser = await tx.user.findUnique({
+        where: { id: requesterId },
+        select: { email: true },
+      });
+      const autoOrg =
+        dto.organization || this.detectOrganizationFromEmail(requesterUser?.email || '');
+      const autoProd = dto.product || null;
+
+      const mergedCustomFields: Record<string, any> = {
+        ...(dto.customFields && typeof dto.customFields === 'object' ? dto.customFields : {}),
+        ...(autoOrg ? { organization: autoOrg } : {}),
+        ...(autoProd ? { product: autoProd } : {}),
+      };
+
       const created = await tx.ticket.create({
         data: {
           tenantId,
@@ -142,7 +159,7 @@ export class TicketService {
           status: 'NEW',
           tier: 'L1',
           lastActivityAt: new Date(),
-          ...(dto.customFields ? { customFields: dto.customFields as Prisma.InputJsonValue } : {}),
+          customFields: mergedCustomFields as Prisma.InputJsonValue,
         },
         select: { id: true, number: true, subject: true, status: true, priority: true },
       });
@@ -153,7 +170,12 @@ export class TicketService {
         type: 'CREATED',
         actorId: principal.userId,
         toValue: created.number,
-        metadata: { channel: dto.channel, priority: dto.priority },
+        metadata: {
+          channel: dto.channel,
+          priority: dto.priority,
+          ...(autoOrg ? { organization: autoOrg } : {}),
+          ...(autoProd ? { productName: autoProd } : {}),
+        },
       });
 
       if (dto.tags?.length) {
@@ -386,7 +408,20 @@ export class TicketService {
       userIds.size > 0
         ? this.prisma.client.user.findMany({
             where: { id: { in: Array.from(userIds) } },
-            select: { id: true, fullName: true, email: true, kind: true },
+            select: {
+              id: true,
+              fullName: true,
+              displayName: true,
+              email: true,
+              kind: true,
+              avatarUrl: true,
+              jobTitle: true,
+              roles: {
+                include: {
+                  role: { select: { id: true, name: true, key: true } },
+                },
+              },
+            },
           })
         : [],
     ]);
@@ -396,12 +431,27 @@ export class TicketService {
 
     const enrichedEvents = filteredEvents.map((event) => {
       const enrichedEvent: any = { ...event };
+      enrichedEvent.rawType = event.type;
+      enrichedEvent.eventType = event.type;
 
       // Attach actor details if resolved
       if (event.actorId && event.actorType === 'USER') {
         const user = userMap.get(event.actorId);
         if (user) {
-          enrichedEvent.actor = user;
+          const roleName =
+            (user as any).roles?.[0]?.role?.name ||
+            (user.kind === 'STAFF' ? 'Support Agent' : 'Customer');
+          enrichedEvent.actor = {
+            id: user.id,
+            fullName: user.fullName,
+            displayName: (user as any).displayName || user.fullName,
+            email: user.email,
+            kind: user.kind,
+            avatarUrl: (user as any).avatarUrl,
+            jobTitle: (user as any).jobTitle,
+            roleName,
+            role: roleName,
+          };
         }
       }
 
@@ -421,7 +471,21 @@ export class TicketService {
             enrichedEvent.bodyFormat = comment.bodyFormat;
             enrichedEvent.type = 'COMMENT'; // Map to COMMENT so widget-ui renders it correctly
             if (comment.author) {
-              enrichedEvent.actor = comment.author;
+              const authorUser = userMap.get(comment.author.id);
+              const roleName =
+                (authorUser as any)?.roles?.[0]?.role?.name ||
+                (comment.author.kind === 'STAFF' ? 'Support Agent' : 'Customer');
+              enrichedEvent.actor = {
+                id: comment.author.id,
+                fullName: comment.author.fullName,
+                displayName: (authorUser as any)?.displayName || comment.author.fullName,
+                email: comment.author.email,
+                kind: comment.author.kind,
+                avatarUrl: (authorUser as any)?.avatarUrl,
+                jobTitle: (authorUser as any)?.jobTitle,
+                roleName,
+                role: roleName,
+              };
             }
             if (comment.visibility) {
               enrichedEvent.visibility = comment.visibility;
@@ -485,7 +549,62 @@ export class TicketService {
       );
     }
 
+    if (dto.priority !== undefined && dto.priority !== existing.priority) {
+      const isAuthorizedForPriority =
+        principal.roles.includes('L2_SUPPORT') ||
+        principal.roles.includes('L3_SUPPORT') ||
+        principal.roles.includes('PLATFORM_ADMIN');
+
+      if (!isAuthorizedForPriority) {
+        throw AppException.permissionDenied(
+          'Only Tier 2 (L2) and Tier 3 (L3) support roles are authorized to adjust ticket priority.',
+          { ticketId: id, currentPriority: existing.priority, requestedPriority: dto.priority, roles: principal.roles },
+        );
+      }
+    }
+
     const updated = await this.prisma.run(async (tx) => {
+      const existingCustom =
+        existing.customFields && typeof existing.customFields === 'object'
+          ? (existing.customFields as Record<string, any>)
+          : {};
+
+      const nextOrg =
+        dto.organization !== undefined
+          ? dto.organization
+          : (dto.customFields as any)?.organization !== undefined
+            ? (dto.customFields as any).organization
+            : undefined;
+
+      const nextProd =
+        dto.product !== undefined
+          ? dto.product
+          : (dto.customFields as any)?.product !== undefined
+            ? (dto.customFields as any).product
+            : undefined;
+
+      let mergedCustomFields: Record<string, any> | undefined = undefined;
+      if (dto.customFields || nextOrg !== undefined || nextProd !== undefined) {
+        mergedCustomFields = {
+          ...existingCustom,
+          ...(dto.customFields && typeof dto.customFields === 'object' ? dto.customFields : {}),
+        };
+        if (nextOrg !== undefined) {
+          if (nextOrg === null || nextOrg === '') {
+            delete mergedCustomFields.organization;
+          } else {
+            mergedCustomFields.organization = nextOrg;
+          }
+        }
+        if (nextProd !== undefined) {
+          if (nextProd === null || nextProd === '') {
+            delete mergedCustomFields.product;
+          } else {
+            mergedCustomFields.product = nextProd;
+          }
+        }
+      }
+
       const result = await tx.ticket.update({
         where: { id },
         data: {
@@ -495,7 +614,9 @@ export class TicketService {
           ...(dto.type !== undefined ? { type: dto.type } : {}),
           ...(dto.category !== undefined ? { category: dto.category } : {}),
           ...(dto.subcategory !== undefined ? { subcategory: dto.subcategory } : {}),
-          ...(dto.customFields ? { customFields: dto.customFields as Prisma.InputJsonValue } : {}),
+          ...(mergedCustomFields !== undefined
+            ? { customFields: mergedCustomFields as Prisma.InputJsonValue }
+            : {}),
           lastActivityAt: new Date(),
         },
         select: {
@@ -530,6 +651,30 @@ export class TicketService {
           actorId: principal.userId,
           fromValue: existing.category ?? null,
           toValue: dto.category ?? null,
+        });
+      }
+
+      if (nextOrg !== undefined && nextOrg !== (existingCustom.organization || null)) {
+        await this.recordEvent(tx, {
+          tenantId,
+          ticketId: id,
+          type: 'CATEGORY_CHANGED',
+          actorId: principal.userId,
+          fromValue: existingCustom.organization || '-None-',
+          toValue: nextOrg || '-None-',
+          metadata: { field: 'organization', label: 'Organization / Account' },
+        });
+      }
+
+      if (nextProd !== undefined && nextProd !== (existingCustom.product || null)) {
+        await this.recordEvent(tx, {
+          tenantId,
+          ticketId: id,
+          type: 'CATEGORY_CHANGED',
+          actorId: principal.userId,
+          fromValue: existingCustom.product || '-None-',
+          toValue: nextProd || '-None-',
+          metadata: { field: 'product', label: 'Product Name' },
         });
       }
 
@@ -663,7 +808,11 @@ export class TicketService {
         ticketId,
         type: isPublic ? 'COMMENT_ADDED' : 'INTERNAL_NOTE_ADDED',
         actorId: principal.userId,
-        metadata: { commentId: created.id, visibility: dto.visibility },
+        metadata: {
+          commentId: created.id,
+          visibility: dto.visibility,
+          ...(dto.cc && dto.cc.length > 0 ? { cc: dto.cc } : {}),
+        },
       });
 
       await this.emit(tx, tenantId, 'ticket.commented', ticketId, {
@@ -681,6 +830,7 @@ export class TicketService {
             email: ticket.requester.email,
             name: ticket.requester.fullName,
           },
+          ...(dto.cc && dto.cc.length > 0 ? { cc: dto.cc } : {}),
           subject: `Re: [Ticket #${ticket.number}] ${ticket.subject}`,
           text: dto.body,
           html: `<div style="white-space: pre-wrap; font-family: sans-serif; font-size: 14px; color: #333333;">${dto.body}</div>`,
@@ -1048,6 +1198,8 @@ export class TicketService {
         name: dto.name,
         color: dto.color ?? undefined,
         domains: dto.domains !== undefined ? dto.domains : undefined,
+        organization: dto.organization !== undefined ? dto.organization : undefined,
+        product: dto.product !== undefined ? dto.product : undefined,
       },
       create: {
         tenantId,
@@ -1055,6 +1207,8 @@ export class TicketService {
         slug,
         color: dto.color ?? '#64748B',
         domains: dto.domains ?? null,
+        organization: dto.organization ?? null,
+        product: dto.product ?? null,
       },
     });
   }
@@ -1074,6 +1228,8 @@ export class TicketService {
         slug,
         color: dto.color ?? undefined,
         domains: dto.domains !== undefined ? dto.domains : undefined,
+        organization: dto.organization !== undefined ? dto.organization : undefined,
+        product: dto.product !== undefined ? dto.product : undefined,
       },
     });
   }
@@ -1149,6 +1305,82 @@ export class TicketService {
       where: { id, tenantId },
     });
     await categoryDelegate.delete({
+      where: { id: existing.id },
+    });
+  }
+
+  /** List all client organizations for the tenant. */
+  async listOrganizations(principal: AuthenticatedPrincipal) {
+    const tenantId = this.requireTenant(principal);
+    const orgDelegate = (this.prisma.client as any).organization;
+    return orgDelegate.findMany({
+      where: { tenantId },
+      orderBy: [{ name: 'asc' }],
+    });
+  }
+
+  /** Creates a new organization or updates an existing one by slug. */
+  async createOrganization(principal: AuthenticatedPrincipal, dto: CreateOrganizationDto) {
+    const tenantId = this.requireTenant(principal);
+    const slug = slugify(dto.name);
+    const orgDelegate = (this.prisma.client as any).organization;
+    return orgDelegate.upsert({
+      where: { tenantId_slug: { tenantId, slug } },
+      update: {
+        name: dto.name,
+        domains: dto.domains !== undefined ? dto.domains : undefined,
+        description: dto.description !== undefined ? dto.description : undefined,
+        website: dto.website !== undefined ? dto.website : undefined,
+        contactName: dto.contactName !== undefined ? dto.contactName : undefined,
+        contactEmail: dto.contactEmail !== undefined ? dto.contactEmail : undefined,
+        contactPhone: dto.contactPhone !== undefined ? dto.contactPhone : undefined,
+      },
+      create: {
+        tenantId,
+        name: dto.name,
+        slug,
+        domains: dto.domains ?? null,
+        description: dto.description ?? null,
+        website: dto.website ?? null,
+        contactName: dto.contactName ?? null,
+        contactEmail: dto.contactEmail || null,
+        contactPhone: dto.contactPhone ?? null,
+      },
+    });
+  }
+
+  /** Updates an organization by id. */
+  async updateOrganization(principal: AuthenticatedPrincipal, id: string, dto: UpdateOrganizationDto) {
+    const tenantId = this.requireTenant(principal);
+    const orgDelegate = (this.prisma.client as any).organization;
+    const existing = await orgDelegate.findFirstOrThrow({
+      where: { id, tenantId },
+    });
+
+    const slug = dto.name ? slugify(dto.name) : undefined;
+    return orgDelegate.update({
+      where: { id: existing.id },
+      data: {
+        name: dto.name ?? undefined,
+        slug,
+        domains: dto.domains !== undefined ? dto.domains : undefined,
+        description: dto.description !== undefined ? dto.description : undefined,
+        website: dto.website !== undefined ? dto.website : undefined,
+        contactName: dto.contactName !== undefined ? dto.contactName : undefined,
+        contactEmail: dto.contactEmail !== undefined ? (dto.contactEmail || null) : undefined,
+        contactPhone: dto.contactPhone !== undefined ? dto.contactPhone : undefined,
+      },
+    });
+  }
+
+  /** Deletes an organization by id. */
+  async deleteOrganization(principal: AuthenticatedPrincipal, id: string) {
+    const tenantId = this.requireTenant(principal);
+    const orgDelegate = (this.prisma.client as any).organization;
+    const existing = await orgDelegate.findFirstOrThrow({
+      where: { id, tenantId },
+    });
+    await orgDelegate.delete({
       where: { id: existing.id },
     });
   }
@@ -1286,11 +1518,95 @@ export class TicketService {
               metadata: { autoTagRule: requesterEmail },
             });
           }
+
+          // Automatically assign mapped organization and/or product if configured on this tag
+          if (tag.organization || tag.product) {
+            const ticketRecord = await tx.ticket.findUnique({
+              where: { id: ticketId },
+              select: { customFields: true },
+            });
+            const currentFields = (ticketRecord?.customFields && typeof ticketRecord.customFields === 'object'
+              ? { ...(ticketRecord.customFields as Record<string, any>) }
+              : {}) as Record<string, any>;
+
+            let fieldsUpdated = false;
+            if (tag.organization && !currentFields.organization) {
+              currentFields.organization = tag.organization;
+              fieldsUpdated = true;
+            }
+            if (tag.product && !currentFields.product) {
+              currentFields.product = tag.product;
+              fieldsUpdated = true;
+            }
+
+            if (fieldsUpdated) {
+              await tx.ticket.update({
+                where: { id: ticketId },
+                data: { customFields: currentFields as Prisma.InputJsonValue },
+              });
+            }
+          }
         }
       }
     } catch (err) {
       this.logger.warn({ err, ticketId }, 'Failed to apply auto domain tags');
     }
+  }
+
+  /**
+   * Intelligently detects organization/hospital/client name from sender email domain.
+   * Special domain mappings for known hospital groups + dynamic title-casing for corporate/hospital domains.
+   */
+  detectOrganizationFromEmail(email: string): string | null {
+    if (!email || !email.includes('@')) return null;
+    const domain = email.split('@')[1]?.toLowerCase().trim();
+    if (!domain) return null;
+
+    // Common public email providers to ignore
+    const genericProviders = [
+      'gmail.com',
+      'yahoo.com',
+      'hotmail.com',
+      'outlook.com',
+      'icloud.com',
+      'aol.com',
+      'protonmail.com',
+      'zoho.com',
+      'mail.com',
+      'yandex.com',
+      'abi-health.com',
+      'abihealth.in',
+    ];
+    if (genericProviders.includes(domain)) return null;
+
+    // Known healthcare & enterprise hospital domain overrides
+    const domainMap: Record<string, string> = {
+      'sriramachandra.edu.in': 'Sri Ramachandra Medical Center',
+      'srmc.org': 'Sri Ramachandra Medical Center',
+      'kdhospital.com': 'Kusum Dhirajlal Hospital',
+      'kusum.org': 'Kusum Dhirajlal Hospital',
+      'apollohospitals.com': 'Apollo Hospitals',
+      'fortishealthcare.com': 'Fortis Healthcare',
+      'manipalhospitals.com': 'Manipal Hospitals',
+      'narayanahealth.org': 'Narayana Health',
+      'maxhealthcare.com': 'Max Healthcare',
+      'asterdmhealthcare.com': 'Aster DM Healthcare',
+      'medanta.org': 'Medanta - The Medicity',
+    };
+
+    if (domainMap[domain]) {
+      return domainMap[domain];
+    }
+
+    // Auto-generate clean organization name from domain (e.g. "kdhospital.in" -> "Kd Hospital")
+    const mainPart = domain.split('.')[0];
+    if (!mainPart || mainPart.length < 3) return null;
+
+    return mainPart
+      .replace(/[-_]+/g, ' ')
+      .split(' ')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   }
 
   /** Appends a timeline event. */
@@ -1376,6 +1692,33 @@ export class TicketService {
 
     if (query.tag) {
       where.tags = { some: { tag: { slug: slugify(query.tag) } } };
+    }
+
+    const andFilters: Prisma.TicketWhereInput[] = [];
+
+    if (query.organization) {
+      andFilters.push({
+        customFields: {
+          path: ['organization'],
+          string_contains: query.organization,
+        },
+      });
+    }
+
+    if (query.product) {
+      andFilters.push({
+        customFields: {
+          path: ['product'],
+          string_contains: query.product,
+        },
+      });
+    }
+
+    if (andFilters.length > 0) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        ...andFilters,
+      ];
     }
 
     if (query.createdAfter || query.createdBefore) {
@@ -1726,6 +2069,8 @@ export class TicketService {
       const sequence = await this.prisma.nextTicketSequence(tx, tenantId);
       const number = `${tenant.ticketPrefix}-${sequence}`;
 
+      const autoOrg = this.detectOrganizationFromEmail(senderEmail);
+
       const created = await tx.ticket.create({
         data: {
           tenantId,
@@ -1741,6 +2086,7 @@ export class TicketService {
           status: 'NEW',
           tier: 'L1',
           lastActivityAt: new Date(),
+          customFields: autoOrg ? { organization: autoOrg } : {},
         },
         select: {
           id: true,
@@ -1812,15 +2158,26 @@ export class TicketService {
         type: 'CREATED',
         actorId: requester.id,
         toValue: created.number,
-        metadata: { channel: 'EMAIL', priority: 'NORMAL', attachmentCount: ticketAttachmentCount },
+        metadata: {
+          channel: 'EMAIL',
+          priority: 'NORMAL',
+          attachmentCount: ticketAttachmentCount,
+          ...(autoOrg ? { organization: autoOrg } : {}),
+        },
       });
 
       await this.applyAutoDomainTags(tx, tenantId, created.id, requester.id);
       await this.applyAutoCategoryKeywords(tx, tenantId, created.id, created.subject, payload.body || created.description);
 
+      // Fetch fresh ticket with all tags, customFields (org/product), and category
+      const freshTicket = await tx.ticket.findUnique({
+        where: { id: created.id },
+        select: TICKET_LIST_SELECT,
+      });
+
       if (this.gateway) {
         this.gateway.broadcastTicketCreated(tenantId, {
-          ...created,
+          ...(freshTicket || created),
           description: payload.body || created.description,
           requester: {
             id: requester.id,

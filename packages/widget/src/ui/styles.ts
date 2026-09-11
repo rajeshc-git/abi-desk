@@ -183,6 +183,176 @@ export function getWidgetStyles(
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
+/* Organization & Product Grouped Card (Matching Main App Console Design) */
+.abi-org-prod-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--abi-surface, #f8fafc);
+  border: 1px solid var(--abi-border, #e2e8f0);
+  margin-bottom: 14px;
+}
+
+.abi-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.abi-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.abi-section-title.org {
+  color: #0284c7;
+}
+
+.abi-section-title.prod {
+  color: #9333ea;
+}
+
+.abi-section-action-btn {
+  background: none;
+  border: none;
+  color: var(--abi-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: opacity 0.15s;
+}
+
+.abi-section-action-btn:hover {
+  opacity: 0.8;
+}
+
+.abi-custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  user-select: none;
+}
+
+.abi-custom-select-trigger.selected-org {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #0369a1;
+}
+
+.abi-custom-select-trigger.selected-prod {
+  background: rgba(168, 85, 247, 0.08);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #7e22ce;
+}
+
+.abi-custom-select-trigger.empty {
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  color: var(--abi-text-muted, #94a3b8);
+}
+
+.abi-custom-select-trigger:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.abi-clear-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.abi-clear-btn:hover {
+  color: #ef4444;
+}
+
+.abi-custom-dropdown-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  margin-top: 4px;
+  background: #ffffff;
+  border: 1px solid var(--abi-border, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  animation: abi-fade-in 0.15s ease-out;
+}
+
+.abi-dropdown-search-box {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--abi-border, #e2e8f0);
+  background: var(--abi-surface, #f8fafc);
+  gap: 6px;
+}
+
+.abi-dropdown-search-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--abi-text-main);
+  outline: none;
+  font-family: inherit;
+}
+
+.abi-dropdown-list {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.abi-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--abi-text-main, #1e293b);
+  transition: all 0.15s;
+}
+
+.abi-dropdown-item:hover {
+  background: var(--abi-surface, #f1f5f9);
+}
+
+.abi-dropdown-item.active {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--abi-primary);
+  font-weight: 600;
+}
+
 .abi-media-toolbar {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -396,7 +566,7 @@ export function getWidgetStyles(
   cursor: not-allowed;
 }
 
-/* Annotation Overlay Modal */
+/* Modern Futuristic Annotation Overlay Modal */
 .abi-annotation-overlay {
   position: fixed;
   top: 0;
@@ -404,19 +574,96 @@ export function getWidgetStyles(
   width: 100vw;
   height: 100vh;
   z-index: 999999;
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
+  animation: abi-fade-in 0.2s ease-out;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
 }
 
 .abi-annotation-bar {
-  height: 56px;
-  background: #1e293b;
+  min-height: 60px;
+  background: rgba(30, 41, 59, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 8px 20px;
   color: #ffffff;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.abi-annotation-tools-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 3px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.abi-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  outline: none;
+}
+
+.abi-tool-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.abi-tool-btn.active {
+  background: var(--abi-primary);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.abi-color-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.abi-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+  padding: 0;
+  outline: none;
+}
+
+.abi-color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.abi-color-swatch.active {
+  border-color: #ffffff;
+  transform: scale(1.2);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
 }
 
 .abi-canvas-container {
@@ -425,15 +672,16 @@ export function getWidgetStyles(
   align-items: center;
   justify-content: center;
   overflow: auto;
-  padding: 16px;
+  padding: 20px;
+  position: relative;
 }
 
 .abi-canvas-container canvas {
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   max-width: 90vw;
-  max-height: 80vh;
-  background: #ffffff;
+  max-height: calc(100vh - 120px);
+  background: #000000;
   cursor: crosshair;
 }
 

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Plus, Tag, Layers, User, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Tag, Layers, User, AlertCircle, Building2, Box } from 'lucide-react';
 import { TicketsApi } from '../../api/tickets';
+import { ApiClient } from '../../api/client';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 
@@ -29,9 +30,32 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   >('INCIDENT');
   const [tier, setTier] = useState<'L1' | 'L2' | 'L3' | 'DEV' | 'QA'>('L1');
   const [brandId, setBrandId] = useState(activeBrandId || '');
+  const [organization, setOrganization] = useState('');
+  const [product, setProduct] = useState('');
   const [tags, setTags] = useState('');
+  const [availableOrgs, setAvailableOrgs] = useState<any[]>([]);
+  const [availableProducts, setAvailableProducts] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const loadData = async () => {
+      try {
+        const [orgsRes, prodsRes] = await Promise.all([
+          ApiClient.get<any[]>('/organizations').catch(() => []),
+          ApiClient.get<any[]>('/admin/roster/products').catch(() => []),
+        ]);
+        if (Array.isArray(orgsRes)) setAvailableOrgs(orgsRes);
+        if (Array.isArray(prodsRes)) {
+          setAvailableProducts(prodsRes.map((p) => p.name).filter(Boolean));
+        }
+      } catch {
+        // non-blocking
+      }
+    };
+    loadData();
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +76,8 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
         priority,
         type,
         tier,
+        organization: organization.trim() || undefined,
+        product: product.trim() || undefined,
         brandId: brandId || undefined,
         tags: tagList,
       });
@@ -63,6 +89,8 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
       setDescription('');
       setRequesterName('');
       setRequesterEmail('');
+      setOrganization('');
+      setProduct('');
       setTags('');
     } catch (err: any) {
       setError(err.message || 'Failed to create ticket');
@@ -281,6 +309,80 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
           />
         </div>
 
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '12px',
+                fontWeight: 600,
+                marginBottom: '6px',
+              }}
+            >
+              <Building2 size={13} style={{ color: '#38bdf8' }} />
+              Organization / Account
+            </label>
+            <select
+              value={organization}
+              onChange={(e) => setOrganization(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--bg-input)',
+                border: '1px solid var(--border-medium)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+              }}
+            >
+              <option value="">-- No Organization --</option>
+              {availableOrgs.map((org) => (
+                <option key={org.id} value={org.name}>
+                  {org.name} {org.domains ? `(${org.domains})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '12px',
+                fontWeight: 600,
+                marginBottom: '6px',
+              }}
+            >
+              <Box size={13} style={{ color: '#a855f7' }} />
+              Product Name
+            </label>
+            <select
+              value={product}
+              onChange={(e) => setProduct(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--bg-input)',
+                border: '1px solid var(--border-medium)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+              }}
+            >
+              <option value="">-- No Product --</option>
+              {availableProducts.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div>
           <label
             style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}
@@ -291,7 +393,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
             type="text"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
-            placeholder="e.g. billing, production-bug, high-value"
+            placeholder="e.g. pre-auth, billing-dispute, api-error"
             style={{
               width: '100%',
               padding: '8px 12px',

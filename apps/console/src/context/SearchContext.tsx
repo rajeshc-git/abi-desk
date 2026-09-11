@@ -24,6 +24,10 @@ interface SearchContextType {
   setSelectedTag: (tag: SearchTag | null) => void;
   selectedCategory: SearchCategory | null;
   setSelectedCategory: (cat: SearchCategory | null) => void;
+  selectedOrganization: string | null;
+  setSelectedOrganization: (org: string | null) => void;
+  selectedProduct: string | null;
+  setSelectedProduct: (prod: string | null) => void;
 }
 
 const SearchContext = createContext<SearchContextType | undefined>(undefined);
@@ -33,6 +37,8 @@ export const SearchProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<SearchTag | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<SearchCategory | null>(null);
+  const [selectedOrganization, setSelectedOrganization] = useState<string | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -54,6 +60,10 @@ export const SearchProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setSelectedTag,
         selectedCategory,
         setSelectedCategory,
+        selectedOrganization,
+        setSelectedOrganization,
+        selectedProduct,
+        setSelectedProduct,
       }}
     >
       {children}

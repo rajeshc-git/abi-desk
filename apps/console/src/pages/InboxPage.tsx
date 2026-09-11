@@ -18,6 +18,8 @@ import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { TicketCard, TicketSummary } from '../components/tickets/TicketCard';
 import { CreateTicketModal } from '../components/tickets/CreateTicketModal';
+import { StatusPopover } from '../components/tickets/StatusPopover';
+import { StatusTransitionModal } from '../components/tickets/StatusTransitionModal';
 import { TicketTagManager } from '../components/tickets/TicketTagManager';
 import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
 import { MediaPlayer, MediaAssetItem } from '../components/media/MediaPlayer';
@@ -43,6 +45,10 @@ export const InboxPage: React.FC = () => {
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [pendingStatusTransition, setPendingStatusTransition] = useState<{
+    toStatus: string;
+    requiresComment?: boolean;
+  } | null>(null);
   const [unreadTicketIds, setUnreadTicketIds] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem('unread_ticket_ids') || '[]'));
@@ -69,6 +75,10 @@ export const InboxPage: React.FC = () => {
     setSelectedTag,
     selectedCategory,
     setSelectedCategory,
+    selectedOrganization,
+    setSelectedOrganization,
+    selectedProduct,
+    setSelectedProduct,
   } = useSearch();
 
   useEffect(() => {
@@ -81,6 +91,8 @@ export const InboxPage: React.FC = () => {
     debouncedSearchQuery,
     selectedTag,
     selectedCategory,
+    selectedOrganization,
+    selectedProduct,
   ]);
 
   useEffect(() => {
@@ -213,6 +225,8 @@ export const InboxPage: React.FC = () => {
         tier: tierFilter || undefined,
         tag: selectedTag?.slug || undefined,
         category: selectedCategory?.name || undefined,
+        organization: selectedOrganization || undefined,
+        product: selectedProduct || undefined,
         q:
           debouncedSearchQuery && debouncedSearchQuery.trim().length >= 2
             ? debouncedSearchQuery.trim()
@@ -268,6 +282,8 @@ export const InboxPage: React.FC = () => {
         tier: tierFilter || undefined,
         tag: selectedTag?.slug || undefined,
         category: selectedCategory?.name || undefined,
+        organization: selectedOrganization || undefined,
+        product: selectedProduct || undefined,
         q:
           debouncedSearchQuery && debouncedSearchQuery.trim().length >= 2
             ? debouncedSearchQuery.trim()
@@ -356,6 +372,55 @@ export const InboxPage: React.FC = () => {
       loadTickets();
     } catch (err: any) {
       toast.error(`Bulk close failed: ${err.message}`);
+    }
+  };
+
+  const handleQuickStatusChange = async (newStatus: string) => {
+    if (!selectedTicket || newStatus === selectedTicket.status) return;
+    const requiresComment = ['PENDING_CUSTOMER', 'ON_HOLD', 'CANCELLED'].includes(newStatus);
+    if (requiresComment) {
+      setPendingStatusTransition({ toStatus: newStatus, requiresComment });
+      return;
+    }
+    await executeStatusTransition(newStatus);
+  };
+
+  const executeStatusTransition = async (newStatus: string, comment?: string) => {
+    if (!selectedTicket) return;
+    try {
+      const res: any = await ApiClient.post(`/tickets/${selectedTicket.id}/transitions`, { toStatus: newStatus, comment });
+      if (res?.kind === 'pending_approval') {
+        toast.info(`Transition to ${newStatus} requires sign-off. Approval request submitted.`);
+      } else {
+        setSelectedTicket((prev: any) => ({ ...prev, status: newStatus }));
+        setTickets((prev) =>
+          prev.map((t) => (t.id === selectedTicket.id ? { ...t, status: newStatus } : t))
+        );
+        toast.success(`Ticket #${selectedTicket.number} status updated to ${newStatus}`);
+      }
+      loadTickets();
+    } catch (err: any) {
+      toast.error(`Failed to update status: ${err.message}`);
+      throw err;
+    }
+  };
+  const canChangePriority =
+    !!user &&
+    Boolean(
+      user.roles?.some((r: string) => ['L2_SUPPORT', 'L3_SUPPORT', 'PLATFORM_ADMIN'].includes(r)),
+    );
+
+  const handlePriorityChange = async (newPriority: string) => {
+    if (!selectedTicket) return;
+    try {
+      await ApiClient.patch(`/tickets/${selectedTicket.id}`, { priority: newPriority });
+      setSelectedTicket((prev: any) => ({ ...prev, priority: newPriority }));
+      setTickets((prev) =>
+        prev.map((t) => (t.id === selectedTicket.id ? { ...t, priority: newPriority } : t)),
+      );
+      toast.success(`Ticket priority updated to ${newPriority}!`);
+    } catch (err: any) {
+      toast.error(`Failed to update priority: ${err.message}`);
     }
   };
 
@@ -643,8 +708,42 @@ export const InboxPage: React.FC = () => {
                     #{selectedTicket.number}
                   </span>
                   <TierBadge tier={selectedTicket.tier} />
-                  <StatusBadge status={selectedTicket.status} />
-                  <PriorityPill priority={selectedTicket.priority} />
+                  <StatusPopover
+                    size="sm"
+                    status={selectedTicket.status}
+                    onStatusChange={handleQuickStatusChange}
+                  />
+                  {canChangePriority ? (
+                    <select
+                      value={selectedTicket.priority}
+                      onChange={(e) => handlePriorityChange(e.target.value)}
+                      style={{
+                        padding: '3px 8px',
+                        backgroundColor: 'var(--bg-surface)',
+                        border: '1px solid var(--border-medium)',
+                        borderRadius: 'var(--radius-sm, 4px)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color:
+                          selectedTicket.priority === 'CRITICAL' || selectedTicket.priority === 'URGENT'
+                            ? 'var(--color-critical, #ef4444)'
+                            : selectedTicket.priority === 'HIGH'
+                            ? '#f59e0b'
+                            : 'var(--text-primary)',
+                        cursor: 'pointer',
+                        outline: 'none',
+                      }}
+                      title="Change Priority (L1 / L2 / Staff)"
+                    >
+                      <option value="LOW">Priority: LOW</option>
+                      <option value="NORMAL">Priority: NORMAL</option>
+                      <option value="HIGH">Priority: HIGH</option>
+                      <option value="URGENT">Priority: URGENT</option>
+                      <option value="CRITICAL">Priority: CRITICAL</option>
+                    </select>
+                  ) : (
+                    <PriorityPill priority={selectedTicket.priority} />
+                  )}
                   <TicketCategoryManager
                     ticketId={selectedTicket.id}
                     category={selectedTicket.category}
@@ -934,6 +1033,19 @@ export const InboxPage: React.FC = () => {
         onClose={() => setIsCreateOpen(false)}
         onCreated={handleTicketCreated}
       />
+
+      {/* Status Transition Note Modal */}
+      {selectedTicket && (
+        <StatusTransitionModal
+          isOpen={!!pendingStatusTransition}
+          ticketNumber={String(selectedTicket.number)}
+          fromStatus={selectedTicket.status}
+          toStatus={pendingStatusTransition?.toStatus || ''}
+          requiresComment={pendingStatusTransition?.requiresComment}
+          onClose={() => setPendingStatusTransition(null)}
+          onConfirm={(comment) => executeStatusTransition(pendingStatusTransition!.toStatus, comment)}
+        />
+      )}
     </div>
   );
 };

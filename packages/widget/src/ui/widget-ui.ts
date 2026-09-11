@@ -32,6 +32,10 @@ export interface WidgetConfig {
   liveChatEnabled?: boolean;
   widgetEnabled?: boolean;
   isAdminConsole?: boolean;
+  defaultProduct?: string;
+  defaultOrganization?: string;
+  products?: string[];
+  organizations?: string[];
 }
 
 export class WidgetUI {
@@ -49,6 +53,21 @@ export class WidgetUI {
   private currentConversationId: string | null = null;
   private isConversationClosed = false;
   private static urlCache = new Map<string, { url: string; expiresAt: number }>();
+
+  // Form draft persistence state (preserves inputs across screenshots, recordings, tab changes, attachments)
+  private ticketDraft = {
+    subject: '',
+    product: '',
+    organization: '',
+    description: '',
+    priority: 'NORMAL',
+  };
+
+  // Organization & Product Dropdown Popover States
+  private isOrgDropdownOpen = false;
+  private isProductDropdownOpen = false;
+  private orgSearchQuery = '';
+  private productSearchQuery = '';
 
   // Widget OTP Verification properties
   private otpSentEmail: string | null = null;
@@ -133,13 +152,31 @@ export class WidgetUI {
         errorCaptureEnabled: remote.errorCaptureEnabled ?? true,
         liveChatEnabled: remote.liveChatEnabled ?? true,
         widgetEnabled: remote.widgetEnabled ?? true,
+        products: Array.isArray(remote.products) ? remote.products : (this.config.products || []),
+        organizations: Array.isArray(remote.organizations) ? remote.organizations : (this.config.organizations || []),
       };
     } catch (err) {
       console.warn('⚠️ Could not load remote widget settings, using fallback.', err);
     }
   }
 
+  private saveTicketDraftFromDOM() {
+    if (!this.shadow) return;
+    const subjectEl = this.shadow.querySelector('#abi-ticket-subject') as HTMLInputElement | null;
+    const productEl = this.shadow.querySelector('#abi-ticket-product') as HTMLSelectElement | HTMLInputElement | null;
+    const orgEl = this.shadow.querySelector('#abi-ticket-organization') as HTMLSelectElement | HTMLInputElement | null;
+    const descEl = this.shadow.querySelector('#abi-ticket-desc') as HTMLTextAreaElement | null;
+    const priorityEl = this.shadow.querySelector('#abi-ticket-priority') as HTMLSelectElement | null;
+
+    if (subjectEl && subjectEl.value !== undefined) this.ticketDraft.subject = subjectEl.value;
+    if (productEl && productEl.value !== undefined) this.ticketDraft.product = productEl.value;
+    if (orgEl && orgEl.value !== undefined) this.ticketDraft.organization = orgEl.value;
+    if (descEl && descEl.value !== undefined) this.ticketDraft.description = descEl.value;
+    if (priorityEl && priorityEl.value !== undefined) this.ticketDraft.priority = priorityEl.value;
+  }
+
   private render() {
+    this.saveTicketDraftFromDOM();
     const savedEmail = localStorage.getItem('abi-widget-user-email');
     const savedToken = localStorage.getItem('abi-widget-user-token');
     const isVerified = !!(savedEmail && savedToken);
@@ -287,6 +324,19 @@ export class WidgetUI {
 
     const savedEmail = localStorage.getItem('abi-widget-user-email') || '';
 
+    const selectedOrg = this.ticketDraft.organization || this.config.defaultOrganization || '';
+    const selectedProd = this.ticketDraft.product || this.config.defaultProduct || '';
+
+    const orgList = this.config.organizations || [];
+    const prodList = this.config.products || [];
+
+    const filteredOrgs = orgList.filter((o) =>
+      o.toLowerCase().includes(this.orgSearchQuery.toLowerCase()),
+    );
+    const filteredProducts = prodList.filter((p) =>
+      p.toLowerCase().includes(this.productSearchQuery.toLowerCase()),
+    );
+
     return `
       <form id="abi-ticket-form">
         ${
@@ -305,21 +355,170 @@ export class WidgetUI {
 
         <div class="abi-form-group">
           <label class="abi-label">Subject</label>
-          <input type="text" class="abi-input" id="abi-ticket-subject" placeholder="What can we help you with?" required />
+          <input type="text" class="abi-input" id="abi-ticket-subject" placeholder="What can we help you with?" value="${this.escapeHtml(this.ticketDraft.subject)}" required />
+        </div>
+
+        <!-- Organization & Product Grouped Card (Console Design) -->
+        <div class="abi-org-prod-card">
+          <!-- 1. Organization / Account -->
+          <div style="position: relative;" id="abi-org-dropdown-container">
+            <div class="abi-section-header">
+              <span class="abi-section-title org">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+                  <path d="M9 22v-4h6v4"></path>
+                  <path d="M8 6h.01"></path>
+                  <path d="M16 6h.01"></path>
+                  <path d="M8 10h.01"></path>
+                  <path d="M16 10h.01"></path>
+                  <path d="M8 14h.01"></path>
+                  <path d="M16 14h.01"></path>
+                </svg>
+                Organization / Account
+              </span>
+              <button type="button" id="abi-org-toggle-btn" class="abi-section-action-btn">
+                ${selectedOrg ? 'Change' : 'Select'}
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+            </div>
+
+            <div id="abi-org-trigger" class="abi-custom-select-trigger ${selectedOrg ? 'selected-org' : 'empty'}">
+              <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${selectedOrg ? '#0284c7' : '#94a3b8'}" stroke-width="2" style="flex-shrink: 0;">
+                  <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+                  <path d="M9 22v-4h6v4"></path>
+                  <path d="M8 6h.01"></path>
+                  <path d="M16 6h.01"></path>
+                  <path d="M8 10h.01"></path>
+                  <path d="M16 10h.01"></path>
+                  <path d="M8 14h.01"></path>
+                  <path d="M16 14h.01"></path>
+                </svg>
+                <span style="font-weight: ${selectedOrg ? '600' : '400'}; color: ${selectedOrg ? '#0369a1' : 'var(--abi-text-muted)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  ${selectedOrg ? this.escapeHtml(selectedOrg) : 'No Organization selected'}
+                </span>
+              </div>
+              ${
+                selectedOrg
+                  ? `<button type="button" id="abi-org-clear-btn" class="abi-clear-btn" title="Clear organization">&times;</button>`
+                  : `<span style="font-size: 11px; color: var(--abi-primary); font-weight: 600;">Select ▾</span>`
+              }
+            </div>
+
+            <!-- Hidden input for form submission -->
+            <input type="hidden" id="abi-ticket-organization" value="${this.escapeHtml(selectedOrg)}" />
+
+            ${
+              this.isOrgDropdownOpen
+                ? `
+            <div class="abi-custom-dropdown-popover" id="abi-org-popover">
+              <div class="abi-dropdown-search-box">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" class="abi-dropdown-search-input" id="abi-org-search-input" placeholder="Search organization..." value="${this.escapeHtml(this.orgSearchQuery)}" />
+              </div>
+              <div class="abi-dropdown-list">
+                ${filteredOrgs
+                  .map(
+                    (org) => `
+                  <div class="abi-dropdown-item ${selectedOrg === org ? 'active' : ''}" data-org="${this.escapeHtml(org)}">
+                    <div style="display: flex; align-items: center; gap: 7px; overflow: hidden;">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${selectedOrg === org ? 'var(--abi-primary)' : '#64748b'}" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path></svg>
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(org)}</span>
+                    </div>
+                    ${selectedOrg === org ? `<span style="color: var(--abi-primary); font-weight: 700;">✓</span>` : ''}
+                  </div>
+                `,
+                  )
+                  .join('')}
+                ${filteredOrgs.length === 0 ? `<div style="padding: 12px; text-align: center; color: var(--abi-text-muted); font-size: 11px;">No organizations found</div>` : ''}
+              </div>
+            </div>
+            `
+                : ''
+            }
+          </div>
+
+          <!-- 2. Product Name -->
+          <div style="position: relative;" id="abi-prod-dropdown-container">
+            <div class="abi-section-header">
+              <span class="abi-section-title prod">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                Product Name
+              </span>
+              <button type="button" id="abi-prod-toggle-btn" class="abi-section-action-btn">
+                ${selectedProd ? 'Change' : 'Select'}
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+            </div>
+
+            <div id="abi-prod-trigger" class="abi-custom-select-trigger ${selectedProd ? 'selected-prod' : 'empty'}">
+              <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${selectedProd ? '#9333ea' : '#94a3b8'}" stroke-width="2" style="flex-shrink: 0;">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                <span style="font-weight: ${selectedProd ? '600' : '400'}; color: ${selectedProd ? '#7e22ce' : 'var(--abi-text-muted)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  ${selectedProd ? this.escapeHtml(selectedProd) : 'No Product selected'}
+                </span>
+              </div>
+              ${
+                selectedProd
+                  ? `<button type="button" id="abi-prod-clear-btn" class="abi-clear-btn" title="Clear product">&times;</button>`
+                  : `<span style="font-size: 11px; color: var(--abi-primary); font-weight: 600;">Select ▾</span>`
+              }
+            </div>
+
+            <!-- Hidden input for form submission -->
+            <input type="hidden" id="abi-ticket-product" value="${this.escapeHtml(selectedProd)}" />
+
+            ${
+              this.isProductDropdownOpen
+                ? `
+            <div class="abi-custom-dropdown-popover" id="abi-prod-popover">
+              <div class="abi-dropdown-search-box">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" class="abi-dropdown-search-input" id="abi-prod-search-input" placeholder="Search product..." value="${this.escapeHtml(this.productSearchQuery)}" />
+              </div>
+              <div class="abi-dropdown-list">
+                ${filteredProducts
+                  .map(
+                    (prod) => `
+                  <div class="abi-dropdown-item ${selectedProd === prod ? 'active' : ''}" data-prod="${this.escapeHtml(prod)}">
+                    <div style="display: flex; align-items: center; gap: 7px; overflow: hidden;">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${selectedProd === prod ? 'var(--abi-primary)' : '#64748b'}" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline></svg>
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(prod)}</span>
+                    </div>
+                    ${selectedProd === prod ? `<span style="color: var(--abi-primary); font-weight: 700;">✓</span>` : ''}
+                  </div>
+                `,
+                  )
+                  .join('')}
+                ${filteredProducts.length === 0 ? `<div style="padding: 12px; text-align: center; color: var(--abi-text-muted); font-size: 11px;">No products found</div>` : ''}
+              </div>
+            </div>
+            `
+                : ''
+            }
+          </div>
         </div>
 
         <div class="abi-form-group">
           <label class="abi-label">Description</label>
-          <textarea class="abi-textarea" id="abi-ticket-desc" rows="4" placeholder="Please describe the issue in detail..." required></textarea>
+          <textarea class="abi-textarea" id="abi-ticket-desc" rows="4" placeholder="Please describe the issue in detail..." required>${this.escapeHtml(this.ticketDraft.description)}</textarea>
         </div>
 
         <div class="abi-form-group">
           <label class="abi-label">Priority</label>
           <select class="abi-select" id="abi-ticket-priority">
-            <option value="NORMAL">Normal</option>
-            <option value="LOW">Low</option>
-            <option value="HIGH">High</option>
-            <option value="URGENT">Urgent (Service Outage)</option>
+            <option value="NORMAL" ${this.ticketDraft.priority === 'NORMAL' ? 'selected' : ''}>Normal</option>
+            <option value="LOW" ${this.ticketDraft.priority === 'LOW' ? 'selected' : ''}>Low</option>
+            <option value="HIGH" ${this.ticketDraft.priority === 'HIGH' ? 'selected' : ''}>High</option>
+            <option value="URGENT" ${this.ticketDraft.priority === 'URGENT' ? 'selected' : ''}>Urgent (Service Outage)</option>
           </select>
         </div>
 
@@ -1709,6 +1908,97 @@ export class WidgetUI {
       });
     });
 
+    // Ticket Form Input State Tracking
+    const ticketForm = this.shadow.querySelector('#abi-ticket-form');
+    if (ticketForm) {
+      ticketForm.addEventListener('input', () => this.saveTicketDraftFromDOM());
+      ticketForm.addEventListener('change', () => this.saveTicketDraftFromDOM());
+    }
+
+    // Organization Dropdown Trigger & Events
+    this.shadow.querySelector('#abi-org-trigger')?.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('#abi-org-clear-btn')) return;
+      this.isOrgDropdownOpen = !this.isOrgDropdownOpen;
+      this.isProductDropdownOpen = false;
+      this.render();
+    });
+    this.shadow.querySelector('#abi-org-toggle-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.isOrgDropdownOpen = !this.isOrgDropdownOpen;
+      this.isProductDropdownOpen = false;
+      this.render();
+    });
+    this.shadow.querySelector('#abi-org-clear-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.ticketDraft.organization = '';
+      this.isOrgDropdownOpen = false;
+      this.render();
+    });
+    this.shadow.querySelectorAll('#abi-org-popover .abi-dropdown-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        const org = item.getAttribute('data-org') || '';
+        this.ticketDraft.organization = org;
+        this.isOrgDropdownOpen = false;
+        this.render();
+      });
+    });
+    const orgSearchInput = this.shadow.querySelector('#abi-org-search-input') as HTMLInputElement | null;
+    if (orgSearchInput) {
+      orgSearchInput.focus();
+      orgSearchInput.addEventListener('input', (e) => {
+        const q = (e.target as HTMLInputElement).value.toLowerCase();
+        this.orgSearchQuery = q;
+        const items = this.shadow.querySelectorAll('#abi-org-popover .abi-dropdown-item');
+        items.forEach((item) => {
+          const text = (item.getAttribute('data-org') || '').toLowerCase();
+          (item as HTMLElement).style.display = text.includes(q) ? 'flex' : 'none';
+        });
+      });
+    }
+
+    // Product Dropdown Trigger & Events
+    this.shadow.querySelector('#abi-prod-trigger')?.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('#abi-prod-clear-btn')) return;
+      this.isProductDropdownOpen = !this.isProductDropdownOpen;
+      this.isOrgDropdownOpen = false;
+      this.render();
+    });
+    this.shadow.querySelector('#abi-prod-toggle-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.isProductDropdownOpen = !this.isProductDropdownOpen;
+      this.isOrgDropdownOpen = false;
+      this.render();
+    });
+    this.shadow.querySelector('#abi-prod-clear-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.ticketDraft.product = '';
+      this.isProductDropdownOpen = false;
+      this.render();
+    });
+    this.shadow.querySelectorAll('#abi-prod-popover .abi-dropdown-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        const prod = item.getAttribute('data-prod') || '';
+        this.ticketDraft.product = prod;
+        this.isProductDropdownOpen = false;
+        this.render();
+      });
+    });
+    const prodSearchInput = this.shadow.querySelector('#abi-prod-search-input') as HTMLInputElement | null;
+    if (prodSearchInput) {
+      prodSearchInput.focus();
+      prodSearchInput.addEventListener('input', (e) => {
+        const q = (e.target as HTMLInputElement).value.toLowerCase();
+        this.productSearchQuery = q;
+        const items = this.shadow.querySelectorAll('#abi-prod-popover .abi-dropdown-item');
+        items.forEach((item) => {
+          const text = (item.getAttribute('data-prod') || '').toLowerCase();
+          (item as HTMLElement).style.display = text.includes(q) ? 'flex' : 'none';
+        });
+      });
+    }
+
     // Media action buttons in Ticket form
     this.shadow
       .querySelector('#abi-btn-screenshot')
@@ -1891,6 +2181,7 @@ export class WidgetUI {
 
   private async handleScreenshot() {
     try {
+      this.saveTicketDraftFromDOM();
       this.close(); // Hide widget temporarily so it doesn't appear in screenshot
       await new Promise((r) => setTimeout(r, 200));
 
@@ -1909,19 +2200,57 @@ export class WidgetUI {
     overlayRoot.innerHTML = `
       <div class="abi-annotation-overlay">
         <div class="abi-annotation-bar">
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <strong>Annotate Screenshot</strong>
-            <button id="abi-tool-pen" style="padding: 4px 8px;">✏️ Pen</button>
-            <button id="abi-tool-rect" style="padding: 4px 8px;">⬜ Box</button>
-            <button id="abi-tool-arrow" style="padding: 4px 8px;">➡️ Arrow</button>
-            <button id="abi-tool-blur" style="padding: 4px 8px;">⬛ Redact</button>
-            <button id="abi-tool-undo" style="padding: 4px 8px;">↩️ Undo</button>
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 16px;">📸</span>
+              <strong style="font-size: 13px; color: #f8fafc; letter-spacing: -0.01em;">Annotate Screenshot</strong>
+            </div>
+
+            <!-- Drawing Tools -->
+            <div class="abi-annotation-tools-group">
+              <button class="abi-tool-btn active" id="abi-tool-pen" title="Pen (Freehand)">✏️ Pen</button>
+              <button class="abi-tool-btn" id="abi-tool-arrow" title="Arrow Pointer">↗️ Arrow</button>
+              <button class="abi-tool-btn" id="abi-tool-rect" title="Rectangle Box">🔲 Box</button>
+              <button class="abi-tool-btn" id="abi-tool-circle" title="Circle Highlight">⭕ Circle</button>
+              <button class="abi-tool-btn" id="abi-tool-highlight" title="Highlighter">🖍️ Highlight</button>
+              <button class="abi-tool-btn" id="abi-tool-blur" title="Redact / Blackout">⬛ Redact</button>
+              <button class="abi-tool-btn" id="abi-tool-text" title="Text Note">🔤 Text</button>
+            </div>
+
+            <!-- Colors -->
+            <div class="abi-color-swatches" title="Annotation Color">
+              <button class="abi-color-swatch active" data-color="#ef4444" style="background: #ef4444;" title="Red"></button>
+              <button class="abi-color-swatch" data-color="#f59e0b" style="background: #f59e0b;" title="Amber"></button>
+              <button class="abi-color-swatch" data-color="#10b981" style="background: #10b981;" title="Green"></button>
+              <button class="abi-color-swatch" data-color="#3b82f6" style="background: #3b82f6;" title="Blue"></button>
+              <button class="abi-color-swatch" data-color="#8b5cf6" style="background: #8b5cf6;" title="Purple"></button>
+              <button class="abi-color-swatch" data-color="#ffffff" style="background: #ffffff;" title="White"></button>
+            </div>
+
+            <!-- Stroke Width -->
+            <div class="abi-annotation-tools-group">
+              <button class="abi-tool-btn" id="abi-stroke-2" style="padding: 4px 8px; font-size: 11px;">Thin</button>
+              <button class="abi-tool-btn active" id="abi-stroke-4" style="padding: 4px 8px; font-size: 11px;">Med</button>
+              <button class="abi-tool-btn" id="abi-stroke-8" style="padding: 4px 8px; font-size: 11px;">Thick</button>
+            </div>
+
+            <!-- History Actions -->
+            <div class="abi-annotation-tools-group">
+              <button class="abi-tool-btn" id="abi-tool-undo" title="Undo Last Shape">↩️ Undo</button>
+              <button class="abi-tool-btn" id="abi-tool-clear" title="Clear All Annotations">🗑️ Clear</button>
+            </div>
           </div>
-          <div style="display: flex; gap: 8px;">
-            <button id="abi-annot-cancel" style="padding: 6px 12px; background: #64748b; color: white; border: none; border-radius: 6px; cursor: pointer;">Cancel</button>
-            <button id="abi-annot-save" style="padding: 6px 16px; background: var(--abi-primary); color: white; border: none; border-radius: 6px; cursor: pointer;">Attach</button>
+
+          <!-- Actions -->
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button id="abi-annot-cancel" style="padding: 7px 14px; background: rgba(255, 255, 255, 0.1); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;">Cancel</button>
+            <button id="abi-annot-save" style="padding: 7px 18px; background: var(--abi-primary, #2563eb); color: white; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35); transition: all 0.15s; display: flex; align-items: center; gap: 6px;">
+              <span>✓</span>
+              <span>Attach</span>
+            </button>
           </div>
         </div>
+
         <div class="abi-canvas-container">
           <canvas id="abi-annotation-canvas"></canvas>
         </div>
@@ -1932,39 +2261,107 @@ export class WidgetUI {
     const annotator = new ImageAnnotator(canvas);
     annotator.loadImage(imageBlob);
 
-    overlayRoot
-      .querySelector('#abi-tool-pen')
-      ?.addEventListener('click', () => annotator.setTool('PEN'));
-    overlayRoot
-      .querySelector('#abi-tool-rect')
-      ?.addEventListener('click', () => annotator.setTool('RECTANGLE'));
-    overlayRoot
-      .querySelector('#abi-tool-arrow')
-      ?.addEventListener('click', () => annotator.setTool('ARROW'));
-    overlayRoot
-      .querySelector('#abi-tool-blur')
-      ?.addEventListener('click', () => annotator.setTool('BLUR'));
-    overlayRoot.querySelector('#abi-tool-undo')?.addEventListener('click', () => annotator.undo());
+    const toolBtns = overlayRoot.querySelectorAll<HTMLButtonElement>('.abi-annotation-tools-group .abi-tool-btn');
+    const setActiveToolBtn = (activeId: string) => {
+      toolBtns.forEach((btn) => {
+        if (btn.id === activeId) btn.classList.add('active');
+        else if (['abi-tool-pen', 'abi-tool-arrow', 'abi-tool-rect', 'abi-tool-circle', 'abi-tool-highlight', 'abi-tool-blur', 'abi-tool-text'].includes(btn.id)) {
+          btn.classList.remove('active');
+        }
+      });
+    };
 
+    overlayRoot.querySelector('#abi-tool-pen')?.addEventListener('click', () => {
+      annotator.setTool('PEN');
+      setActiveToolBtn('abi-tool-pen');
+    });
+    overlayRoot.querySelector('#abi-tool-arrow')?.addEventListener('click', () => {
+      annotator.setTool('ARROW');
+      setActiveToolBtn('abi-tool-arrow');
+    });
+    overlayRoot.querySelector('#abi-tool-rect')?.addEventListener('click', () => {
+      annotator.setTool('RECTANGLE');
+      setActiveToolBtn('abi-tool-rect');
+    });
+    overlayRoot.querySelector('#abi-tool-circle')?.addEventListener('click', () => {
+      annotator.setTool('CIRCLE');
+      setActiveToolBtn('abi-tool-circle');
+    });
+    overlayRoot.querySelector('#abi-tool-highlight')?.addEventListener('click', () => {
+      annotator.setTool('HIGHLIGHT');
+      setActiveToolBtn('abi-tool-highlight');
+    });
+    overlayRoot.querySelector('#abi-tool-blur')?.addEventListener('click', () => {
+      annotator.setTool('BLUR');
+      setActiveToolBtn('abi-tool-blur');
+    });
+    overlayRoot.querySelector('#abi-tool-text')?.addEventListener('click', () => {
+      annotator.setTool('TEXT');
+      setActiveToolBtn('abi-tool-text');
+    });
+
+    // Colors
+    const colorSwatches = overlayRoot.querySelectorAll<HTMLButtonElement>('.abi-color-swatch');
+    colorSwatches.forEach((swatch) => {
+      swatch.addEventListener('click', () => {
+        const color = swatch.getAttribute('data-color') || '#ef4444';
+        annotator.setColor(color);
+        colorSwatches.forEach((s) => s.classList.remove('active'));
+        swatch.classList.add('active');
+      });
+    });
+
+    // Stroke width
+    const strokeBtns = [
+      { id: '#abi-stroke-2', width: 2 },
+      { id: '#abi-stroke-4', width: 4 },
+      { id: '#abi-stroke-8', width: 8 },
+    ];
+    strokeBtns.forEach(({ id, width }) => {
+      overlayRoot.querySelector(id)?.addEventListener('click', (e) => {
+        annotator.setStrokeWidth(width);
+        strokeBtns.forEach((item) => overlayRoot.querySelector(item.id)?.classList.remove('active'));
+        (e.currentTarget as HTMLElement).classList.add('active');
+      });
+    });
+
+    // Undo & Clear
+    overlayRoot.querySelector('#abi-tool-undo')?.addEventListener('click', () => annotator.undo());
+    overlayRoot.querySelector('#abi-tool-clear')?.addEventListener('click', () => annotator.clear());
+
+    // Cancel
     overlayRoot.querySelector('#abi-annot-cancel')?.addEventListener('click', () => {
       overlayRoot.innerHTML = '';
       this.open();
     });
 
+    // Save & Attach
     overlayRoot.querySelector('#abi-annot-save')?.addEventListener('click', async () => {
-      const finalBlob = await annotator.exportBlob();
-      overlayRoot.innerHTML = '';
-      this.open();
+      const saveBtn = overlayRoot.querySelector('#abi-annot-save') as HTMLButtonElement;
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Attaching...';
+      }
+      try {
+        const finalBlob = await annotator.exportBlob();
+        overlayRoot.innerHTML = '';
+        this.open();
 
-      const result = await this.uploader.uploadBlob(finalBlob, 'screenshot.png', 'SCREENSHOT');
-      this.attachedMedia.push(result);
-      this.render();
+        const result = await this.uploader.uploadBlob(finalBlob, 'screenshot.png', 'SCREENSHOT');
+        this.attachedMedia.push(result);
+        this.render();
+      } catch (err) {
+        alert(`Failed to attach screenshot: ${err instanceof Error ? err.message : String(err)}`);
+        overlayRoot.innerHTML = '';
+        this.open();
+      }
     });
   }
 
   private async handleScreenRecording() {
     const recorder = new ScreenRecorder();
     try {
+      this.saveTicketDraftFromDOM();
       this.close();
 
       await recorder.start((seconds) => {
@@ -2040,6 +2437,7 @@ export class WidgetUI {
   private async handleVoiceRecording() {
     const recorder = new VoiceRecorder();
     try {
+      this.saveTicketDraftFromDOM();
       await recorder.start();
 
       // Show non-blocking voice recording overlay
@@ -2116,12 +2514,16 @@ export class WidgetUI {
     e.preventDefault();
 
     const subjectInput = this.shadow.querySelector('#abi-ticket-subject') as HTMLInputElement;
+    const productSelect = this.shadow.querySelector('#abi-ticket-product') as HTMLSelectElement | HTMLInputElement;
+    const orgInput = this.shadow.querySelector('#abi-ticket-organization') as HTMLSelectElement | HTMLInputElement;
     const descInput = this.shadow.querySelector('#abi-ticket-desc') as HTMLTextAreaElement;
     const prioritySelect = this.shadow.querySelector('#abi-ticket-priority') as HTMLSelectElement;
     const submitBtn = this.shadow.querySelector('#abi-submit-ticket-btn') as HTMLButtonElement;
 
     // Capture values IMMEDIATELY before any async work or DOM changes
     const subjectValue = subjectInput?.value || '';
+    const productValue = productSelect?.value || '';
+    const orgValue = orgInput?.value || '';
     const descValue = descInput?.value || '';
     const priorityValue = prioritySelect?.value || 'NORMAL';
 
@@ -2152,6 +2554,8 @@ export class WidgetUI {
       subject: subjectValue,
       description: descValue,
       priority: priorityValue,
+      ...(productValue ? { product: productValue } : {}),
+      ...(orgValue.trim() ? { organization: orgValue.trim() } : {}),
       channel: 'WIDGET',
       type: 'INCIDENT',
       diagnostics: {
@@ -2179,6 +2583,13 @@ export class WidgetUI {
 
       const ticket = await res.json();
       this.attachedMedia = [];
+      this.ticketDraft = {
+        subject: '',
+        product: '',
+        organization: '',
+        description: '',
+        priority: 'NORMAL',
+      };
       this.activeTab = 'tickets';
       this.render();
 

@@ -29,6 +29,79 @@ interface MediaPlayerProps {
   media: MediaAssetItem[];
 }
 
+export function getMediaType(item: {
+  kind?: string;
+  mimeType?: string;
+  filename?: string | null;
+  originalFilename?: string | null;
+}) {
+  const filename = (item.originalFilename || item.filename || '').toLowerCase();
+  const mime = (item.mimeType || '').toLowerCase();
+  const kind = item.kind || '';
+
+  // 1. Audio / Voice Recording (takes precedence for voice-note.webm, audio/webm, etc.)
+  const isAudio =
+    kind === 'VOICE_RECORDING' ||
+    mime.startsWith('audio/') ||
+    /\.(mp3|wav|ogg|m4a|aac|flac|weba)$/i.test(filename) ||
+    filename.includes('voice-note') ||
+    filename.includes('voice_recording') ||
+    filename.includes('audio-recording');
+
+  // 2. Image
+  const isImage =
+    !isAudio &&
+    (kind === 'SCREENSHOT' ||
+      mime.startsWith('image/') ||
+      /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(filename));
+
+  // 3. Video (excluding any audio voice note)
+  const isVideo =
+    !isAudio &&
+    !isImage &&
+    (kind === 'SCREEN_RECORDING' ||
+      mime.startsWith('video/') ||
+      /\.(mp4|mov|avi|mkv|wmv|m4v)$/i.test(filename) ||
+      (filename.endsWith('.webm') && !mime.startsWith('audio/')));
+
+  // 4. PDF
+  const isPdf = !isAudio && !isImage && !isVideo && (mime.includes('pdf') || filename.endsWith('.pdf'));
+
+  // 5. Sheet / CSV
+  const isSheet =
+    !isAudio &&
+    !isImage &&
+    !isVideo &&
+    !isPdf &&
+    (mime.includes('sheet') || mime.includes('csv') || mime.includes('excel') || /\.(csv|xlsx?|ods)$/i.test(filename));
+
+  // 6. Archive
+  const isArchive =
+    !isAudio &&
+    !isImage &&
+    !isVideo &&
+    !isPdf &&
+    !isSheet &&
+    (mime.includes('zip') || mime.includes('tar') || mime.includes('compressed') || /\.(zip|rar|7z|tar|gz|bz2)$/i.test(filename));
+
+  // 7. Code / Text
+  const isCode =
+    !isAudio &&
+    !isImage &&
+    !isVideo &&
+    !isPdf &&
+    !isSheet &&
+    !isArchive &&
+    (mime.includes('json') ||
+      mime.includes('javascript') ||
+      mime.includes('typescript') ||
+      mime.includes('html') ||
+      mime.includes('xml') ||
+      /\.(json|js|jsx|ts|tsx|html|css|xml|yaml|yml|md|txt|log|sh|sql)$/i.test(filename));
+
+  return { isAudio, isImage, isVideo, isPdf, isSheet, isArchive, isCode };
+}
+
 export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
   const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
   const [activePreview, setActivePreview] = useState<{
@@ -112,6 +185,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
     );
   }
 
+  const activeMediaType = activePreview ? getMediaType(activePreview.item) : null;
+
   return (
     <>
       <div
@@ -124,36 +199,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
         {media.map((item) => {
           const filename = item.originalFilename || item.filename || 'Attachment';
           const downloadUrl = item.downloadUrl || downloadUrls[item.id];
-          const lowerName = filename.toLowerCase();
-          const mime = item.mimeType.toLowerCase();
-
-          const isVideo =
-            item.kind === 'SCREEN_RECORDING' ||
-            mime.startsWith('video/') ||
-            lowerName.endsWith('.mp4') ||
-            lowerName.endsWith('.webm');
-          const isImage =
-            item.kind === 'SCREENSHOT' ||
-            mime.startsWith('image/') ||
-            /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lowerName);
-          const isAudio =
-            item.kind === 'VOICE_RECORDING' ||
-            mime.startsWith('audio/') ||
-            lowerName.endsWith('.mp3') ||
-            lowerName.endsWith('.wav');
-          const isPdf = mime.includes('pdf') || lowerName.endsWith('.pdf');
-          const isSheet = mime.includes('sheet') || mime.includes('csv') || /\.(csv|xlsx?)$/i.test(lowerName);
-          const isArchive = mime.includes('zip') || mime.includes('tar') || /\.(zip|rar|7z|tar|gz)$/i.test(lowerName);
-          const isCode =
-            mime.includes('json') ||
-            mime.includes('javascript') ||
-            /\.(json|js|ts|html|css|xml|yaml|yml)$/i.test(lowerName);
-
+          const { isAudio, isImage, isVideo, isPdf, isSheet, isArchive, isCode } = getMediaType(item);
           const fileSizeKb = Math.max(1, Math.round(item.sizeBytes / 1024));
 
           const handleOpenPreview = () => {
             if (downloadUrl) {
-              setActivePreview({ item, url: downloadUrl, filename, mime });
+              setActivePreview({ item, url: downloadUrl, filename, mime: item.mimeType });
             }
           };
 
@@ -187,7 +238,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                 >
                   {isImage && <Image size={16} color="#10b981" style={{ flexShrink: 0 }} />}
                   {isVideo && <Video size={16} color="var(--primary)" style={{ flexShrink: 0 }} />}
-                  {isAudio && <Mic size={16} color="#f59e0b" style={{ flexShrink: 0 }} />}
+                  {isAudio && <Mic size={16} color="#d97706" style={{ flexShrink: 0 }} />}
                   {isPdf && <FileText size={16} color="#ef4444" style={{ flexShrink: 0 }} />}
                   {isSheet && <FileSpreadsheet size={16} color="#059669" style={{ flexShrink: 0 }} />}
                   {isArchive && <FileArchive size={16} color="#8b5cf6" style={{ flexShrink: 0 }} />}
@@ -210,7 +261,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                 style={{
                   borderRadius: '6px',
                   overflow: 'hidden',
-                  backgroundColor: isImage || isVideo || isAudio ? '#0f172a' : 'var(--bg-surface-elevated, #f8fafc)',
+                  backgroundColor: isVideo ? '#0f172a' : '#ffffff',
                   border: '1px solid var(--border-subtle)',
                   display: 'flex',
                   alignItems: 'center',
@@ -218,6 +269,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                   minHeight: '140px',
                   position: 'relative',
                   cursor: downloadUrl ? 'pointer' : 'default',
+                  padding: isImage ? '6px' : undefined,
                 }}
               >
                 {isImage && downloadUrl && (
@@ -233,9 +285,35 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                 )}
 
                 {isAudio && downloadUrl && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
-                    <Mic size={32} />
-                    <span style={{ fontSize: '12px', color: '#ffffff' }}>Audio Recording</span>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '16px',
+                      width: '100%',
+                      height: '100%',
+                      backgroundColor: '#fffbeb',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '50%',
+                        backgroundColor: '#fef3c7',
+                        border: '1px solid #fde68a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#d97706',
+                      }}
+                    >
+                      <Mic size={22} />
+                    </div>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#92400e' }}>Voice Recording</span>
                   </div>
                 )}
 
@@ -313,7 +391,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
       </div>
 
       {/* Light Theme Fullscreen In-App Media Lightbox Preview Modal */}
-      {activePreview && (
+      {activePreview && activeMediaType && (
         <div
           onClick={() => setActivePreview(null)}
           style={{
@@ -336,7 +414,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
             style={{
               position: 'relative',
               width: '100%',
-              maxWidth: activePreview.mime.includes('pdf') ? '1050px' : '90vw',
+              maxWidth: activeMediaType.isPdf ? '1050px' : activeMediaType.isAudio ? '580px' : '90vw',
               maxHeight: '92vh',
               display: 'flex',
               flexDirection: 'column',
@@ -434,15 +512,15 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '20px',
+                padding: '24px',
                 overflow: 'auto',
-                minHeight: '300px',
+                minHeight: '280px',
                 maxHeight: 'calc(92vh - 65px)',
                 backgroundColor: '#f1f5f9',
               }}
             >
               {/* Image Preview */}
-              {(activePreview.mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(activePreview.filename)) && (
+              {activeMediaType.isImage && (
                 <img
                   src={activePreview.url}
                   alt={activePreview.filename}
@@ -458,7 +536,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
               )}
 
               {/* PDF Preview with Built-in Fallback */}
-              {(activePreview.mime.includes('pdf') || activePreview.filename.toLowerCase().endsWith('.pdf')) && (
+              {activeMediaType.isPdf && (
                 <object
                   data={`${activePreview.url}#toolbar=1`}
                   type="application/pdf"
@@ -470,7 +548,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                     backgroundColor: '#ffffff',
                   }}
                 >
-                  {/* Beautiful Empty State Fallback if browser blocks inline iframe/object */}
+                  {/* Fallback if browser blocks inline object */}
                   <div
                     style={{
                       height: '100%',
@@ -530,7 +608,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
               )}
 
               {/* Video Preview */}
-              {(activePreview.mime.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(activePreview.filename)) && (
+              {activeMediaType.isVideo && (
                 <video
                   controls
                   autoPlay
@@ -546,26 +624,74 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
               )}
 
               {/* Audio Preview */}
-              {(activePreview.mime.startsWith('audio/') || /\.(mp3|wav|ogg)$/i.test(activePreview.filename)) && (
-                <div style={{ padding: '36px 40px', width: '100%', maxWidth: '500px', textAlign: 'center', backgroundColor: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px rgba(0, 0, 0, 0.05)' }}>
-                  <Mic size={48} color="#f59e0b" style={{ margin: '0 auto 16px' }} />
-                  <h4 style={{ color: '#0f172a', marginBottom: '16px', fontSize: '16px', fontWeight: 600 }}>{activePreview.filename}</h4>
-                  <audio controls autoPlay src={activePreview.url} style={{ width: '100%' }} />
+              {activeMediaType.isAudio && (
+                <div
+                  style={{
+                    padding: '36px 40px',
+                    width: '100%',
+                    maxWidth: '500px',
+                    textAlign: 'center',
+                    backgroundColor: '#ffffff',
+                    borderRadius: '16px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '16px',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      borderRadius: '50%',
+                      backgroundColor: '#fffbeb',
+                      border: '2px solid #fef3c7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#d97706',
+                      boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
+                    }}
+                  >
+                    <Mic size={32} />
+                  </div>
+                  <div>
+                    <h4 style={{ color: '#0f172a', marginBottom: '4px', fontSize: '16px', fontWeight: 700, wordBreak: 'break-all' }}>
+                      {activePreview.filename}
+                    </h4>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>
+                      Voice Recording • {Math.max(1, Math.round(activePreview.item.sizeBytes / 1024))} KB
+                    </span>
+                  </div>
+                  <div style={{ width: '100%', marginTop: '4px' }}>
+                    <audio controls autoPlay src={activePreview.url} style={{ width: '100%' }} />
+                  </div>
                 </div>
               )}
 
-              {/* Generic Document / Other fallback */}
-              {!activePreview.mime.startsWith('image/') &&
-                !/\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(activePreview.filename) &&
-                !activePreview.mime.includes('pdf') &&
-                !activePreview.filename.toLowerCase().endsWith('.pdf') &&
-                !activePreview.mime.startsWith('video/') &&
-                !/\.(mp4|webm|mov)$/i.test(activePreview.filename) &&
-                !activePreview.mime.startsWith('audio/') &&
-                !/\.(mp3|wav|ogg)$/i.test(activePreview.filename) && (
-                  <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', maxWidth: '500px', boxShadow: '0 10px 25px rgba(0, 0, 0, 0.05)' }}>
+              {/* Generic Document / Other Fallback */}
+              {!activeMediaType.isImage &&
+                !activeMediaType.isPdf &&
+                !activeMediaType.isVideo &&
+                !activeMediaType.isAudio && (
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      padding: '40px 24px',
+                      backgroundColor: '#ffffff',
+                      borderRadius: '16px',
+                      border: '1px solid #e2e8f0',
+                      width: '100%',
+                      maxWidth: '500px',
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.05)',
+                    }}
+                  >
                     <File size={56} style={{ margin: '0 auto 16px', color: '#64748b' }} />
-                    <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>{activePreview.filename}</h3>
+                    <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                      {activePreview.filename}
+                    </h3>
                     <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '24px' }}>
                       This file format can be downloaded and opened with your system viewer.
                     </p>

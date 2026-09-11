@@ -52,10 +52,12 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     ? new URL(currentScript.src, window.location.href).origin
     : window.location.origin;
   const apiUrl = currentScript?.getAttribute('data-api-url') || scriptOrigin;
+  const defaultProduct = currentScript?.getAttribute('data-product') || undefined;
+  const defaultOrganization = currentScript?.getAttribute('data-organization') || undefined;
 
   if (publicKey) {
     const boot = () => {
-      AbiDeskWidget.init({ publicKey, apiUrl });
+      AbiDeskWidget.init({ publicKey, apiUrl, defaultProduct, defaultOrganization });
     };
 
     if (document.readyState === 'loading') {

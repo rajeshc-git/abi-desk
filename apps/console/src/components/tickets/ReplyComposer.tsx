@@ -1,9 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { Send, Lock, Globe, Paperclip } from 'lucide-react';
+import { Send, Lock, Globe, Paperclip, Users, X } from 'lucide-react';
 import { TicketsApi } from '../../api/tickets';
 
 interface ReplyComposerProps {
-  onSend: (body: string, isInternal: boolean, attachments?: string[]) => Promise<void>;
+  onSend: (
+    body: string,
+    isInternal: boolean,
+    attachments?: string[],
+    cc?: string[],
+  ) => Promise<void>;
   isSending?: boolean;
   canWriteInternal?: boolean;
 }
@@ -15,21 +20,58 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
 }) => {
   const [body, setBody] = useState('');
   const [isInternal, setIsInternal] = useState(false);
+  const [ccList, setCcList] = useState<string[]>([]);
+  const [ccInput, setCcInput] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ id: string; name: string }>>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAddCc = (emailToAdd: string) => {
+    const trimmed = emailToAdd.trim().toLowerCase().replace(/,/g, '');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (trimmed && emailRegex.test(trimmed) && !ccList.includes(trimmed)) {
+      setCcList([...ccList, trimmed]);
+      setCcInput('');
+    }
+  };
+
+  const handleCcKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+      e.preventDefault();
+      if (ccInput.trim()) {
+        handleAddCc(ccInput);
+      }
+    } else if (e.key === 'Backspace' && !ccInput && ccList.length > 0) {
+      setCcList(ccList.slice(0, -1));
+    }
+  };
+
+  const removeCc = (emailToRemove: string) => {
+    setCcList(ccList.filter((email) => email !== emailToRemove));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!body.trim() || isSending || isUploading) return;
 
+    // Flush any pending text in ccInput
+    const finalCcList = [...ccList];
+    const pendingCc = ccInput.trim().toLowerCase().replace(/,/g, '');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (pendingCc && emailRegex.test(pendingCc) && !finalCcList.includes(pendingCc)) {
+      finalCcList.push(pendingCc);
+    }
+
     await onSend(
       body,
       isInternal && canWriteInternal,
       uploadedFiles.map((f) => f.id),
+      !isInternal && finalCcList.length > 0 ? finalCcList : undefined,
     );
     setBody('');
     setUploadedFiles([]);
+    setCcList([]);
+    setCcInput('');
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -97,9 +139,87 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
           {isInternal && canWriteInternal
             ? '🔒 Visible to staff only'
-            : '🌐 Customer will be notified'}
+            : ccList.length > 0
+              ? `🌐 Customer + ${ccList.length} CC recipient${ccList.length > 1 ? 's' : ''} will be notified`
+              : '🌐 Customer will be notified'}
         </div>
       </div>
+
+      {/* Gmail / Zoho Desk Style Integrated CC Bar for Public Replies */}
+      {!isInternal && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '6px',
+            padding: '6px 16px',
+            backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+            borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+            fontSize: '12px',
+          }}
+        >
+          <span style={{ fontWeight: 600, color: 'var(--text-muted, #64748b)', fontSize: '11px', userSelect: 'none' }}>
+            CC:
+          </span>
+
+          {ccList.map((email) => (
+            <span
+              key={email}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                color: 'var(--primary, #2563eb)',
+                border: '1px solid rgba(37, 99, 235, 0.2)',
+                borderRadius: '12px',
+                padding: '1px 8px',
+                fontSize: '11.5px',
+                fontWeight: 500,
+              }}
+            >
+              <span>{email}</span>
+              <button
+                type="button"
+                onClick={() => removeCc(email)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  color: 'var(--primary, #2563eb)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: 0,
+                }}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+
+          <input
+            type="email"
+            placeholder={ccList.length === 0 ? 'Add CC email (press Enter or comma)...' : 'Add another CC...'}
+            value={ccInput}
+            onChange={(e) => setCcInput(e.target.value)}
+            onKeyDown={handleCcKeyDown}
+            onBlur={() => {
+              if (ccInput.trim()) handleAddCc(ccInput);
+            }}
+            style={{
+              flex: 1,
+              minWidth: '180px',
+              border: 'none',
+              outline: 'none',
+              backgroundColor: 'transparent',
+              fontSize: '12px',
+              color: 'var(--text-primary)',
+              padding: '2px 4px',
+            }}
+          />
+        </div>
+      )}
 
       {uploadedFiles.length > 0 && (
         <div
@@ -158,7 +278,6 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
         value={body}
         onChange={(e) => setBody(e.target.value)}
         rows={4}
-        required
       />
 
       {body.trim().length === 0 && (

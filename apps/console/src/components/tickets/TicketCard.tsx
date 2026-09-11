@@ -28,7 +28,12 @@ interface TicketCardProps {
 }
 
 export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUnread, onClick }) => {
-  const { setSelectedTag, setSelectedCategory } = useSearch();
+  const {
+    setSelectedTag,
+    setSelectedCategory,
+    setSelectedOrganization,
+    setSelectedProduct,
+  } = useSearch();
   const rawDate = ticket.createdAt || ticket.updatedAt;
   const dateObj = rawDate ? new Date(rawDate) : new Date();
   const formattedDate = isNaN(dateObj.getTime())
@@ -138,9 +143,79 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
         {ticket.subject}
       </div>
 
-      {/* Category and Tags pills container */}
-      {(ticket.category || (ticket.tags && ticket.tags.length > 0)) && (
+      {/* Organization, Product, Category, and Tags pills container */}
+      {(((ticket as any).customFields?.organization || (ticket as any).organization) ||
+        ((ticket as any).customFields?.product || (ticket as any).product) ||
+        ticket.category ||
+        (ticket.tags && ticket.tags.length > 0)) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+          {/* Organization Badge */}
+          {((ticket as any).customFields?.organization || (ticket as any).organization) && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedOrganization((ticket as any).customFields?.organization || (ticket as any).organization);
+              }}
+              style={{
+                fontSize: '10px',
+                fontWeight: 600,
+                backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                color: '#0284c7',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                borderRadius: '3px',
+                padding: '1px 5px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.22)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(56, 189, 248, 0.12)';
+              }}
+              title={`Filter by organization: ${(ticket as any).customFields?.organization || (ticket as any).organization}`}
+            >
+              🏢 {(ticket as any).customFields?.organization || (ticket as any).organization}
+            </span>
+          )}
+
+          {/* Product Badge */}
+          {((ticket as any).customFields?.product || (ticket as any).product) && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedProduct((ticket as any).customFields?.product || (ticket as any).product);
+              }}
+              style={{
+                fontSize: '10px',
+                fontWeight: 600,
+                backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                color: '#9333ea',
+                border: '1px solid rgba(168, 85, 247, 0.3)',
+                borderRadius: '3px',
+                padding: '1px 5px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.22)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(168, 85, 247, 0.12)';
+              }}
+              title={`Filter by product: ${(ticket as any).customFields?.product || (ticket as any).product}`}
+            >
+              📦 {(ticket as any).customFields?.product || (ticket as any).product}
+            </span>
+          )}
+
+          {/* Category Pill */}
           {ticket.category && (
             <span
               onClick={(e) => {
@@ -167,6 +242,8 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
               {ticket.category}
             </span>
           )}
+
+          {/* Tags */}
           {ticket.tags?.map((tItem, idx) => {
             const tag = tItem.tag;
             if (!tag) return null;

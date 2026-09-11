@@ -85,9 +85,9 @@ export class AssignmentService {
     }
 
     const outcome = await this.prisma.run(async (tx) => {
-      let assigneeId = dto.assigneeId ?? null;
-      let queueId = dto.queueId ?? ticket.queueId ?? null;
-      let teamId = dto.teamId ?? ticket.teamId ?? null;
+      let assigneeId = dto.assigneeId !== undefined ? dto.assigneeId : (ticket.assignee?.id ?? null);
+      let queueId = dto.queueId !== undefined ? dto.queueId : (ticket.queue?.id ?? null);
+      let teamId = dto.teamId !== undefined ? dto.teamId : (ticket.team?.id ?? null);
 
       if (dto.queueId) {
         const queue = await tx.queue.findFirst({
@@ -103,7 +103,11 @@ export class AssignmentService {
 
         queueId = queue.id;
         // A queue's team is inherited unless the caller overrode it explicitly.
-        teamId = dto.teamId ?? queue.teamId ?? teamId;
+        if (dto.teamId !== undefined) {
+          teamId = dto.teamId;
+        } else if (queue.teamId) {
+          teamId = queue.teamId;
+        }
       }
 
       if (dto.teamId) {
@@ -156,11 +160,20 @@ export class AssignmentService {
         }
       }
 
+      const shouldActivate = Boolean(assigneeId && ticket.status === 'NEW');
+
       const updated = await tx.ticket.update({
         where: { id: ticketId },
-        data: { assigneeId, queueId, teamId, lastActivityAt: new Date() },
+        data: {
+          assigneeId,
+          queueId,
+          teamId,
+          ...(shouldActivate ? { status: 'OPEN' } : {}),
+          lastActivityAt: new Date(),
+        },
         select: {
           number: true,
+          status: true,
           assignee: { select: { id: true, fullName: true, email: true } },
           queue: { select: { id: true, name: true } },
           team: { select: { id: true, name: true } },
@@ -184,6 +197,40 @@ export class AssignmentService {
         });
       }
 
+      if (shouldActivate) {
+        await tx.ticketEvent.create({
+          data: {
+            tenantId,
+            ticketId,
+            type: 'STATUS_CHANGED',
+            actorId: principal.userId,
+            actorType: 'USER',
+            fromValue: 'NEW',
+            toValue: 'OPEN',
+            metadata: { reason: 'Auto-activated to OPEN upon assignment' },
+          },
+        });
+
+        await tx.outboxEvent.create({
+          data: {
+            tenantId,
+            eventType: 'ticket.status_changed',
+            aggregateType: 'ticket',
+            aggregateId: ticketId,
+            payload: {
+              ticketId,
+              number: updated.number,
+              fromStatus: 'NEW',
+              toStatus: 'OPEN',
+              fromTier: ticket.tier,
+              toTier: ticket.tier,
+              isEscalation: false,
+              actorId: principal.userId,
+            },
+          },
+        });
+      }
+
       if ((ticket.queueId ?? null) !== queueId) {
         await tx.ticketEvent.create({
           data: {
@@ -193,6 +240,20 @@ export class AssignmentService {
             actorId: principal.userId,
             actorType: 'USER',
             toValue: updated.queue?.name ?? null,
+          },
+        });
+      }
+
+      if ((ticket.team?.id ?? null) !== teamId) {
+        await tx.ticketEvent.create({
+          data: {
+            tenantId,
+            ticketId,
+            type: 'TEAM_CHANGED',
+            actorId: principal.userId,
+            actorType: 'USER',
+            fromValue: ticket.team?.name ?? null,
+            toValue: updated.team?.name ?? null,
           },
         });
       }

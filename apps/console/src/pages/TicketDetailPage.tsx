@@ -3,11 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   MessageSquare,
+  History,
   Monitor,
   Video,
   UserCheck,
   ChevronDown,
   ChevronUp,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge';
@@ -17,8 +20,14 @@ import { MediaPlayer, MediaAssetItem } from '../components/media/MediaPlayer';
 import { ReplyComposer } from '../components/tickets/ReplyComposer';
 import { SlaCountdown } from '../components/tickets/SlaCountdown';
 import { TimelineView, CommentItem } from '../components/tickets/TimelineView';
+import { HistoryView } from '../components/tickets/HistoryView';
 import { TicketTagManager } from '../components/tickets/TicketTagManager';
 import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
+import { OrganizationProductManager } from '../components/tickets/OrganizationProductManager';
+import { AssignmentPopover } from '../components/tickets/AssignmentPopover';
+import { StatusPopover } from '../components/tickets/StatusPopover';
+import { TransferTierModal } from '../components/tickets/TransferTierModal';
+import { StatusTransitionModal } from '../components/tickets/StatusTransitionModal';
 import { FormattedEmailContent } from '../components/common/FormattedEmailContent';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -38,20 +47,56 @@ export const TicketDetailPage: React.FC = () => {
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsData | null>(null);
   const [mediaAssets, setMediaAssets] = useState<MediaAssetItem[]>([]);
+  const [historyCount, setHistoryCount] = useState<number | null>(null);
   const [availableTransitions, setAvailableTransitions] = useState<any[]>([]);
+  const [staffUsers, setStaffUsers] = useState<any[]>([]);
+  const [pendingTier, setPendingTier] = useState<string | null>(null);
+  const [pendingStatusTransition, setPendingStatusTransition] = useState<{
+    toStatus: string;
+    requiresComment?: boolean;
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
-  const [activeTab, setActiveTab] = useState<'timeline' | 'diagnostics' | 'media' | 'approvals'>(
-    'timeline',
-  );
+  const [maximizedSection, setMaximizedSection] = useState<
+    'none' | 'description' | 'workspace'
+  >('none');
+  const [activeTab, setActiveTab] = useState<
+    'timeline' | 'history' | 'diagnostics' | 'media' | 'approvals'
+  >('timeline');
   const timelineScrollRef = useRef<HTMLDivElement>(null);
+
+  const canChangePriority =
+    !!user &&
+    Boolean(
+      user.roles?.some((r: string) => ['L2_SUPPORT', 'L3_SUPPORT', 'PLATFORM_ADMIN'].includes(r)),
+    );
 
   useEffect(() => {
     if (id) loadTicketDetails(id);
+    ApiClient.get<any[]>('/admin/users')
+      .then((users) => {
+        if (Array.isArray(users)) {
+          setStaffUsers(users.filter((u: any) => u.kind === 'STAFF' && u.status === 'ACTIVE'));
+        }
+      })
+      .catch(() => {});
   }, [id]);
 
   // Real-time live comment and ticket update synchronization
+  const mapComments = (list: any[]): CommentItem[] =>
+    (list || []).map((c: any) => ({
+      ...c,
+      isInternal: c.isInternal ?? (c.visibility === 'INTERNAL'),
+      attachments: c.mediaAssets
+        ? c.mediaAssets.map((att: any) => ({
+            id: att.id,
+            originalFilename: att.originalFilename,
+            mimeType: att.mimeType,
+          }))
+        : c.attachments || [],
+    }));
+
   useEffect(() => {
     if (!socket || !id) return;
 
@@ -62,7 +107,7 @@ export const TicketDetailPage: React.FC = () => {
         ApiClient.get<any>(`/tickets/${id}/comments?pageSize=100`)
           .then((res) => {
             const list = res.comments || res.items || (Array.isArray(res) ? res : []);
-            setComments(list);
+            setComments(mapComments(list));
           })
           .catch(() => {});
 
@@ -98,17 +143,7 @@ export const TicketDetailPage: React.FC = () => {
       ]);
       setTicket(data);
       setAvailableTransitions(transitionsRes?.transitions || []);
-      const mappedComments = (commentsRes.comments || []).map((c: any) => ({
-        ...c,
-        isInternal: c.visibility === 'INTERNAL',
-        attachments: c.mediaAssets
-          ? c.mediaAssets.map((att: any) => ({
-              id: att.id,
-              originalFilename: att.originalFilename,
-              mimeType: att.mimeType,
-            }))
-          : [],
-      }));
+      const mappedComments = mapComments(commentsRes.comments || []);
       setComments(mappedComments);
       // Smart Adaptive Default: Auto-expand if fresh ticket (0 replies), auto-collapse if ongoing conversation thread
       setIsDescriptionExpanded(mappedComments.length === 0);
@@ -125,7 +160,12 @@ export const TicketDetailPage: React.FC = () => {
     }
   };
 
-  const handleSendComment = async (body: string, isInternal: boolean, attachments?: string[]) => {
+  const handleSendComment = async (
+    body: string,
+    isInternal: boolean,
+    attachments?: string[],
+    cc?: string[],
+  ) => {
     if (!id) return;
     setIsSending(true);
     try {
@@ -133,6 +173,7 @@ export const TicketDetailPage: React.FC = () => {
         body,
         visibility: isInternal ? 'INTERNAL' : 'PUBLIC',
         attachments,
+        ...(cc && cc.length > 0 ? { cc } : {}),
       });
       const mapped = {
         ...newComment,
@@ -160,56 +201,100 @@ export const TicketDetailPage: React.FC = () => {
   };
 
   const handleStatusChange = async (newStatus: string) => {
-    if (!id) return;
+    if (!id || newStatus === ticket?.status) return;
     const transition = availableTransitions.find((t: any) => t.toStatus === newStatus);
-    let comment: string | undefined = undefined;
+    const requiresComment =
+      Boolean(transition?.requiresComment) ||
+      ['PENDING_CUSTOMER', 'ON_HOLD', 'CANCELLED'].includes(newStatus);
 
-    if (transition?.requiresComment) {
-      const userInput = window.prompt(`A comment is required to transition to ${newStatus}:`);
-      if (userInput === null) return;
-      const trimmedComment = userInput.trim();
-      if (!trimmedComment) {
-        toast.error('A comment is required for this transition.');
-        return;
-      }
-      comment = trimmedComment;
-    }
-
-    try {
-      await ApiClient.post(`/tickets/${id}/transitions`, { toStatus: newStatus, comment });
-      setTicket((prev: any) => ({ ...prev, status: newStatus }));
-      loadTicketDetails(id);
-      toast.success(`Ticket state transitioned to ${newStatus}!`);
-    } catch (err: any) {
-      toast.error(`Status transition failed: ${err.message}`);
-    }
-  };
-
-  const handleTierEscalate = async (newTier: string) => {
-    if (!id) return;
-    const userInput = window.prompt(`Please enter a reason for escalating to tier ${newTier}:`);
-    if (userInput === null) return;
-    const trimmedReason = userInput.trim();
-    if (!trimmedReason) {
-      toast.error('Escalation reason is required.');
+    if (requiresComment) {
+      setPendingStatusTransition({ toStatus: newStatus, requiresComment });
       return;
     }
 
+    await executeStatusTransition(newStatus);
+  };
+
+  const executeStatusTransition = async (newStatus: string, comment?: string) => {
+    if (!id) return;
     try {
-      await ApiClient.post(`/tickets/${id}/escalate`, { toTier: newTier, reason: trimmedReason });
-      setTicket((prev: any) => ({ ...prev, tier: newTier, status: 'ESCALATED' }));
+      const res: any = await ApiClient.post(`/tickets/${id}/transitions`, { toStatus: newStatus, comment });
+      if (res?.kind === 'pending_approval') {
+        toast.info(`Transition to ${newStatus} requires sign-off. Approval request #${res.approvalRequestId || ''} submitted.`);
+      } else {
+        setTicket((prev: any) => ({ ...prev, status: newStatus }));
+        toast.success(`Ticket status updated to ${newStatus}!`);
+      }
       loadTicketDetails(id);
-      toast.success(`Ticket escalated to support tier ${newTier}!`);
     } catch (err: any) {
-      toast.error(`Tier escalation failed: ${err.message}`);
+      toast.error(`Status transition failed: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const handleTierEscalate = (newTier: string) => {
+    if (!id || newTier === ticket?.tier) return;
+    setPendingTier(newTier);
+  };
+
+  const handleConfirmTierTransfer = async (reason: string) => {
+    if (!id || !pendingTier) return;
+    try {
+      await ApiClient.post(`/tickets/${id}/escalate`, { toTier: pendingTier, reason });
+      loadTicketDetails(id);
+      toast.success(`Ticket successfully moved to tier ${pendingTier}!`);
+      setPendingTier(null);
+    } catch (err: any) {
+      toast.error(`Tier transfer failed: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const handlePriorityChange = async (newPriority: string) => {
+    if (!id) return;
+    try {
+      await ApiClient.patch(`/tickets/${id}`, { priority: newPriority });
+      setTicket((prev: any) => ({ ...prev, priority: newPriority }));
+      toast.success(`Ticket priority updated to ${newPriority}!`);
+    } catch (err: any) {
+      toast.error(`Priority update failed: ${err.message}`);
+    }
+  };
+
+  const handleAssignUser = async (assigneeId: string) => {
+    if (!id) return;
+    try {
+      const selectedUser = staffUsers.find((u) => u.id === assigneeId);
+      const isUnassigning = assigneeId === 'unassigned';
+      const res: any = await ApiClient.post(`/tickets/${id}/assign`, {
+        assigneeId: isUnassigning ? null : assigneeId,
+      });
+      setTicket((prev: any) => ({
+        ...prev,
+        status: res?.status || (!isUnassigning && prev?.status === 'NEW' ? 'OPEN' : prev?.status),
+        assignee: selectedUser ? { id: selectedUser.id, fullName: selectedUser.fullName } : null,
+      }));
+      loadTicketDetails(id);
+      toast.success(
+        isUnassigning
+          ? 'Ticket unassigned'
+          : `Ticket assigned to ${selectedUser?.fullName || selectedUser?.email || 'agent'}!`,
+      );
+    } catch (err: any) {
+      toast.error(`Assignment failed: ${err.message}`);
     }
   };
 
   const handleAssignToMe = async () => {
     if (!id || !user) return;
     try {
-      await ApiClient.post(`/tickets/${id}/assign`, { assigneeId: user.id });
-      setTicket((prev: any) => ({ ...prev, assignee: { id: user.id, fullName: user.fullName } }));
+      const res: any = await ApiClient.post(`/tickets/${id}/assign`, { assigneeId: user.id });
+      setTicket((prev: any) => ({
+        ...prev,
+        status: res?.status || (prev?.status === 'NEW' ? 'OPEN' : prev?.status),
+        assignee: { id: user.id, fullName: user.fullName },
+      }));
+      loadTicketDetails(id);
       toast.success('Ticket successfully assigned to you!');
     } catch (err: any) {
       toast.error(`Assignment failed: ${err.message}`);
@@ -260,8 +345,36 @@ export const TicketDetailPage: React.FC = () => {
                 #{ticket.number}
               </span>
               <TierBadge tier={ticket.tier} />
-              <StatusBadge status={ticket.status} />
-              <PriorityPill priority={ticket.priority} />
+              {canChangePriority ? (
+                <select
+                  value={ticket.priority}
+                  onChange={(e) => handlePriorityChange(e.target.value)}
+                  style={{
+                    padding: '3px 8px',
+                    backgroundColor: 'var(--bg-surface)',
+                    border: '1px solid var(--border-medium)',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color:
+                      ticket.priority === 'CRITICAL' || ticket.priority === 'URGENT'
+                        ? 'var(--color-critical)'
+                        : ticket.priority === 'HIGH'
+                        ? '#f59e0b'
+                        : 'var(--text-primary)',
+                    cursor: 'pointer',
+                  }}
+                  title="Change Priority (L1 / L2 / Staff)"
+                >
+                  <option value="LOW">Priority: LOW</option>
+                  <option value="NORMAL">Priority: NORMAL</option>
+                  <option value="HIGH">Priority: HIGH</option>
+                  <option value="URGENT">Priority: URGENT</option>
+                  <option value="CRITICAL">Priority: CRITICAL</option>
+                </select>
+              ) : (
+                <PriorityPill priority={ticket.priority} />
+              )}
               <TicketCategoryManager
                 ticketId={ticket.id}
                 category={ticket.category}
@@ -272,6 +385,44 @@ export const TicketDetailPage: React.FC = () => {
                 tags={ticket.tags}
                 onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
               />
+              {(ticket.customFields?.organization || ticket.organization) && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                    color: '#38bdf8',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                  }}
+                  title="Client Organization / Account"
+                >
+                  🏢 {ticket.customFields?.organization || ticket.organization}
+                </span>
+              )}
+              {(ticket.customFields?.product || ticket.product) && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                    color: '#c084fc',
+                    border: '1px solid rgba(168, 85, 247, 0.25)',
+                  }}
+                  title="Product"
+                >
+                  📦 {ticket.customFields?.product || ticket.product}
+                </span>
+              )}
             </div>
             <h2
               style={{
@@ -290,64 +441,82 @@ export const TicketDetailPage: React.FC = () => {
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-          {/* Status Dropdown */}
-          <select
-            value={ticket.status}
-            onChange={(e) => handleStatusChange(e.target.value)}
-            style={{
-              padding: '5px 10px',
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border-medium)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--text-primary)',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            <option value={ticket.status} disabled>
-              Status: {ticket.status}
-            </option>
-            {availableTransitions.map((t: any) => (
-              <option key={t.toStatus} value={t.toStatus}>
-                {t.label || t.toStatus}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {/* Zoho Desk Styled Status Dropdown */}
+          <StatusPopover
+            status={ticket.status}
+            onStatusChange={handleStatusChange}
+          />
+
+          {/* Tier Escalation / Transfer */}
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <select
+              value={ticket.tier}
+              onChange={(e) => handleTierEscalate(e.target.value)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '5px 12px',
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md, 6px)',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                outline: 'none',
+              }}
+              title="Transfer / Escalate Tier"
+            >
+              <option value={ticket.tier} disabled>
+                Tier: {ticket.tier}
               </option>
-            ))}
-          </select>
+              {['L1', 'L2', 'L3', 'DEV', 'QA'].map((tierOption) => {
+                if (tierOption === ticket.tier) return null;
+                return (
+                  <option key={tierOption} value={tierOption}>
+                    Move to {tierOption}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
 
-          {/* Tier Escalation */}
-          <select
-            value={ticket.tier}
-            onChange={(e) => handleTierEscalate(e.target.value)}
-            style={{
-              padding: '5px 10px',
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border-medium)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--text-primary)',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
+          {/* Zoho Desk Styled Assignment Popover (Teams & Agents) */}
+          <AssignmentPopover
+            ticketId={ticket.id}
+            currentAssignee={ticket.assignee}
+            currentTeam={ticket.team}
+            onAssigned={(res) => {
+              if (res.assignee !== undefined) {
+                setTicket((prev: any) => ({
+                  ...prev,
+                  status: res.status || (res.assignee && prev?.status === 'NEW' ? 'OPEN' : prev?.status),
+                  assignee: res.assignee,
+                }));
+              }
+              if (res.team !== undefined) {
+                setTicket((prev: any) => ({
+                  ...prev,
+                  status: res.status || prev?.status,
+                  team: res.team,
+                }));
+              }
+              loadTicketDetails(ticket.id);
             }}
-          >
-            <option value={ticket.tier} disabled>
-              Tier: {ticket.tier}
-            </option>
-            {['L1', 'L2', 'L3', 'DEV', 'QA'].map((tierOption) => {
-              if (tierOption === ticket.tier) return null;
-              const isAllowed = availableTransitions.some((t: any) => t.targetTier === tierOption);
-              return (
-                <option key={tierOption} value={tierOption} disabled={!isAllowed}>
-                  Escalate to {tierOption} {!isAllowed ? '(N/A)' : ''}
-                </option>
-              );
-            })}
-          </select>
+          />
 
-          <button onClick={handleAssignToMe} className="btn btn-secondary btn-sm">
-            <UserCheck size={14} /> Assign to Me
-          </button>
+          {(!ticket.assignee || ticket.assignee.id !== user?.id) && (
+            <button
+              onClick={handleAssignToMe}
+              className="btn btn-secondary btn-sm"
+              title="Assign to Myself"
+            >
+              <UserCheck size={14} /> Assign to Me
+            </button>
+          )}
         </div>
       </div>
 
@@ -365,202 +534,360 @@ export const TicketDetailPage: React.FC = () => {
             backgroundColor: 'var(--bg-app)',
           }}
         >
-          {/* Collapsible Description & SLA Section (Compact to save vertical screen space) */}
-          <div
-            style={{
-              flexShrink: 0,
-              padding: '12px 20px',
-              backgroundColor: '#ffffff',
-              borderBottom: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    color: 'var(--text-muted)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                  }}
-                >
-                  Initial Description
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '3px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    color: 'var(--primary, #2563eb)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                  }}
-                >
-                  {isDescriptionExpanded ? (
-                    <>
-                      <span>Collapse</span>
-                      <ChevronUp size={12} />
-                    </>
-                  ) : (
-                    <>
-                      <span>Expand</span>
-                      <ChevronDown size={12} />
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Live SLA Countdown Badge */}
-              <div>
-                <SlaCountdown clocks={ticket.slaClocks} ticketStatus={ticket.status} />
-              </div>
-            </div>
-
+          {/* Top Section: Collapsible & Maximizable Description & SLA */}
+          {maximizedSection !== 'workspace' && (
             <div
               style={{
-                margin: 0,
-                lineHeight: 1.45,
-                fontSize: '13px',
-                color: 'var(--text-primary)',
-                maxHeight: isDescriptionExpanded ? '320px' : '75px',
-                overflowY: 'auto',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '6px',
-                padding: '8px 12px',
-                backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-                transition: 'max-height 0.2s ease',
+                flexShrink: 0,
+                ...(maximizedSection === 'description'
+                  ? { flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }
+                  : {}),
+                padding: '12px 20px',
+                backgroundColor: '#ffffff',
+                borderBottom: '1px solid var(--border-subtle)',
+                overflow: 'hidden',
+                transition: 'all 0.2s ease',
               }}
             >
-              <FormattedEmailContent text={ticket.description} />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '8px',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: 'var(--text-muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    Initial Description
+                  </span>
+                  {maximizedSection === 'none' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: 'var(--primary, #2563eb)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                      }}
+                    >
+                      {isDescriptionExpanded ? (
+                        <>
+                          <span>Collapse</span>
+                          <ChevronUp size={12} />
+                        </>
+                      ) : (
+                        <>
+                          <span>Expand</span>
+                          <ChevronDown size={12} />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {/* Right controls: SLA Badges + Maximize/Restore Toggle Button */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <SlaCountdown clocks={ticket.slaClocks} ticketStatus={ticket.status} />
+
+                  <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-subtle)' }} />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMaximizedSection(maximizedSection === 'description' ? 'none' : 'description')
+                    }
+                    title={
+                      maximizedSection === 'description'
+                        ? 'Restore Split View'
+                        : 'Maximize Description Section'
+                    }
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color:
+                        maximizedSection === 'description'
+                          ? 'var(--primary, #2563eb)'
+                          : 'var(--text-secondary, #64748b)',
+                      backgroundColor:
+                        maximizedSection === 'description'
+                          ? 'rgba(37, 99, 235, 0.08)'
+                          : 'var(--bg-hover, #f1f5f9)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '5px',
+                      padding: '3px 8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {maximizedSection === 'description' ? (
+                      <>
+                        <Minimize2 size={12} />
+                        <span>Restore</span>
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 size={12} />
+                        <span>Maximize</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  margin: 0,
+                  lineHeight: 1.45,
+                  fontSize: '13px',
+                  color: 'var(--text-primary)',
+                  ...(maximizedSection === 'description'
+                    ? { flex: 1, maxHeight: 'none', height: '100%' }
+                    : { maxHeight: isDescriptionExpanded ? '320px' : '75px' }),
+                  overflowY: 'auto',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '6px',
+                  padding: '8px 12px',
+                  backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                  transition: 'max-height 0.2s ease',
+                }}
+              >
+                <FormattedEmailContent text={ticket.description} />
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Workspace Tabs Header */}
-          <div
-            style={{
-              flexShrink: 0,
-              display: 'flex',
-              borderBottom: '1px solid var(--border-subtle)',
-              backgroundColor: 'var(--bg-surface)',
-              padding: '0 20px',
-            }}
-          >
-            <button
-              onClick={() => setActiveTab('timeline')}
+          {/* Bottom Section: Workspace Tabs & Dynamic Responsive Content */}
+          {maximizedSection !== 'description' && (
+            <div
               style={{
-                padding: '10px 14px',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: activeTab === 'timeline' ? 'var(--primary)' : 'var(--text-secondary)',
-                borderBottom:
-                  activeTab === 'timeline' ? '2px solid var(--primary)' : '2px solid transparent',
-                background: 'transparent',
-                borderTop: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
-                cursor: 'pointer',
+                flex: 1,
                 display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                minHeight: 0,
               }}
             >
-              <MessageSquare size={14} /> Conversation ({comments.length})
-            </button>
-
-            <button
-              onClick={() => setActiveTab('diagnostics')}
-              style={{
-                padding: '10px 14px',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: activeTab === 'diagnostics' ? 'var(--primary)' : 'var(--text-secondary)',
-                borderBottom:
-                  activeTab === 'diagnostics'
-                    ? '2px solid var(--primary)'
-                    : '2px solid transparent',
-                background: 'transparent',
-                borderTop: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <Monitor size={14} /> Telemetry & Diagnostics
-            </button>
-
-            <button
-              onClick={() => setActiveTab('media')}
-              style={{
-                padding: '10px 14px',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: activeTab === 'media' ? 'var(--primary)' : 'var(--text-secondary)',
-                borderBottom:
-                  activeTab === 'media' ? '2px solid var(--primary)' : '2px solid transparent',
-                background: 'transparent',
-                borderTop: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <Video size={14} /> Screen Recordings & Media ({mediaAssets.length})
-            </button>
-          </div>
-
-          {/* Active Tab Content: Dynamic Responsive View */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-            {activeTab === 'timeline' && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-                {/* Scrollable Conversation Stream */}
-                <div
-                  ref={timelineScrollRef}
+              {/* Workspace Tabs Header */}
+              <div
+                style={{
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--bg-surface)',
+                  padding: '0 20px',
+                }}
+              >
+                <button
+                  onClick={() => setActiveTab('timeline')}
                   style={{
-                    flex: 1,
-                    overflowY: 'auto',
-                    padding: '8px 0',
+                    padding: '10px 14px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: activeTab === 'timeline' ? 'var(--primary)' : 'var(--text-secondary)',
+                    borderBottom:
+                      activeTab === 'timeline' ? '2px solid var(--primary)' : '2px solid transparent',
+                    background: 'transparent',
+                    borderTop: 'none',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
                   }}
                 >
-                  <TimelineView comments={comments} />
+                  <MessageSquare size={14} /> Conversation ({comments.length})
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('history')}
+                  style={{
+                    padding: '10px 14px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: activeTab === 'history' ? 'var(--primary)' : 'var(--text-secondary)',
+                    borderBottom:
+                      activeTab === 'history' ? '2px solid var(--primary)' : '2px solid transparent',
+                    background: 'transparent',
+                    borderTop: 'none',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <History size={14} /> History {historyCount !== null ? `(${historyCount})` : ''}
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('diagnostics')}
+                  style={{
+                    padding: '10px 14px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: activeTab === 'diagnostics' ? 'var(--primary)' : 'var(--text-secondary)',
+                    borderBottom:
+                      activeTab === 'diagnostics'
+                        ? '2px solid var(--primary)'
+                        : '2px solid transparent',
+                    background: 'transparent',
+                    borderTop: 'none',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Monitor size={14} /> Telemetry & Diagnostics
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('media')}
+                  style={{
+                    padding: '10px 14px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: activeTab === 'media' ? 'var(--primary)' : 'var(--text-secondary)',
+                    borderBottom:
+                      activeTab === 'media' ? '2px solid var(--primary)' : '2px solid transparent',
+                    background: 'transparent',
+                    borderTop: 'none',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Video size={14} /> Screen Recordings & Media ({mediaAssets.length})
+                </button>
+
+                {/* Symmetrical Right Control: Maximize/Restore Workspace Section */}
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMaximizedSection(maximizedSection === 'workspace' ? 'none' : 'workspace')
+                    }
+                    title={
+                      maximizedSection === 'workspace'
+                        ? 'Restore Split View'
+                        : 'Maximize Activity Workspace'
+                    }
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color:
+                        maximizedSection === 'workspace'
+                          ? 'var(--primary, #2563eb)'
+                          : 'var(--text-secondary, #64748b)',
+                      backgroundColor:
+                        maximizedSection === 'workspace'
+                          ? 'rgba(37, 99, 235, 0.08)'
+                          : 'var(--bg-hover, #f1f5f9)',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '5px',
+                      padding: '3px 8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {maximizedSection === 'workspace' ? (
+                      <>
+                        <Minimize2 size={12} />
+                        <span>Restore</span>
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 size={12} />
+                        <span>Maximize</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-
-                {/* Docked Reply Composer at the bottom — Always visible without scrolling */}
-                <div style={{ flexShrink: 0, padding: '0 16px 14px', backgroundColor: 'var(--bg-app)' }}>
-                  <ReplyComposer
-                    onSend={handleSendComment}
-                    isSending={isSending}
-                    canWriteInternal={canWriteInternal}
-                  />
-                </div>
               </div>
-            )}
 
-            {activeTab === 'diagnostics' && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-                <DiagnosticsView diagnostics={diagnostics} />
-              </div>
-            )}
+              {/* Active Tab Content: Dynamic Responsive View */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                {activeTab === 'timeline' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                    {/* Scrollable Conversation Stream */}
+                    <div
+                      ref={timelineScrollRef}
+                      style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        padding: '8px 0',
+                      }}
+                    >
+                      <TimelineView comments={comments} />
+                    </div>
 
-            {activeTab === 'media' && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-                <MediaPlayer media={mediaAssets} />
+                    {/* Docked Reply Composer at the bottom — Always visible without scrolling */}
+                    <div style={{ flexShrink: 0, padding: '0 16px 14px', backgroundColor: 'var(--bg-app)' }}>
+                      <ReplyComposer
+                        onSend={handleSendComment}
+                        isSending={isSending}
+                        canWriteInternal={canWriteInternal}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'history' && (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                    <HistoryView
+                      ticketId={ticket.id}
+                      ticket={ticket}
+                      onCountChange={(cnt) => setHistoryCount(cnt)}
+                    />
+                  </div>
+                )}
+
+                {activeTab === 'diagnostics' && (
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                    <DiagnosticsView diagnostics={diagnostics} />
+                  </div>
+                )}
+
+                {activeTab === 'media' && (
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                    <MediaPlayer media={mediaAssets} />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Customer & Ticket Sidebar Info */}
@@ -574,6 +901,33 @@ export const TicketDetailPage: React.FC = () => {
             gap: '14px',
           }}
         >
+          {/* Zoho Desk 3-Tier Architecture: Organization & Product */}
+          <OrganizationProductManager
+            ticketId={ticket.id}
+            organization={ticket.customFields?.organization || ticket.organization || null}
+            product={ticket.customFields?.product || ticket.product || null}
+            onOrganizationChange={(newOrg) => {
+              setTicket((prev: any) => ({
+                ...prev,
+                organization: newOrg,
+                customFields: {
+                  ...(prev?.customFields || {}),
+                  organization: newOrg,
+                },
+              }));
+            }}
+            onProductChange={(newProd) => {
+              setTicket((prev: any) => ({
+                ...prev,
+                product: newProd,
+                customFields: {
+                  ...(prev?.customFields || {}),
+                  product: newProd,
+                },
+              }));
+            }}
+          />
+
           <div className="card" style={{ padding: '14px' }}>
             <h4
               style={{
@@ -625,6 +979,27 @@ export const TicketDetailPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Transfer Tier Modal */}
+      <TransferTierModal
+        isOpen={!!pendingTier}
+        ticketNumber={ticket.number}
+        fromTier={ticket.tier}
+        toTier={pendingTier || ''}
+        onClose={() => setPendingTier(null)}
+        onConfirm={handleConfirmTierTransfer}
+      />
+
+      {/* Status Transition Note Modal */}
+      <StatusTransitionModal
+        isOpen={!!pendingStatusTransition}
+        ticketNumber={ticket.number}
+        fromStatus={ticket.status}
+        toStatus={pendingStatusTransition?.toStatus || ''}
+        requiresComment={pendingStatusTransition?.requiresComment}
+        onClose={() => setPendingStatusTransition(null)}
+        onConfirm={(comment) => executeStatusTransition(pendingStatusTransition!.toStatus, comment)}
+      />
     </div>
   );
 };

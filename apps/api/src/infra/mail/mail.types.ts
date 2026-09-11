@@ -11,6 +11,8 @@ export interface MailMessage {
   html: string;
   /** Overrides the configured default, used for per-brand support addresses. */
   replyTo?: string;
+  /** Optional CC email recipient(s). */
+  cc?: string[] | string;
   /**
    * Groups related messages so a provider can thread them and so the delivery log
    * is queryable, e.g. `auth.magic_link`.

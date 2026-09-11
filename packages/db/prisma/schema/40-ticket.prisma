@@ -365,6 +365,10 @@ model Tag {
   usageCount Int @default(0)
   /// Comma-separated or space-separated list of email domains for auto-tagging (e.g. "abc.com,client.org")
   domains    String? @db.VarChar(500)
+  /// Associated organization to auto-assign when this tag is applied
+  organization String? @db.VarChar(120)
+  /// Associated product to auto-assign when this tag is applied
+  product      String? @db.VarChar(120)
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
@@ -463,3 +467,29 @@ model CsatResponse {
   @@index([tenantId, createdAt])
   @@map("csat_response")
 }
+
+/// Client Organization / Account directory model.
+model Organization {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @db.Uuid
+
+  name         String   @db.VarChar(120)
+  slug         String   @db.VarChar(120)
+  /// Comma-separated list of email domains associated with this organization (e.g. "apollohospitals.com,apollo.org")
+  domains      String?  @db.VarChar(500)
+  description  String?  @db.Text
+  website      String?  @db.VarChar(255)
+  contactName  String?  @db.VarChar(120)
+  contactEmail String?  @db.VarChar(255)
+  contactPhone String?  @db.VarChar(50)
+
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("organization")
+}
+

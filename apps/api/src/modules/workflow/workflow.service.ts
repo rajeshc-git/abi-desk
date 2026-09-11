@@ -174,26 +174,64 @@ export class WorkflowService {
     }
 
     const result = await this.prisma.run(async (tx) => {
-      const transition = await this.findTransition(tx, tenantId, ticket.status, dto.toStatus);
+      let transition = await this.findTransition(tx, tenantId, ticket.status, dto.toStatus);
+
+      const isStaff =
+        principal.kind === 'STAFF' ||
+        principal.permissions.has('ticket:update:tenant') ||
+        principal.permissions.has('ticket:escalate') ||
+        principal.permissions.has('admin:workflow:manage') ||
+        principal.permissions.has('ticket:update:own') ||
+        principal.roles.some((r) =>
+          ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'QA_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'ADMIN'].includes(r),
+        );
 
       if (!transition) {
-        // An illegal move, not a missing permission. Naming both states makes this
-        // debuggable from the response alone.
-        throw AppException.unprocessable(
-          `Cannot move ticket from ${ticket.status} to ${dto.toStatus}.`,
-          [{ path: 'toStatus', message: 'not a legal transition from the current status' }],
-          ErrorCode.CONFLICT,
-        );
+        if (isStaff) {
+          let targetTier: SupportTier | null = null;
+          if (dto.toStatus === 'ESCALATED_L2') targetTier = 'L2';
+          else if (dto.toStatus === 'ESCALATED_L3') targetTier = 'L3';
+          else if (dto.toStatus === 'IN_DEVELOPMENT') targetTier = 'DEV';
+          else if (dto.toStatus === 'IN_QA') targetTier = 'QA';
+
+          transition = {
+            id: 'synthetic-direct-transition',
+            tenantId: null,
+            fromStatus: ticket.status,
+            toStatus: dto.toStatus,
+            targetTier,
+            requiredTier: null,
+            requiredPermission: 'ticket:update:tenant',
+            requiresComment: false,
+            requiresApproval: false,
+            approverRoleKey: null,
+            approvalMode: 'ANY',
+            isTerminal: dto.toStatus === 'CLOSED' || dto.toStatus === 'CANCELLED',
+            label: dto.toStatus.replace(/_/g, ' '),
+            sortOrder: 0,
+            enabled: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+        } else {
+          // An illegal move, not a missing permission. Naming both states makes this
+          // debuggable from the response alone.
+          throw AppException.unprocessable(
+            `Cannot move ticket from ${ticket.status} to ${dto.toStatus}.`,
+            [{ path: 'toStatus', message: 'not a legal transition from the current status' }],
+            ErrorCode.CONFLICT,
+          );
+        }
       }
 
-      if (!this.hasPermission(principal, transition)) {
+      if (!this.hasPermission(principal, transition) && !isStaff) {
         throw AppException.permissionDenied(
           `Moving a ticket to ${dto.toStatus} requires ${transition.requiredPermission}.`,
           { ticketId, required: transition.requiredPermission, roles: principal.roles },
         );
       }
 
-      if (transition.requiredTier && transition.requiredTier !== ticket.tier) {
+      if (transition.requiredTier && transition.requiredTier !== ticket.tier && !isStaff) {
         throw AppException.unprocessable(
           `This move is only available to a ticket at tier ${transition.requiredTier}; ` +
             `ticket ${ticket.number} is at ${ticket.tier}.`,
@@ -201,7 +239,7 @@ export class WorkflowService {
         );
       }
 
-      if (transition.requiresComment && !dto.comment) {
+      if (transition.requiresComment && !dto.comment && !isStaff) {
         throw AppException.unprocessable(
           `Moving to ${dto.toStatus} requires a comment explaining why.`,
           [{ path: 'comment', message: 'required for this transition' }],
@@ -209,7 +247,8 @@ export class WorkflowService {
       }
 
       // -- Approval gate ---------------------------------------------------
-      if (transition.requiresApproval) {
+      // When staff directly updates status via Zoho Desk style unrestricted dropdown, apply directly without blocking.
+      if (transition.requiresApproval && !isStaff) {
         const approval = await this.findUsableApproval(tx, ticketId, transition);
 
         if (!approval) {
@@ -275,11 +314,10 @@ export class WorkflowService {
   }
 
   /**
-   * Escalates to the next tier.
+   * Transfers/Escalates/De-escalates a ticket to any target support tier (Zoho Desk style flexible routing).
    *
-   * A convenience over `transition` that resolves the correct target status from the
-   * ticket's current tier, so a client does not have to know that L1 escalates to
-   * `ESCALATED_L2` while L3 hands off to `IN_DEVELOPMENT`.
+   * Resolves the target status and transition dynamically, supporting forward escalation,
+   * lateral hand-off, or returning tickets to previous tiers (e.g. L3/DEV -> L1) for client follow-up.
    */
   async escalate(
     principal: AuthenticatedPrincipal,
@@ -294,32 +332,83 @@ export class WorkflowService {
     if (!targetTier) {
       throw AppException.unprocessable(
         `Ticket ${ticket.number} is already at the highest tier (${ticket.tier}).`,
-        [{ path: 'toTier', message: 'no higher tier exists' }],
+        [{ path: 'toTier', message: 'no target tier specified' }],
       );
     }
 
-    if (TIER_ORDER.indexOf(targetTier) <= TIER_ORDER.indexOf(ticket.tier)) {
-      throw AppException.unprocessable(
-        `${targetTier} is not above the ticket's current tier (${ticket.tier}).`,
-        [{ path: 'toTier', message: 'must be a higher tier' }],
-      );
+    if (targetTier === ticket.tier) {
+      throw AppException.conflict(`Ticket ${ticket.number} is already at tier ${ticket.tier}.`, {
+        ticketId,
+        tier: ticket.tier,
+      });
     }
 
-    // Find the legal move out of the current status that lands on the target tier.
+    // 1. Check if an explicit workflow transition is configured for the ticket's current status and target tier
     const candidates = await this.loadTransitions(this.prisma.client, tenantId, ticket.status);
     const match = candidates.find((transition) => transition.targetTier === targetTier);
 
-    if (!match) {
-      throw AppException.unprocessable(
-        `No escalation path from ${ticket.status} to tier ${targetTier}.`,
-        [{ path: 'toTier', message: 'no transition configured' }],
+    if (match) {
+      return this.transition(principal, ticketId, {
+        toStatus: match.toStatus,
+        comment: dto.reason,
+      });
+    }
+
+    // 2. Flexible Zoho Desk-style fallback: determine the standard status for the target tier
+    let targetStatus: TicketStatus = 'OPEN';
+    if (targetTier === 'L2') targetStatus = 'ESCALATED_L2';
+    else if (targetTier === 'L3') targetStatus = 'ESCALATED_L3';
+    else if (targetTier === 'DEV') targetStatus = 'IN_DEVELOPMENT';
+    else if (targetTier === 'QA') targetStatus = 'IN_QA';
+    else if (targetTier === 'L1') targetStatus = 'OPEN';
+
+    // Verify caller has permission to reassign/escalate/update tickets
+    if (
+      !principal.permissions.has('ticket:escalate') &&
+      !principal.permissions.has('ticket:update:tenant') &&
+      !principal.permissions.has('ticket:update:team')
+    ) {
+      throw AppException.permissionDenied(
+        `Transferring ticket tier requires ticket:escalate or ticket:update:tenant permission.`,
+        { ticketId, roles: principal.roles },
       );
     }
 
-    return this.transition(principal, ticketId, {
-      toStatus: match.toStatus,
-      comment: dto.reason,
+    const result = await this.prisma.run(async (tx) => {
+      const syntheticTransition: WorkflowTransition = {
+        id: 'synthetic-tier-change',
+        tenantId: null,
+        fromStatus: ticket.status,
+        toStatus: targetStatus,
+        targetTier,
+        requiredTier: null,
+        requiredPermission: 'ticket:escalate',
+        requiresComment: true,
+        requiresApproval: false,
+        approverRoleKey: null,
+        approvalMode: 'ANY',
+        isTerminal: false,
+        label: `Transfer to ${targetTier}`,
+        sortOrder: 0,
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      return this.applyTransition(tx, {
+        principal,
+        tenantId,
+        ticket,
+        transition: syntheticTransition,
+        comment: dto.reason,
+      });
     });
+
+    if (result.kind !== 'pending_approval') {
+      this.sendStatusNotificationEmail(tenantId, ticketId, targetStatus, dto.reason);
+    }
+
+    return result;
   }
 
   /**
@@ -608,21 +697,30 @@ export class WorkflowService {
     }
 
     if (input.comment) {
-      // Recorded as a public comment so the customer can see why their ticket moved;
-      // internal-only rationale belongs in an internal note instead.
+      // Escalation and tier hand-off notes are internal team rationale and must be saved
+      // as INTERNAL notes so they remain private to support staff and never leak to the customer.
+      const isInternalNote =
+        tierChanged ||
+        transition.toStatus.startsWith('ESCALATED') ||
+        transition.toStatus === 'IN_DEVELOPMENT' ||
+        transition.toStatus === 'IN_QA' ||
+        transition.toStatus === 'OPEN';
+
       await tx.ticketComment.create({
         data: {
           tenantId: input.tenantId,
           ticketId: ticket.id,
           authorId: principal.userId,
-          visibility: 'PUBLIC',
+          visibility: isInternalNote ? 'INTERNAL' : 'PUBLIC',
           body: input.comment,
         },
       });
 
       await tx.ticket.update({
         where: { id: ticket.id },
-        data: { publicCommentCount: { increment: 1 } },
+        data: isInternalNote
+          ? { internalNoteCount: { increment: 1 } }
+          : { publicCommentCount: { increment: 1 } },
       });
     }
 

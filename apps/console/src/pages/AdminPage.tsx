@@ -28,6 +28,7 @@ import {
   EyeOff,
   Tag as TagIcon,
   Folder,
+  Building2,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { Modal } from '../components/common/Modal';
@@ -44,11 +45,25 @@ export const AdminPage: React.FC = () => {
   const toast = useToast();
   const { debouncedSearchQuery, setSearchQuery } = useSearch();
   const [activeTab, setActiveTab] = useState<
-    'brands' | 'widget' | 'tags' | 'categories' | 'teams' | 'users' | 'customers' | 'sso'
+    'brands' | 'widget' | 'organizations' | 'tags' | 'categories' | 'teams' | 'users' | 'customers' | 'sso'
   >('brands');
   const [selectedThemeColor, setSelectedThemeColor] = useState(
     () => localStorage.getItem('abidesk_theme_color') || '#2563eb',
   );
+
+  // Organizations State
+  const [organizationsList, setOrganizationsList] = useState<any[]>([]);
+  const [isOrgModalOpen, setIsOrgModalOpen] = useState(false);
+  const [editingOrg, setEditingOrg] = useState<any | null>(null);
+  const [orgName, setOrgName] = useState('');
+  const [orgDomainList, setOrgDomainList] = useState<string[]>([]);
+  const [orgDomainInput, setOrgDomainInput] = useState('');
+  const [orgWebsite, setOrgWebsite] = useState('');
+  const [orgDescription, setOrgDescription] = useState('');
+  const [orgContactName, setOrgContactName] = useState('');
+  const [orgContactEmail, setOrgContactEmail] = useState('');
+  const [orgContactPhone, setOrgContactPhone] = useState('');
+  const [isOrgSubmitting, setIsOrgSubmitting] = useState(false);
 
   // Tags State
   const [tagsList, setTagsList] = useState<any[]>([]);
@@ -58,6 +73,9 @@ export const AdminPage: React.FC = () => {
   const [tagColor, setTagColor] = useState('#3b82f6');
   const [tagDomainList, setTagDomainList] = useState<string[]>([]);
   const [tagDomainInput, setTagDomainInput] = useState('');
+  const [tagOrganization, setTagOrganization] = useState('');
+  const [tagProduct, setTagProduct] = useState('');
+  const [availableProducts, setAvailableProducts] = useState<any[]>([]);
   const [isTagSubmitting, setIsTagSubmitting] = useState(false);
 
   // Categories State
@@ -120,6 +138,20 @@ export const AdminPage: React.FC = () => {
         p.emailDomains.some((d: string) => d.toLowerCase().includes(query)),
     );
   }, [ssoProviders, debouncedSearchQuery]);
+
+  const filteredOrganizations = React.useMemo(() => {
+    if (!debouncedSearchQuery.trim()) return organizationsList;
+    const q = debouncedSearchQuery.toLowerCase().trim();
+    return organizationsList.filter(
+      (o) =>
+        o.name?.toLowerCase().includes(q) ||
+        o.slug?.toLowerCase().includes(q) ||
+        (o.domains && o.domains.toLowerCase().includes(q)) ||
+        (o.website && o.website.toLowerCase().includes(q)) ||
+        (o.contactName && o.contactName.toLowerCase().includes(q)) ||
+        (o.contactEmail && o.contactEmail.toLowerCase().includes(q)),
+    );
+  }, [organizationsList, debouncedSearchQuery]);
 
   const filteredTags = React.useMemo(() => {
     if (!debouncedSearchQuery.trim()) return tagsList;
@@ -422,9 +454,16 @@ export const AdminPage: React.FC = () => {
         setUsersList(usersData?.users || usersData || []);
         setRoles(rolesData || []);
         setBrandsList(brandsData || []);
+      } else if (activeTab === 'organizations') {
+        const orgsData = await ApiClient.get('/organizations');
+        setOrganizationsList(Array.isArray(orgsData) ? orgsData : []);
       } else if (activeTab === 'tags') {
-        const tagsData = await ApiClient.get('/tags');
+        const [tagsData, productsData] = await Promise.all([
+          ApiClient.get('/tags').catch(() => []),
+          ApiClient.get('/admin/roster/products').catch(() => []),
+        ]);
         setTagsList(Array.isArray(tagsData) ? tagsData : []);
+        setAvailableProducts(Array.isArray(productsData) ? productsData : []);
       } else if (activeTab === 'categories') {
         const catData = await ApiClient.get('/categories');
         setCategoriesList(Array.isArray(catData) ? catData : []);
@@ -446,8 +485,104 @@ export const AdminPage: React.FC = () => {
       .replace(/^https?:\/\//, '')
       .replace(/\/.*$/, '');
 
-  const addTagDomainChip = (input: string) => {
-    const val = sanitizeDomainChip(input);
+  // Organization Management Handlers
+  const addOrgDomainChip = (val: string) => {
+    val = sanitizeDomainChip(val);
+    if (val && !orgDomainList.includes(val)) {
+      setOrgDomainList((prev) => [...prev, val]);
+    }
+  };
+
+  const openCreateOrgModal = () => {
+    setEditingOrg(null);
+    setOrgName('');
+    setOrgDomainList([]);
+    setOrgDomainInput('');
+    setOrgWebsite('');
+    setOrgDescription('');
+    setOrgContactName('');
+    setOrgContactEmail('');
+    setOrgContactPhone('');
+    setIsOrgModalOpen(true);
+  };
+
+  const openEditOrgModal = (org: any) => {
+    setEditingOrg(org);
+    setOrgName(org.name || '');
+    const existing = org.domains
+      ? org.domains
+          .split(/[\s,;]+/)
+          .map(sanitizeDomainChip)
+          .filter(Boolean)
+      : [];
+    setOrgDomainList(existing);
+    setOrgDomainInput('');
+    setOrgWebsite(org.website || '');
+    setOrgDescription(org.description || '');
+    setOrgContactName(org.contactName || '');
+    setOrgContactEmail(org.contactEmail || '');
+    setOrgContactPhone(org.contactPhone || '');
+    setIsOrgModalOpen(true);
+  };
+
+  const handleSaveOrganization = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orgName.trim()) {
+      toast.error('Organization name is required');
+      return;
+    }
+    setIsOrgSubmitting(true);
+    try {
+      const finalDomains = [...orgDomainList];
+      const pending = sanitizeDomainChip(orgDomainInput);
+      if (pending && !finalDomains.includes(pending)) {
+        finalDomains.push(pending);
+        setOrgDomainList(finalDomains);
+        setOrgDomainInput('');
+      }
+
+      const domainString = finalDomains.join(', ');
+
+      const payload = {
+        name: orgName.trim(),
+        domains: domainString || null,
+        website: orgWebsite.trim() || null,
+        description: orgDescription.trim() || null,
+        contactName: orgContactName.trim() || null,
+        contactEmail: orgContactEmail.trim() || null,
+        contactPhone: orgContactPhone.trim() || null,
+      };
+
+      if (editingOrg) {
+        await ApiClient.patch(`/organizations/${editingOrg.id}`, payload);
+        toast.success('Organization updated successfully');
+      } else {
+        await ApiClient.post('/organizations', payload);
+        toast.success('Organization created successfully');
+      }
+      setIsOrgModalOpen(false);
+      const updated = await ApiClient.get('/organizations');
+      setOrganizationsList(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save organization');
+    } finally {
+      setIsOrgSubmitting(false);
+    }
+  };
+
+  const handleDeleteOrganization = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to delete the organization "${name}"?`)) return;
+    try {
+      await ApiClient.delete(`/organizations/${id}`);
+      toast.success('Organization deleted successfully');
+      setOrganizationsList((prev) => prev.filter((o) => o.id !== id));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete organization');
+    }
+  };
+
+  const addTagDomainChip = (val: string) => {
+    val = sanitizeDomainChip(val);
     if (val && !tagDomainList.includes(val)) {
       setTagDomainList((prev) => [...prev, val]);
     }
@@ -459,6 +594,8 @@ export const AdminPage: React.FC = () => {
     setTagColor('#3b82f6');
     setTagDomainList([]);
     setTagDomainInput('');
+    setTagOrganization('');
+    setTagProduct('');
     setIsTagModalOpen(true);
   };
 
@@ -474,6 +611,8 @@ export const AdminPage: React.FC = () => {
       : [];
     setTagDomainList(existing);
     setTagDomainInput('');
+    setTagOrganization(tag.organization || '');
+    setTagProduct(tag.product || '');
     setIsTagModalOpen(true);
   };
 
@@ -500,6 +639,8 @@ export const AdminPage: React.FC = () => {
           name: tagName.trim(),
           color: tagColor,
           domains: domainString || null,
+          organization: tagOrganization.trim() || null,
+          product: tagProduct.trim() || null,
         });
         toast.success('Tag updated successfully');
       } else {
@@ -507,6 +648,8 @@ export const AdminPage: React.FC = () => {
           name: tagName.trim(),
           color: tagColor,
           domains: domainString || undefined,
+          organization: tagOrganization.trim() || undefined,
+          product: tagProduct.trim() || undefined,
         });
         toast.success('Tag created successfully');
       }
@@ -1266,6 +1409,7 @@ export const AdminPage: React.FC = () => {
         {[
           { id: 'brands', label: 'Brands', icon: Settings },
           { id: 'widget', label: 'Embeddable Widget', icon: Code },
+          { id: 'organizations', label: 'Organizations & Accounts', icon: Building2 },
           { id: 'tags', label: 'Tags & Auto-Tagging', icon: TagIcon },
           { id: 'categories', label: 'Categories & Keywords', icon: Folder },
           { id: 'teams', label: 'Teams & Queues', icon: Users },
@@ -1857,6 +2001,229 @@ export const AdminPage: React.FC = () => {
             </div>
           )}
 
+          {activeTab === 'organizations' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="card">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px',
+                    paddingBottom: '16px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <div>
+                    <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                      Client Organizations & Accounts Directory
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', margin: 0 }}>
+                      Manage enterprise client accounts, hospital groups, and associate email domains for automated ticket routing & SLA management.
+                    </p>
+                  </div>
+                  <button onClick={openCreateOrgModal} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Plus size={14} /> Create Organization
+                  </button>
+                </div>
+
+                {filteredOrganizations.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '40px 20px',
+                      textAlign: 'center',
+                      backgroundColor: 'var(--bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px dashed var(--border-subtle)',
+                    }}
+                  >
+                    <Building2 size={32} style={{ color: 'var(--text-muted)', marginBottom: '8px', opacity: 0.7 }} />
+                    <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>
+                      {debouncedSearchQuery ? 'No organizations match your search' : 'No client organizations created yet'}
+                    </h4>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                      {debouncedSearchQuery
+                        ? 'Try clearing your search query.'
+                        : 'Create your first client account / organization to organize tickets and configure domain routing.'}
+                    </p>
+                    {!debouncedSearchQuery && (
+                      <button onClick={openCreateOrgModal} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <Plus size={14} /> Create First Organization
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            ORGANIZATION & DETAILS
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            MAPPED EMAIL DOMAINS
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            PRIMARY CONTACT
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)', textAlign: 'right' }}>
+                            ACTIONS
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredOrganizations.map((org: any) => {
+                          const domains = org.domains
+                            ? org.domains
+                                .split(/[\s,;]+/)
+                                .map((d: string) => d.trim().replace(/^@/, ''))
+                                .filter(Boolean)
+                            : [];
+
+                          return (
+                            <tr key={org.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                              <td style={{ padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span
+                                      style={{
+                                        fontSize: '13px',
+                                        fontWeight: 700,
+                                        color: 'var(--text-primary)',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                      }}
+                                    >
+                                      🏢 {org.name}
+                                    </span>
+                                    {org.website && (
+                                      <a
+                                        href={org.website.startsWith('http') ? org.website : `https://${org.website}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        style={{
+                                          fontSize: '11px',
+                                          color: 'var(--primary)',
+                                          textDecoration: 'none',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '2px',
+                                        }}
+                                      >
+                                        🌐 {org.website.replace(/^https?:\/\//, '')}
+                                      </a>
+                                    )}
+                                  </div>
+                                  {org.description && (
+                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '360px' }}>
+                                      {org.description}
+                                    </span>
+                                  )}
+                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                    slug: {org.slug}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td style={{ padding: '12px 14px' }}>
+                                {domains.length > 0 ? (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                                    {domains.map((d: string, idx: number) => (
+                                      <span
+                                        key={idx}
+                                        style={{
+                                          fontSize: '11px',
+                                          fontWeight: 600,
+                                          backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                                          color: '#0284c7',
+                                          border: '1px solid rgba(56, 189, 248, 0.3)',
+                                          padding: '2px 7px',
+                                          borderRadius: '4px',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                        }}
+                                      >
+                                        {d.includes('@') ? d : `@${d}`}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                    None configured
+                                  </span>
+                                )}
+                              </td>
+
+                              <td style={{ padding: '12px 14px' }}>
+                                {org.contactName || org.contactEmail || org.contactPhone ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '12px' }}>
+                                    {org.contactName && (
+                                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        {org.contactName}
+                                      </span>
+                                    )}
+                                    {org.contactEmail && (
+                                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                        ✉️ {org.contactEmail}
+                                      </span>
+                                    )}
+                                    {org.contactPhone && (
+                                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                        📞 {org.contactPhone}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                    —
+                                  </span>
+                                )}
+                              </td>
+
+                              <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <button
+                                    onClick={() => openEditOrgModal(org)}
+                                    title="Edit Organization"
+                                    style={{
+                                      padding: '5px 8px',
+                                      border: '1px solid var(--border-subtle)',
+                                      borderRadius: '4px',
+                                      backgroundColor: 'transparent',
+                                      cursor: 'pointer',
+                                      color: 'var(--text-secondary)',
+                                    }}
+                                  >
+                                    <Edit size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteOrganization(org.id, org.name)}
+                                    title="Delete Organization"
+                                    style={{
+                                      padding: '5px 8px',
+                                      border: '1px solid #fee2e2',
+                                      borderRadius: '4px',
+                                      backgroundColor: '#fff5f5',
+                                      cursor: 'pointer',
+                                      color: '#ef4444',
+                                    }}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'tags' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div className="card">
@@ -1918,6 +2285,9 @@ export const AdminPage: React.FC = () => {
                           </th>
                           <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                             AUTO-TAG SENDER DOMAINS
+                          </th>
+                          <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            MAPPED ORG & PRODUCT
                           </th>
                           <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                             USAGE
@@ -1997,6 +2367,54 @@ export const AdminPage: React.FC = () => {
                                     None (Manual tagging only)
                                   </span>
                                 )}
+                              </td>
+
+                              <td style={{ padding: '12px 14px' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' }}>
+                                  {tag.organization && (
+                                    <span
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                                        color: '#0284c7',
+                                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                                        borderRadius: '3px',
+                                        padding: '2px 6px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                      }}
+                                      title={`Auto-maps organization: ${tag.organization}`}
+                                    >
+                                      🏢 {tag.organization}
+                                    </span>
+                                  )}
+                                  {tag.product && (
+                                    <span
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                                        color: '#9333ea',
+                                        border: '1px solid rgba(168, 85, 247, 0.3)',
+                                        borderRadius: '3px',
+                                        padding: '2px 6px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                      }}
+                                      title={`Auto-maps product: ${tag.product}`}
+                                    >
+                                      📦 {tag.product}
+                                    </span>
+                                  )}
+                                  {!tag.organization && !tag.product && (
+                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                      —
+                                    </span>
+                                  )}
+                                </div>
                               </td>
 
                               <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
@@ -4729,6 +5147,260 @@ export const AdminPage: React.FC = () => {
         </form>
       </Modal>
 
+      {/* Create / Edit Organization Modal */}
+      <Modal
+        isOpen={isOrgModalOpen}
+        onClose={() => setIsOrgModalOpen(false)}
+        title={editingOrg ? 'Edit Client Organization / Account' : 'Create New Client Organization'}
+      >
+        <form onSubmit={handleSaveOrganization} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+              Organization / Company Name <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Apollo Hospitals, Kusum Dhirajlal Hospital, Acme Corp"
+              value={orgName}
+              onChange={(e) => setOrgName(e.target.value)}
+              className="form-input"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '13px',
+              }}
+            />
+          </div>
+
+          <div>
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+              Associated Sender Email Domains <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+            </label>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                padding: '6px 10px',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--bg-surface)',
+                alignItems: 'center',
+                minHeight: '42px',
+                cursor: 'text',
+              }}
+              onClick={() => document.getElementById('org-domains-input')?.focus()}
+            >
+              {orgDomainList.map((domain, index) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '12px',
+                    color: '#0284c7',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>{domain.includes('@') ? domain : `@${domain}`}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOrgDomainList(orgDomainList.filter((_, i) => i !== index));
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#0284c7',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      lineHeight: 1,
+                      borderRadius: '50%',
+                      width: '14px',
+                      height: '14px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#fee2e2';
+                      e.currentTarget.style.color = '#ef4444';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = '#0284c7';
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <input
+                id="org-domains-input"
+                type="text"
+                value={orgDomainInput}
+                onChange={(e) => setOrgDomainInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addOrgDomainChip(orgDomainInput);
+                    setOrgDomainInput('');
+                  }
+                }}
+                onBlur={() => {
+                  addOrgDomainChip(orgDomainInput);
+                  setOrgDomainInput('');
+                }}
+                placeholder={
+                  orgDomainList.length === 0
+                    ? 'e.g. apollohospitals.com, apollo.org (Press Enter or comma to add)'
+                    : 'Add more domain...'
+                }
+                style={{
+                  flex: 1,
+                  minWidth: '130px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  outline: 'none',
+                  fontSize: '12px',
+                  padding: '4px 0',
+                }}
+              />
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+              Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add multiple domains. Incoming tickets from customers with these email domains will automatically link to this Organization.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ flex: 1 }}>
+              <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+                Website <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. https://apollohospitals.com"
+                value={orgWebsite}
+                onChange={(e) => setOrgWebsite(e.target.value)}
+                className="form-input"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+                Primary Contact Name <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Dr. Rajesh Sharma"
+                value={orgContactName}
+                onChange={(e) => setOrgContactName(e.target.value)}
+                className="form-input"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ flex: 1 }}>
+              <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+                Contact Email <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+              </label>
+              <input
+                type="email"
+                placeholder="e.g. contact@apollohospitals.com"
+                value={orgContactEmail}
+                onChange={(e) => setOrgContactEmail(e.target.value)}
+                className="form-input"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+                Contact Phone <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+              </label>
+              <input
+                type="tel"
+                placeholder="e.g. +91 98765 43210"
+                value={orgContactPhone}
+                onChange={(e) => setOrgContactPhone(e.target.value)}
+                className="form-input"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+              Account Notes / SLA Details <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+            </label>
+            <textarea
+              placeholder="e.g. Premium Tier-1 client with 2-hour priority SLA response window."
+              value={orgDescription}
+              onChange={(e) => setOrgDescription(e.target.value)}
+              rows={2}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '13px',
+                resize: 'vertical',
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setIsOrgModalOpen(false)}
+              className="btn btn-secondary btn-sm"
+            >
+              Cancel
+            </button>
+            <button type="submit" disabled={isOrgSubmitting} className="btn btn-primary btn-sm">
+              {isOrgSubmitting ? 'Saving...' : editingOrg ? 'Save Changes' : 'Create Organization'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       {/* Create / Edit Tag Modal */}
       <Modal
         isOpen={isTagModalOpen}
@@ -4738,7 +5410,7 @@ export const AdminPage: React.FC = () => {
         <form onSubmit={handleSaveTag} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
             <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
-              Tag Name *
+              Tag Name <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <input
               type="text"
@@ -4759,7 +5431,7 @@ export const AdminPage: React.FC = () => {
 
           <div>
             <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
-              Tag Color
+              Tag Color <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <input
@@ -4798,7 +5470,7 @@ export const AdminPage: React.FC = () => {
 
           <div>
             <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
-              Auto-Tag Sender Emails / Domains (Optional)
+              Auto-Tag Sender Emails / Domains <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
             </label>
             <div
               style={{
@@ -4902,6 +5574,104 @@ export const AdminPage: React.FC = () => {
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
               Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add multiple emails or domains. Any incoming ticket submitted by customers matching these exact emails or email domains will automatically have this tag attached.
+            </p>
+          </div>
+
+          {/* Associated Organization */}
+          <div>
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+              🏢 Auto-Map Organization / Client <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+            </label>
+            {organizationsList.length > 0 ? (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  list="tag-orgs-datalist"
+                  placeholder="e.g. Attune Live, Acme Corp, Apollo Hospitals"
+                  value={tagOrganization}
+                  onChange={(e) => setTagOrganization(e.target.value)}
+                  className="form-input"
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    border: '1px solid var(--border-medium)',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '13px',
+                  }}
+                />
+                <datalist id="tag-orgs-datalist">
+                  {organizationsList.map((org) => (
+                    <option key={org.id} value={org.name} />
+                  ))}
+                </datalist>
+              </div>
+            ) : (
+              <input
+                type="text"
+                placeholder="e.g. Attune Live, Acme Corp, Apollo Hospitals"
+                value={tagOrganization}
+                onChange={(e) => setTagOrganization(e.target.value)}
+                className="form-input"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              />
+            )}
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+              When an email/ticket arrives from the sender domains above, it will automatically have this Organization assigned.
+            </p>
+          </div>
+
+          {/* Associated Product */}
+          <div>
+            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+              📦 Auto-Map Product / Application <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+            </label>
+            {availableProducts.length > 0 ? (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  list="tag-products-datalist"
+                  placeholder="e.g. Mobile App, Patient Portal, Web Portal"
+                  value={tagProduct}
+                  onChange={(e) => setTagProduct(e.target.value)}
+                  className="form-input"
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    border: '1px solid var(--border-medium)',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '13px',
+                  }}
+                />
+                <datalist id="tag-products-datalist">
+                  {availableProducts.map((p) => (
+                    <option key={p.id} value={p.name} />
+                  ))}
+                </datalist>
+              </div>
+            ) : (
+              <input
+                type="text"
+                placeholder="e.g. Mobile App, Patient Portal, Web Portal"
+                value={tagProduct}
+                onChange={(e) => setTagProduct(e.target.value)}
+                className="form-input"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              />
+            )}
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+              When an email/ticket arrives from the sender domains above, it will automatically have this Product assigned.
             </p>
           </div>
 

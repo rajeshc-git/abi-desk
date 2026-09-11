@@ -91,6 +91,7 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
       const info = await this.transporter.sendMail({
         from: this.config.mail.from,
         to,
+        ...(message.cc ? { cc: message.cc } : {}),
         subject: message.subject,
         text: message.text,
         html: message.html,
@@ -130,6 +131,7 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
       const info = await this.ticketTransporter.sendMail({
         from: this.config.ticketMail.from,
         to,
+        ...(message.cc ? { cc: message.cc } : {}),
         subject: message.subject,
         text: message.text,
         html: message.html,

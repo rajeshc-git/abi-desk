@@ -1,4 +1,4 @@
-export type AnnotationTool = 'PEN' | 'RECTANGLE' | 'ARROW' | 'TEXT' | 'HIGHLIGHT' | 'BLUR';
+export type AnnotationTool = 'PEN' | 'RECTANGLE' | 'CIRCLE' | 'ARROW' | 'TEXT' | 'HIGHLIGHT' | 'BLUR';
 
 export interface AnnotationShape {
   tool: AnnotationTool;
@@ -21,8 +21,8 @@ export class ImageAnnotator {
   private redoStack: AnnotationShape[] = [];
 
   private currentTool: AnnotationTool = 'PEN';
-  private currentColor: string = '#EF4444';
-  private currentStrokeWidth: number = 3;
+  private currentColor: string = '#ef4444';
+  private currentStrokeWidth: number = 4;
 
   private isDrawing = false;
   private currentShape: AnnotationShape | null = null;
@@ -60,12 +60,24 @@ export class ImageAnnotator {
     this.currentTool = tool;
   }
 
+  getTool(): AnnotationTool {
+    return this.currentTool;
+  }
+
   setColor(color: string) {
     this.currentColor = color;
   }
 
+  getColor(): string {
+    return this.currentColor;
+  }
+
   setStrokeWidth(width: number) {
     this.currentStrokeWidth = width;
+  }
+
+  getStrokeWidth(): number {
+    return this.currentStrokeWidth;
   }
 
   undo() {
@@ -88,26 +100,59 @@ export class ImageAnnotator {
     this.redraw();
   }
 
+  private getCanvasCoordinates(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      return { x: 0, y: 0 };
+    }
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }
+
   private bindEvents() {
-    this.canvas.addEventListener('mousedown', (e) => this.onStart(e.offsetX, e.offsetY));
-    this.canvas.addEventListener('mousemove', (e) => this.onMove(e.offsetX, e.offsetY));
-    this.canvas.addEventListener('mouseup', () => this.onEnd());
-    this.canvas.addEventListener('mouseleave', () => this.onEnd());
+    this.canvas.addEventListener('mousedown', (e) => {
+      const { x, y } = this.getCanvasCoordinates(e.clientX, e.clientY);
+      this.onStart(x, y);
+    });
+
+    this.canvas.addEventListener('mousemove', (e) => {
+      const { x, y } = this.getCanvasCoordinates(e.clientX, e.clientY);
+      this.onMove(x, y);
+    });
+
+    const handleMouseUp = () => this.onEnd();
+    window.addEventListener('mouseup', handleMouseUp);
 
     // Touch events for mobile/tablet
-    this.canvas.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      const rect = this.canvas.getBoundingClientRect();
-      const touch = e.touches[0];
-      if (touch) this.onStart(touch.clientX - rect.left, touch.clientY - rect.top);
-    });
+    this.canvas.addEventListener(
+      'touchstart',
+      (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        if (touch) {
+          const { x, y } = this.getCanvasCoordinates(touch.clientX, touch.clientY);
+          this.onStart(x, y);
+        }
+      },
+      { passive: false },
+    );
 
-    this.canvas.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      const rect = this.canvas.getBoundingClientRect();
-      const touch = e.touches[0];
-      if (touch) this.onMove(touch.clientX - rect.left, touch.clientY - rect.top);
-    });
+    this.canvas.addEventListener(
+      'touchmove',
+      (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        if (touch) {
+          const { x, y } = this.getCanvasCoordinates(touch.clientX, touch.clientY);
+          this.onMove(x, y);
+        }
+      },
+      { passive: false },
+    );
 
     this.canvas.addEventListener('touchend', () => this.onEnd());
   }
@@ -119,12 +164,12 @@ export class ImageAnnotator {
     if (this.currentTool === 'PEN' || this.currentTool === 'HIGHLIGHT') {
       this.currentShape = {
         tool: this.currentTool,
-        color: this.currentTool === 'HIGHLIGHT' ? 'rgba(251, 191, 36, 0.45)' : this.currentColor,
-        strokeWidth: this.currentTool === 'HIGHLIGHT' ? 16 : this.currentStrokeWidth,
+        color: this.currentColor,
+        strokeWidth: this.currentTool === 'HIGHLIGHT' ? Math.max(20, this.currentStrokeWidth * 4) : this.currentStrokeWidth,
         points: [{ x, y }],
       };
     } else if (this.currentTool === 'TEXT') {
-      const text = prompt('Enter annotation label:');
+      const text = prompt('Enter annotation text:');
       if (text) {
         this.shapes.push({
           tool: 'TEXT',
@@ -194,9 +239,22 @@ export class ImageAnnotator {
     this.ctx.lineJoin = 'round';
 
     switch (shape.tool) {
-      case 'PEN':
+      case 'PEN': {
+        if (!shape.points || shape.points.length < 2) break;
+        this.ctx.beginPath();
+        this.ctx.moveTo(shape.points[0]!.x, shape.points[0]!.y);
+        for (let i = 1; i < shape.points.length; i++) {
+          this.ctx.lineTo(shape.points[i]!.x, shape.points[i]!.y);
+        }
+        this.ctx.stroke();
+        break;
+      }
+
       case 'HIGHLIGHT': {
         if (!shape.points || shape.points.length < 2) break;
+        this.ctx.globalAlpha = 0.35;
+        this.ctx.lineWidth = shape.strokeWidth;
+        this.ctx.strokeStyle = shape.color;
         this.ctx.beginPath();
         this.ctx.moveTo(shape.points[0]!.x, shape.points[0]!.y);
         for (let i = 1; i < shape.points.length; i++) {
@@ -214,9 +272,29 @@ export class ImageAnnotator {
           shape.endY === undefined
         )
           break;
-        const width = shape.endX - shape.startX;
-        const height = shape.endY - shape.startY;
-        this.ctx.strokeRect(shape.startX, shape.startY, width, height);
+        const x = Math.min(shape.startX, shape.endX);
+        const y = Math.min(shape.startY, shape.endY);
+        const width = Math.abs(shape.endX - shape.startX);
+        const height = Math.abs(shape.endY - shape.startY);
+        this.ctx.strokeRect(x, y, width, height);
+        break;
+      }
+
+      case 'CIRCLE': {
+        if (
+          shape.startX === undefined ||
+          shape.startY === undefined ||
+          shape.endX === undefined ||
+          shape.endY === undefined
+        )
+          break;
+        const rx = Math.abs(shape.endX - shape.startX) / 2;
+        const ry = Math.abs(shape.endY - shape.startY) / 2;
+        const cx = Math.min(shape.startX, shape.endX) + rx;
+        const cy = Math.min(shape.startY, shape.endY) + ry;
+        this.ctx.beginPath();
+        this.ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+        this.ctx.stroke();
         break;
       }
 
@@ -229,10 +307,15 @@ export class ImageAnnotator {
           shape.endY === undefined
         )
           break;
-        const width = shape.endX - shape.startX;
-        const height = shape.endY - shape.startY;
-        this.ctx.fillStyle = '#000000';
-        this.ctx.fillRect(shape.startX, shape.startY, width, height);
+        const x = Math.min(shape.startX, shape.endX);
+        const y = Math.min(shape.startY, shape.endY);
+        const width = Math.abs(shape.endX - shape.startX);
+        const height = Math.abs(shape.endY - shape.startY);
+        this.ctx.fillStyle = '#0f172a';
+        this.ctx.fillRect(x, y, width, height);
+        this.ctx.strokeStyle = '#334155';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(x, y, width, height);
         break;
       }
 
@@ -244,16 +327,16 @@ export class ImageAnnotator {
           shape.endY === undefined
         )
           break;
-        this.drawArrow(shape.startX, shape.startY, shape.endX, shape.endY);
+        this.drawArrow(shape.startX, shape.startY, shape.endX, shape.endY, shape.strokeWidth);
         break;
       }
 
       case 'TEXT': {
         if (shape.startX === undefined || shape.startY === undefined || !shape.text) break;
-        this.ctx.font =
-          'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        const fontSize = Math.max(16, shape.strokeWidth * 5);
+        this.ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         this.ctx.fillStyle = '#000000';
-        this.ctx.fillText(shape.text, shape.startX + 1, shape.startY + 1);
+        this.ctx.fillText(shape.text, shape.startX + 2, shape.startY + 2);
         this.ctx.fillStyle = shape.color;
         this.ctx.fillText(shape.text, shape.startX, shape.startY);
         break;
@@ -263,8 +346,8 @@ export class ImageAnnotator {
     this.ctx.restore();
   }
 
-  private drawArrow(fromX: number, fromY: number, toX: number, toY: number) {
-    const headlen = 14;
+  private drawArrow(fromX: number, fromY: number, toX: number, toY: number, strokeWidth: number) {
+    const headlen = Math.max(14, strokeWidth * 3.5);
     const angle = Math.atan2(toY - fromY, toX - fromX);
 
     this.ctx.beginPath();

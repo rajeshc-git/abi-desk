@@ -15,6 +15,10 @@ export const Header: React.FC = () => {
     setSelectedTag,
     selectedCategory,
     setSelectedCategory,
+    selectedOrganization,
+    setSelectedOrganization,
+    selectedProduct,
+    setSelectedProduct,
   } = useSearch();
 
   const [tagsList, setTagsList] = useState<SearchTag[]>([]);
@@ -101,6 +105,10 @@ export const Header: React.FC = () => {
         setSelectedCategory(null);
       } else if (selectedTag) {
         setSelectedTag(null);
+      } else if (selectedOrganization) {
+        setSelectedOrganization(null);
+      } else if (selectedProduct) {
+        setSelectedProduct(null);
       }
     } else if (e.key === 'Escape') {
       setShowSuggestions(false);
@@ -133,7 +141,7 @@ export const Header: React.FC = () => {
 
   return (
     <header className="app-header">
-      <div className="header-left">
+      <div className="header-left" style={{ flex: 1, minWidth: 0, marginRight: '20px' }}>
         {!hideSearchBar && (
           <div
             ref={wrapperRef}
@@ -145,10 +153,12 @@ export const Header: React.FC = () => {
               backgroundColor: '#f8fafc',
               border: isFocused ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-md)',
-              padding: '3px 8px 3px 10px',
+              padding: '4px 10px',
               gap: '6px',
-              minWidth: '320px',
-              maxWidth: '520px',
+              minWidth: '360px',
+              maxWidth: '860px',
+              width: '100%',
+              flex: '1 1 auto',
               transition: 'all 0.15s ease',
               boxShadow: isFocused ? '0 0 0 3px var(--primary-surface)' : 'none',
               cursor: 'text',
@@ -255,6 +265,102 @@ export const Header: React.FC = () => {
               </div>
             )}
 
+            {/* Selected Organization Chip */}
+            {!isChatPage && selectedOrganization && (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  color: '#0284c7',
+                  borderRadius: '4px',
+                  padding: '2px 6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                <span>🏢 {selectedOrganization}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedOrganization(null);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    padding: '1px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '10px',
+                    lineHeight: 1,
+                    borderRadius: '50%',
+                    width: '12px',
+                    height: '12px',
+                    opacity: 0.75,
+                  }}
+                  title="Remove organization filter"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            )}
+
+            {/* Selected Product Chip */}
+            {!isChatPage && selectedProduct && (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                  border: '1px solid rgba(168, 85, 247, 0.35)',
+                  color: '#9333ea',
+                  borderRadius: '4px',
+                  padding: '2px 6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                <span>📦 {selectedProduct}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedProduct(null);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    padding: '1px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '10px',
+                    lineHeight: 1,
+                    borderRadius: '50%',
+                    width: '12px',
+                    height: '12px',
+                    opacity: 0.75,
+                  }}
+                  title="Remove product filter"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            )}
+
             <input
               ref={inputRef}
               type="text"
@@ -265,7 +371,11 @@ export const Header: React.FC = () => {
                     ? 'Search within tag...'
                     : selectedCategory
                       ? 'Search within category...'
-                      : 'Search tickets, tags or categories... (Ctrl+K)'
+                      : selectedOrganization
+                        ? 'Search within organization...'
+                        : selectedProduct
+                          ? 'Search within product...'
+                          : 'Search tickets, tags or categories... (Ctrl+K)'
               }
               value={searchQuery}
               onChange={(e) => {

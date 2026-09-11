@@ -124,7 +124,7 @@ export class RosterController {
   // =========================================================================
 
   @Get('products')
-  @RequireAnyPermission('roster:read', 'roster:manage')
+  @RequireAnyPermission('roster:read', 'roster:manage', 'ticket:read:own', 'ticket:read:tenant', 'ticket:create', 'ticket:update')
   listProducts(@CurrentUser() principal: AuthenticatedPrincipal) {
     return this.rosterService.listProducts(principal);
   }

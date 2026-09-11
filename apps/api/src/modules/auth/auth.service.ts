@@ -686,6 +686,23 @@ export class AuthService {
       }
     }
 
+    const [products, organizations] = await Promise.all([
+      this.contexts.runWithBypass('authentication', {}, () =>
+        this.prisma.client.product.findMany({
+          where: { tenantId: config.tenantId, isActive: true },
+          select: { name: true },
+          orderBy: { name: 'asc' },
+        }),
+      ),
+      this.contexts.runWithBypass('authentication', {}, () =>
+        this.prisma.client.organization.findMany({
+          where: { tenantId: config.tenantId },
+          select: { name: true },
+          orderBy: { name: 'asc' },
+        }),
+      ),
+    ]);
+
     return {
       publicKey: config.publicKey,
       brandName: config.brand.name,
@@ -707,6 +724,8 @@ export class AuthService {
       liveChatEnabled: config.liveChatEnabled,
       anonymousTicketsEnabled: config.anonymousTicketsEnabled,
       widgetEnabled: config.widgetEnabled,
+      products: products.map((p) => p.name),
+      organizations: organizations.map((o) => o.name),
     };
   }
 

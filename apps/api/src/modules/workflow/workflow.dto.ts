@@ -7,10 +7,15 @@ const uuid = z.string().uuid();
 export const transitionSchema = z.object({
   toStatus: z.enum(ticketStatusValues),
   /**
-   * Required by transitions whose `requiresComment` flag is set - escalations and
-   * cancellations, where "why" is the whole value of the record.
+   * Optional comment explaining the transition reason or notes.
    */
-  comment: z.string().trim().min(1).max(10_000).optional(),
+  comment: z
+    .string()
+    .trim()
+    .max(10_000)
+    .optional()
+    .nullable()
+    .transform((val) => (val && val.length > 0 ? val : undefined)),
   /** Optional reassignment applied atomically with the move. */
   assigneeId: uuid.nullable().optional(),
   queueId: uuid.nullable().optional(),

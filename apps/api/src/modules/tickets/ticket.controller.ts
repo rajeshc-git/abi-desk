@@ -177,6 +177,13 @@ export class TicketController {
     return this.tickets.timeline(principal, params.id);
   }
 
+  /** Zoho Desk style Ticket History audit log endpoint. */
+  @Get(':id/history')
+  @RequireAnyPermission('ticket:read:own', 'ticket:read:tenant')
+  history(@CurrentUser() principal: AuthenticatedPrincipal, @Param() params: TicketIdParamDto) {
+    return this.tickets.timeline(principal, params.id);
+  }
+
   /**
    * Matrix row: Edit Own Ticket.
    *

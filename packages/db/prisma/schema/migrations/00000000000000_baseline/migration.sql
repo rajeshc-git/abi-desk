@@ -18,7 +18,7 @@
 -- before first release is standard practice (Prisma calls it baselining) and is safe
 -- precisely because there is no deployed data to preserve.
 --
--- Generated 2026-09-08T07:59:42.136Z
+-- Generated 2026-09-11T11:45:55.114Z
 -- =========================================================================
 
 -- =========================================================================
@@ -1060,6 +1060,8 @@ CREATE TABLE "tag" (
     "color" VARCHAR(9) NOT NULL DEFAULT '#64748B',
     "usageCount" INTEGER NOT NULL DEFAULT 0,
     "domains" VARCHAR(500),
+    "organization" VARCHAR(120),
+    "product" VARCHAR(120),
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ(6) NOT NULL,
 
@@ -1118,6 +1120,24 @@ CREATE TABLE "csat_response" (
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "csat_response_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "organization" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId" UUID NOT NULL,
+    "name" VARCHAR(120) NOT NULL,
+    "slug" VARCHAR(120) NOT NULL,
+    "domains" VARCHAR(500),
+    "description" TEXT,
+    "website" VARCHAR(255),
+    "contactName" VARCHAR(120),
+    "contactEmail" VARCHAR(255),
+    "contactPhone" VARCHAR(50),
+    "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMPTZ(6) NOT NULL,
+
+    CONSTRAINT "organization_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1788,6 +1808,12 @@ CREATE INDEX "csat_response_tenantId_agentId_idx" ON "csat_response"("tenantId",
 CREATE INDEX "csat_response_tenantId_createdAt_idx" ON "csat_response"("tenantId", "createdAt");
 
 -- CreateIndex
+CREATE INDEX "organization_tenantId_idx" ON "organization"("tenantId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "organization_tenantId_slug_key" ON "organization"("tenantId", "slug");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "media_asset_storageKey_key" ON "media_asset"("storageKey");
 
 -- CreateIndex
@@ -2137,6 +2163,9 @@ ALTER TABLE "csat_response" ADD CONSTRAINT "csat_response_ticketId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "csat_response" ADD CONSTRAINT "csat_response_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "organization" ADD CONSTRAINT "organization_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "media_asset" ADD CONSTRAINT "media_asset_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
