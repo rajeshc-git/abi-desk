@@ -149,33 +149,40 @@ export function getWidgetStyles(
 .abi-content {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: 14px 16px;
 }
 
 .abi-form-group {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .abi-label {
   display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--abi-text-main);
-  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--abi-text-muted, #64748b);
+  margin-bottom: 5px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
 .abi-input, .abi-textarea, .abi-select {
   width: 100%;
-  padding: 10px 12px;
-  font-size: 14px;
-  border: 1px solid var(--abi-border);
-  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  border: 1px solid var(--abi-border, #e2e8f0);
+  border-radius: 6px;
   background: #ffffff;
-  color: var(--abi-text-main);
+  color: var(--abi-text-main, #0f172a);
+  font-family: inherit;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.abi-textarea {
+  font-family: inherit;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .abi-input:focus, .abi-textarea:focus, .abi-select:focus {
@@ -187,19 +194,19 @@ export function getWidgetStyles(
 .abi-org-prod-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
   background: var(--abi-surface, #f8fafc);
   border: 1px solid var(--abi-border, #e2e8f0);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .abi-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .abi-section-title {
@@ -209,7 +216,7 @@ export function getWidgetStyles(
   letter-spacing: 0.05em;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .abi-section-title.org {
@@ -243,11 +250,11 @@ export function getWidgetStyles(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 13px;
+  transition: all 0.15s ease;
+  font-size: 12px;
   user-select: none;
 }
 
@@ -356,14 +363,14 @@ export function getWidgetStyles(
 .abi-media-toolbar {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
 .abi-media-btn {
-  padding: 8px 4px;
+  padding: 6px 4px;
   border: 1px dashed var(--abi-border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--abi-surface);
   color: var(--abi-text-main);
   font-size: 11px;
@@ -371,7 +378,7 @@ export function getWidgetStyles(
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -386,18 +393,18 @@ export function getWidgetStyles(
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .abi-media-pill {
   font-size: 11px;
-  padding: 4px 8px;
+  padding: 3px 7px;
   background: var(--abi-surface);
   border: 1px solid var(--abi-border);
   border-radius: 6px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .abi-pill-remove {
@@ -408,12 +415,12 @@ export function getWidgetStyles(
 
 .abi-btn-primary {
   width: 100%;
-  padding: 12px;
+  padding: 10px 14px;
   background: var(--abi-primary);
   color: #ffffff;
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.2s;

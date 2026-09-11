@@ -163,14 +163,10 @@ export class WidgetUI {
   private saveTicketDraftFromDOM() {
     if (!this.shadow) return;
     const subjectEl = this.shadow.querySelector('#abi-ticket-subject') as HTMLInputElement | null;
-    const productEl = this.shadow.querySelector('#abi-ticket-product') as HTMLSelectElement | HTMLInputElement | null;
-    const orgEl = this.shadow.querySelector('#abi-ticket-organization') as HTMLSelectElement | HTMLInputElement | null;
     const descEl = this.shadow.querySelector('#abi-ticket-desc') as HTMLTextAreaElement | null;
     const priorityEl = this.shadow.querySelector('#abi-ticket-priority') as HTMLSelectElement | null;
 
     if (subjectEl && subjectEl.value !== undefined) this.ticketDraft.subject = subjectEl.value;
-    if (productEl && productEl.value !== undefined) this.ticketDraft.product = productEl.value;
-    if (orgEl && orgEl.value !== undefined) this.ticketDraft.organization = orgEl.value;
     if (descEl && descEl.value !== undefined) this.ticketDraft.description = descEl.value;
     if (priorityEl && priorityEl.value !== undefined) this.ticketDraft.priority = priorityEl.value;
   }
@@ -376,10 +372,16 @@ export class WidgetUI {
                 </svg>
                 Organization / Account
               </span>
+              ${
+                selectedOrg
+                  ? `
               <button type="button" id="abi-org-toggle-btn" class="abi-section-action-btn">
-                ${selectedOrg ? 'Change' : 'Select'}
+                Change
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
+              `
+                  : ''
+              }
             </div>
 
             <div id="abi-org-trigger" class="abi-custom-select-trigger ${selectedOrg ? 'selected-org' : 'empty'}">
@@ -401,7 +403,7 @@ export class WidgetUI {
               ${
                 selectedOrg
                   ? `<button type="button" id="abi-org-clear-btn" class="abi-clear-btn" title="Clear organization">&times;</button>`
-                  : `<span style="font-size: 11px; color: var(--abi-primary); font-weight: 600;">Select ▾</span>`
+                  : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>`
               }
             </div>
 
@@ -449,10 +451,16 @@ export class WidgetUI {
                 </svg>
                 Product Name
               </span>
+              ${
+                selectedProd
+                  ? `
               <button type="button" id="abi-prod-toggle-btn" class="abi-section-action-btn">
-                ${selectedProd ? 'Change' : 'Select'}
+                Change
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
+              `
+                  : ''
+              }
             </div>
 
             <div id="abi-prod-trigger" class="abi-custom-select-trigger ${selectedProd ? 'selected-prod' : 'empty'}">
@@ -469,7 +477,7 @@ export class WidgetUI {
               ${
                 selectedProd
                   ? `<button type="button" id="abi-prod-clear-btn" class="abi-clear-btn" title="Clear product">&times;</button>`
-                  : `<span style="font-size: 11px; color: var(--abi-primary); font-weight: 600;">Select ▾</span>`
+                  : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>`
               }
             </div>
 
@@ -1936,7 +1944,8 @@ export class WidgetUI {
       this.render();
     });
     this.shadow.querySelectorAll('#abi-org-popover .abi-dropdown-item').forEach((item) => {
-      item.addEventListener('click', () => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
         const org = item.getAttribute('data-org') || '';
         this.ticketDraft.organization = org;
         this.isOrgDropdownOpen = false;
@@ -1946,7 +1955,9 @@ export class WidgetUI {
     const orgSearchInput = this.shadow.querySelector('#abi-org-search-input') as HTMLInputElement | null;
     if (orgSearchInput) {
       orgSearchInput.focus();
+      orgSearchInput.addEventListener('click', (e) => e.stopPropagation());
       orgSearchInput.addEventListener('input', (e) => {
+        e.stopPropagation();
         const q = (e.target as HTMLInputElement).value.toLowerCase();
         this.orgSearchQuery = q;
         const items = this.shadow.querySelectorAll('#abi-org-popover .abi-dropdown-item');
@@ -1978,7 +1989,8 @@ export class WidgetUI {
       this.render();
     });
     this.shadow.querySelectorAll('#abi-prod-popover .abi-dropdown-item').forEach((item) => {
-      item.addEventListener('click', () => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
         const prod = item.getAttribute('data-prod') || '';
         this.ticketDraft.product = prod;
         this.isProductDropdownOpen = false;
@@ -1988,7 +2000,9 @@ export class WidgetUI {
     const prodSearchInput = this.shadow.querySelector('#abi-prod-search-input') as HTMLInputElement | null;
     if (prodSearchInput) {
       prodSearchInput.focus();
+      prodSearchInput.addEventListener('click', (e) => e.stopPropagation());
       prodSearchInput.addEventListener('input', (e) => {
+        e.stopPropagation();
         const q = (e.target as HTMLInputElement).value.toLowerCase();
         this.productSearchQuery = q;
         const items = this.shadow.querySelectorAll('#abi-prod-popover .abi-dropdown-item');
