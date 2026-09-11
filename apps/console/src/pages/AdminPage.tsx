@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Calendar,
@@ -29,6 +29,8 @@ import {
   Tag as TagIcon,
   Folder,
   Building2,
+  Box,
+  ChevronDown,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { Modal } from '../components/common/Modal';
@@ -77,6 +79,17 @@ export const AdminPage: React.FC = () => {
   const [tagProduct, setTagProduct] = useState('');
   const [availableProducts, setAvailableProducts] = useState<any[]>([]);
   const [isTagSubmitting, setIsTagSubmitting] = useState(false);
+
+  // Tag Modal Dropdown States
+  const [isTagOrgOpen, setIsTagOrgOpen] = useState(false);
+  const [tagOrgSearch, setTagOrgSearch] = useState('');
+  const tagOrgDropdownRef = useRef<HTMLDivElement>(null);
+  const tagOrgSearchRef = useRef<HTMLInputElement>(null);
+
+  const [isTagProductOpen, setIsTagProductOpen] = useState(false);
+  const [tagProductSearch, setTagProductSearch] = useState('');
+  const tagProductDropdownRef = useRef<HTMLDivElement>(null);
+  const tagProductSearchRef = useRef<HTMLInputElement>(null);
 
   // Categories State
   const [categoriesList, setCategoriesList] = useState<any[]>([]);
@@ -458,12 +471,14 @@ export const AdminPage: React.FC = () => {
         const orgsData = await ApiClient.get('/organizations');
         setOrganizationsList(Array.isArray(orgsData) ? orgsData : []);
       } else if (activeTab === 'tags') {
-        const [tagsData, productsData] = await Promise.all([
+        const [tagsData, productsData, orgsData] = await Promise.all([
           ApiClient.get('/tags').catch(() => []),
           ApiClient.get('/admin/roster/products').catch(() => []),
+          ApiClient.get('/organizations').catch(() => []),
         ]);
         setTagsList(Array.isArray(tagsData) ? tagsData : []);
         setAvailableProducts(Array.isArray(productsData) ? productsData : []);
+        setOrganizationsList(Array.isArray(orgsData) ? orgsData : []);
       } else if (activeTab === 'categories') {
         const catData = await ApiClient.get('/categories');
         setCategoriesList(Array.isArray(catData) ? catData : []);
@@ -477,6 +492,35 @@ export const AdminPage: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  // Close Tag Dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (tagOrgDropdownRef.current && !tagOrgDropdownRef.current.contains(e.target as Node)) {
+        setIsTagOrgOpen(false);
+      }
+      if (tagProductDropdownRef.current && !tagProductDropdownRef.current.contains(e.target as Node)) {
+        setIsTagProductOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Focus search inputs when tag dropdown opens
+  useEffect(() => {
+    if (isTagOrgOpen) {
+      setTagOrgSearch('');
+      setTimeout(() => tagOrgSearchRef.current?.focus(), 50);
+    }
+  }, [isTagOrgOpen]);
+
+  useEffect(() => {
+    if (isTagProductOpen) {
+      setTagProductSearch('');
+      setTimeout(() => tagProductSearchRef.current?.focus(), 50);
+    }
+  }, [isTagProductOpen]);
 
   const sanitizeDomainChip = (str: string) =>
     str
@@ -596,6 +640,10 @@ export const AdminPage: React.FC = () => {
     setTagDomainInput('');
     setTagOrganization('');
     setTagProduct('');
+    setIsTagOrgOpen(false);
+    setIsTagProductOpen(false);
+    setTagOrgSearch('');
+    setTagProductSearch('');
     setIsTagModalOpen(true);
   };
 
@@ -613,15 +661,30 @@ export const AdminPage: React.FC = () => {
     setTagDomainInput('');
     setTagOrganization(tag.organization || '');
     setTagProduct(tag.product || '');
+    setIsTagOrgOpen(false);
+    setIsTagProductOpen(false);
+    setTagOrgSearch('');
+    setTagProductSearch('');
     setIsTagModalOpen(true);
   };
 
   const handleSaveTag = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tagName.trim()) {
+    const trimmedName = tagName.trim();
+    if (!trimmedName) {
       toast.error('Tag name is required');
       return;
     }
+
+    // Validation: Duplicate tag name check
+    const isDuplicate = tagsList.some(
+      (t) => t.name?.toLowerCase() === trimmedName.toLowerCase() && t.id !== editingTag?.id,
+    );
+    if (isDuplicate) {
+      toast.error(`A tag with name "${trimmedName}" already exists`);
+      return;
+    }
+
     setIsTagSubmitting(true);
     try {
       const finalDomains = [...tagDomainList];
@@ -636,8 +699,8 @@ export const AdminPage: React.FC = () => {
 
       if (editingTag) {
         await ApiClient.patch(`/tags/${editingTag.id}`, {
-          name: tagName.trim(),
-          color: tagColor,
+          name: trimmedName,
+          color: tagColor || '#3b82f6',
           domains: domainString || null,
           organization: tagOrganization.trim() || null,
           product: tagProduct.trim() || null,
@@ -645,8 +708,8 @@ export const AdminPage: React.FC = () => {
         toast.success('Tag updated successfully');
       } else {
         await ApiClient.post('/tags', {
-          name: tagName.trim(),
-          color: tagColor,
+          name: trimmedName,
+          color: tagColor || '#3b82f6',
           domains: domainString || undefined,
           organization: tagOrganization.trim() || undefined,
           product: tagProduct.trim() || undefined,
@@ -5578,48 +5641,316 @@ export const AdminPage: React.FC = () => {
           </div>
 
           {/* Associated Organization */}
-          <div>
-            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
-              🏢 Auto-Map Organization / Client <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
-            </label>
-            {organizationsList.length > 0 ? (
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  list="tag-orgs-datalist"
-                  placeholder="e.g. Attune Live, Acme Corp, Apollo Hospitals"
-                  value={tagOrganization}
-                  onChange={(e) => setTagOrganization(e.target.value)}
-                  className="form-input"
+          <div ref={tagOrgDropdownRef} style={{ position: 'relative' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '6px',
+              }}
+            >
+              <label
+                className="form-label"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  margin: 0,
+                }}
+              >
+                <Building2 size={14} style={{ color: '#38bdf8' }} />
+                Auto-Map Organization / Client{' '}
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setIsTagOrgOpen(!isTagOrgOpen)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--primary, #6366f1)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                }}
+              >
+                {tagOrganization ? 'Change' : 'Select'}
+                <ChevronDown size={12} />
+              </button>
+            </div>
+
+            <div
+              onClick={() => setIsTagOrgOpen(!isTagOrgOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-md, 6px)',
+                cursor: 'pointer',
+                backgroundColor: tagOrganization
+                  ? 'rgba(56, 189, 248, 0.08)'
+                  : 'var(--bg-surface)',
+                border: tagOrganization
+                  ? '1px solid rgba(56, 189, 248, 0.35)'
+                  : '1px dashed var(--border-medium)',
+                minHeight: '38px',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                <Building2
+                  size={15}
                   style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    border: '1px solid var(--border-medium)',
-                    borderRadius: 'var(--radius-md)',
-                    fontSize: '13px',
+                    color: tagOrganization ? '#38bdf8' : 'var(--text-muted, #94a3b8)',
+                    flexShrink: 0,
                   }}
                 />
-                <datalist id="tag-orgs-datalist">
-                  {organizationsList.map((org) => (
-                    <option key={org.id} value={org.name} />
-                  ))}
-                </datalist>
+                <span
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: tagOrganization ? 600 : 400,
+                    color: tagOrganization
+                      ? 'var(--text-primary, #f8fafc)'
+                      : 'var(--text-muted, #94a3b8)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {tagOrganization || 'No Organization selected'}
+                </span>
               </div>
-            ) : (
-              <input
-                type="text"
-                placeholder="e.g. Attune Live, Acme Corp, Apollo Hospitals"
-                value={tagOrganization}
-                onChange={(e) => setTagOrganization(e.target.value)}
-                className="form-input"
+
+              {tagOrganization && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTagOrganization('');
+                  }}
+                  title="Clear Organization"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted, #94a3b8)',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #94a3b8)')}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Organization Dropdown Popup Menu */}
+            {isTagOrgOpen && (
+              <div
                 style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: '4px',
+                  backgroundColor: 'var(--bg-surface, #1e293b)',
+                  border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.15))',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
+                  zIndex: 100,
+                  padding: '8px',
                 }}
-              />
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: 'var(--bg-input, rgba(0, 0, 0, 0.25))',
+                    border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                    marginBottom: '8px',
+                  }}
+                >
+                  <Search size={13} style={{ color: 'var(--text-muted, #94a3b8)', flexShrink: 0 }} />
+                  <input
+                    ref={tagOrgSearchRef}
+                    type="text"
+                    value={tagOrgSearch}
+                    onChange={(e) => setTagOrgSearch(e.target.value)}
+                    placeholder="Search organizations..."
+                    style={{
+                      width: '100%',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-primary, #f8fafc)',
+                      fontSize: '12px',
+                      outline: 'none',
+                    }}
+                  />
+                  {tagOrgSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTagOrgSearch('')}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {tagOrganization && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTagOrganization('');
+                        setIsTagOrgOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '6px 8px',
+                        borderRadius: '4px',
+                        background: 'none',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      <X size={12} /> Clear selection (No Organization)
+                    </button>
+                  )}
+                  {organizationsList.filter(
+                    (o) =>
+                      o.name?.toLowerCase().includes(tagOrgSearch.toLowerCase()) ||
+                      (o.domains && o.domains.toLowerCase().includes(tagOrgSearch.toLowerCase())),
+                  ).length === 0 ? (
+                    <div>
+                      <div
+                        style={{
+                          padding: '10px 8px',
+                          textAlign: 'center',
+                          fontSize: '12px',
+                          color: 'var(--text-muted, #94a3b8)',
+                        }}
+                      >
+                        {organizationsList.length === 0
+                          ? 'No organizations configured yet.'
+                          : 'No matching organizations'}
+                      </div>
+                      {tagOrgSearch.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTagOrganization(tagOrgSearch.trim());
+                            setIsTagOrgOpen(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '6px 8px',
+                            borderRadius: '4px',
+                            background: 'none',
+                            border: '1px dashed var(--border-subtle, rgba(255,255,255,0.15))',
+                            color: 'var(--primary, #6366f1)',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <Plus size={12} /> Use "{tagOrgSearch.trim()}"
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    organizationsList
+                      .filter(
+                        (o) =>
+                          o.name?.toLowerCase().includes(tagOrgSearch.toLowerCase()) ||
+                          (o.domains && o.domains.toLowerCase().includes(tagOrgSearch.toLowerCase())),
+                      )
+                      .map((org) => {
+                        const isSelected = org.name === tagOrganization;
+                        return (
+                          <button
+                            key={org.id}
+                            type="button"
+                            onClick={() => {
+                              setTagOrganization(org.name);
+                              setIsTagOrgOpen(false);
+                            }}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: isSelected
+                                ? 'rgba(56, 189, 248, 0.15)'
+                                : 'transparent',
+                              border: 'none',
+                              color: isSelected ? '#38bdf8' : 'var(--text-primary, #f8fafc)',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              transition: 'background-color 0.1s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-input, rgba(255, 255, 255, 0.05))';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                              <span style={{ fontWeight: isSelected ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {org.name}
+                              </span>
+                              {org.domains && (
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {org.domains}
+                                </span>
+                              )}
+                            </div>
+                            {isSelected && <Check size={14} style={{ color: '#38bdf8', flexShrink: 0 }} />}
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
             )}
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
               When an email/ticket arrives from the sender domains above, it will automatically have this Organization assigned.
@@ -5627,48 +5958,309 @@ export const AdminPage: React.FC = () => {
           </div>
 
           {/* Associated Product */}
-          <div>
-            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
-              📦 Auto-Map Product / Application <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
-            </label>
-            {availableProducts.length > 0 ? (
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  list="tag-products-datalist"
-                  placeholder="e.g. Mobile App, Patient Portal, Web Portal"
-                  value={tagProduct}
-                  onChange={(e) => setTagProduct(e.target.value)}
-                  className="form-input"
+          <div ref={tagProductDropdownRef} style={{ position: 'relative' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '6px',
+              }}
+            >
+              <label
+                className="form-label"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  margin: 0,
+                }}
+              >
+                <Box size={14} style={{ color: '#a855f7' }} />
+                Auto-Map Product / Application{' '}
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setIsTagProductOpen(!isTagProductOpen)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--primary, #6366f1)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                }}
+              >
+                {tagProduct ? 'Change' : 'Select'}
+                <ChevronDown size={12} />
+              </button>
+            </div>
+
+            <div
+              onClick={() => setIsTagProductOpen(!isTagProductOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-md, 6px)',
+                cursor: 'pointer',
+                backgroundColor: tagProduct
+                  ? 'rgba(168, 85, 247, 0.08)'
+                  : 'var(--bg-surface)',
+                border: tagProduct
+                  ? '1px solid rgba(168, 85, 247, 0.35)'
+                  : '1px dashed var(--border-medium)',
+                minHeight: '38px',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                <Box
+                  size={15}
                   style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    border: '1px solid var(--border-medium)',
-                    borderRadius: 'var(--radius-md)',
-                    fontSize: '13px',
+                    color: tagProduct ? '#a855f7' : 'var(--text-muted, #94a3b8)',
+                    flexShrink: 0,
                   }}
                 />
-                <datalist id="tag-products-datalist">
-                  {availableProducts.map((p) => (
-                    <option key={p.id} value={p.name} />
-                  ))}
-                </datalist>
+                <span
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: tagProduct ? 600 : 400,
+                    color: tagProduct
+                      ? 'var(--text-primary, #f8fafc)'
+                      : 'var(--text-muted, #94a3b8)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {tagProduct || 'No Product selected'}
+                </span>
               </div>
-            ) : (
-              <input
-                type="text"
-                placeholder="e.g. Mobile App, Patient Portal, Web Portal"
-                value={tagProduct}
-                onChange={(e) => setTagProduct(e.target.value)}
-                className="form-input"
+
+              {tagProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTagProduct('');
+                  }}
+                  title="Clear Product"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted, #94a3b8)',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #94a3b8)')}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Product Dropdown Popup Menu */}
+            {isTagProductOpen && (
+              <div
                 style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: '4px',
+                  backgroundColor: 'var(--bg-surface, #1e293b)',
+                  border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.15))',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
+                  zIndex: 100,
+                  padding: '8px',
                 }}
-              />
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: 'var(--bg-input, rgba(0, 0, 0, 0.25))',
+                    border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                    marginBottom: '8px',
+                  }}
+                >
+                  <Search size={13} style={{ color: 'var(--text-muted, #94a3b8)', flexShrink: 0 }} />
+                  <input
+                    ref={tagProductSearchRef}
+                    type="text"
+                    value={tagProductSearch}
+                    onChange={(e) => setTagProductSearch(e.target.value)}
+                    placeholder="Search products..."
+                    style={{
+                      width: '100%',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-primary, #f8fafc)',
+                      fontSize: '12px',
+                      outline: 'none',
+                    }}
+                  />
+                  {tagProductSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTagProductSearch('')}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {tagProduct && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTagProduct('');
+                        setIsTagProductOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '6px 8px',
+                        borderRadius: '4px',
+                        background: 'none',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      <X size={12} /> Clear selection (No Product)
+                    </button>
+                  )}
+                  {availableProducts.filter((p: any) => {
+                    const name = typeof p === 'string' ? p : p?.name || '';
+                    return name.toLowerCase().includes(tagProductSearch.toLowerCase());
+                  }).length === 0 ? (
+                    <div>
+                      <div
+                        style={{
+                          padding: '10px 8px',
+                          textAlign: 'center',
+                          fontSize: '12px',
+                          color: 'var(--text-muted, #94a3b8)',
+                        }}
+                      >
+                        {availableProducts.length === 0
+                          ? 'No products configured yet.'
+                          : 'No matching products'}
+                      </div>
+                      {tagProductSearch.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTagProduct(tagProductSearch.trim());
+                            setIsTagProductOpen(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '6px 8px',
+                            borderRadius: '4px',
+                            background: 'none',
+                            border: '1px dashed var(--border-subtle, rgba(255,255,255,0.15))',
+                            color: 'var(--primary, #6366f1)',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <Plus size={12} /> Use "{tagProductSearch.trim()}"
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    availableProducts
+                      .filter((p: any) => {
+                        const name = typeof p === 'string' ? p : p?.name || '';
+                        return name.toLowerCase().includes(tagProductSearch.toLowerCase());
+                      })
+                      .map((p: any) => {
+                        const prodName = typeof p === 'string' ? p : p.name;
+                        const prodKey = typeof p === 'string' ? p : p.id || prodName;
+                        const isSelected = prodName === tagProduct;
+                        return (
+                          <button
+                            key={prodKey}
+                            type="button"
+                            onClick={() => {
+                              setTagProduct(prodName);
+                              setIsTagProductOpen(false);
+                            }}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: isSelected
+                                ? 'rgba(168, 85, 247, 0.15)'
+                                : 'transparent',
+                              border: 'none',
+                              color: isSelected ? '#c084fc' : 'var(--text-primary, #f8fafc)',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              transition: 'background-color 0.1s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-input, rgba(255, 255, 255, 0.05))';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <span style={{ fontWeight: isSelected ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {prodName}
+                            </span>
+                            {isSelected && <Check size={14} style={{ color: '#c084fc', flexShrink: 0 }} />}
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
             )}
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
               When an email/ticket arrives from the sender domains above, it will automatically have this Product assigned.
@@ -5699,7 +6291,7 @@ export const AdminPage: React.FC = () => {
         <form onSubmit={handleSaveCategory} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
             <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
-              Category Name *
+              Category Name <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <input
               type="text"
@@ -5722,7 +6314,7 @@ export const AdminPage: React.FC = () => {
 
           <div>
             <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
-              Category Color
+              Category Color <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
               {[
@@ -5772,7 +6364,7 @@ export const AdminPage: React.FC = () => {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label className="form-label" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
-                Keyword Matching Rules (Max 10)
+                Keyword Matching Rules (Max 10) <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
               </label>
               <span style={{ fontSize: '11px', color: categoryKeywordList.length >= 10 ? '#ef4444' : 'var(--text-muted)', fontWeight: 600 }}>
                 {categoryKeywordList.length} / 10 keywords
