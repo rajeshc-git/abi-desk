@@ -148,12 +148,19 @@ export class TicketController {
     const rawAttachments = body.attachments || body.attachment || [];
     const attachments = Array.isArray(rawAttachments) ? rawAttachments : [rawAttachments];
 
+    const inReplyTo = extractHeader('in-reply-to') || extractHeader('in_reply_to');
+    const references = extractHeader('references');
+    const messageId = extractHeader('message-id') || extractHeader('message_id');
+
     return this.tickets.createFromInboundEmail({
       from,
       to,
       subject,
       body: content,
       attachments,
+      inReplyTo,
+      references,
+      messageId,
     });
   }
 

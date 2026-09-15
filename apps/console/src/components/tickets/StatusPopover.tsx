@@ -113,23 +113,26 @@ export const StatusPopover: React.FC<StatusPopoverProps> = ({
       {/* Trigger Button */}
       <button
         type="button"
+        className="status-popover-btn"
         disabled={disabled || isUpdating}
         onClick={() => setIsOpen((prev) => !prev)}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: '7px',
-          padding: size === 'sm' ? '3px 8px' : '5px 12px',
-          backgroundColor: 'var(--bg-surface)',
-          border: '1px solid var(--border-medium)',
+          height: '32px',
+          padding: '0 12px',
+          backgroundColor: 'var(--bg-surface, #ffffff)',
+          border: '1px solid var(--border-medium, #e2e8f0)',
           borderRadius: 'var(--radius-md, 6px)',
-          color: 'var(--text-primary)',
-          fontSize: size === 'sm' ? '12px' : '13px',
+          color: 'var(--text-primary, #0f172a)',
+          fontSize: '12px',
           fontWeight: 600,
           cursor: disabled || isUpdating ? 'not-allowed' : 'pointer',
-          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
           transition: 'all 0.15s ease-in-out',
           outline: 'none',
+          boxSizing: 'border-box',
         }}
         title="Change Status (Zoho Desk style)"
       >

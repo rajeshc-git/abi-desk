@@ -89,20 +89,20 @@ export const SlaCountdown: React.FC<SlaCountdownProps> = ({ clocks = [], ticketS
 
   return (
     <div className="sla-clock-widget">
-      <div className="sla-metric">
+      <div className="sla-metric-row">
         <span className="sla-title">First Response SLA</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <RespIcon size={14} className={`sla-value ${respInfo.statusClass}`} />
+        <div className="sla-value-pill">
+          <RespIcon size={13} className={`sla-value ${respInfo.statusClass}`} />
           <span className={`sla-value ${respInfo.statusClass}`}>{respInfo.text}</span>
         </div>
       </div>
 
-      <div style={{ width: '1px', height: '28px', backgroundColor: 'var(--border-subtle)' }} />
+      <div style={{ height: '1px', backgroundColor: 'var(--border-subtle, #e2e8f0)' }} />
 
-      <div className="sla-metric">
+      <div className="sla-metric-row">
         <span className="sla-title">Resolution SLA</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <ResIcon size={14} className={`sla-value ${resInfo.statusClass}`} />
+        <div className="sla-value-pill">
+          <ResIcon size={13} className={`sla-value ${resInfo.statusClass}`} />
           <span className={`sla-value ${resInfo.statusClass}`}>{resInfo.text}</span>
         </div>
       </div>

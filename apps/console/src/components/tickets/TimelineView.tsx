@@ -1,7 +1,26 @@
 import React from 'react';
-import { Lock, Globe, FileText, CheckCircle, ArrowUpRight } from 'lucide-react';
+import {
+  Lock,
+  Globe,
+  FileText,
+  CheckCircle,
+  ArrowUpRight,
+  Image as ImageIcon,
+  Video as VideoIcon,
+  Music,
+  Eye,
+  Download,
+  ExternalLink,
+  X,
+  Paperclip,
+  FileSpreadsheet,
+  FileArchive,
+  FileCode,
+  File,
+} from 'lucide-react';
 import { ApiClient } from '../../api/client';
 import { FormattedEmailContent } from '../common/FormattedEmailContent';
+import { getMediaType } from '../media/MediaPlayer';
 
 export interface CommentItem {
   id: string;
@@ -10,7 +29,7 @@ export interface CommentItem {
   visibility?: 'INTERNAL' | 'PUBLIC' | string;
   author?: { fullName: string; email: string; kind?: string };
   createdAt: string;
-  attachments?: Array<{ id: string; originalFilename: string; mimeType: string }>;
+  attachments?: Array<{ id: string; originalFilename: string; mimeType: string; sizeBytes?: number }>;
 }
 
 export interface ActivityItem {
@@ -24,71 +43,44 @@ export interface ActivityItem {
 interface TimelineViewProps {
   comments: CommentItem[];
   activities?: ActivityItem[];
+  initialTicket?: {
+    description?: string;
+    requester?: { fullName: string; email?: string };
+    createdAt?: string;
+    channel?: string;
+    mediaAssets?: Array<{ id: string; originalFilename?: string | null; mimeType?: string | null; sizeBytes?: number }>;
+  };
 }
 
 const urlCache = new Map<string, { url: string; expiresAt: number }>();
 
 const AttachmentItem: React.FC<{
-  att: { id: string; originalFilename: string; mimeType: string };
+  att: { id: string; originalFilename?: string | null; mimeType?: string | null; sizeBytes?: number };
 }> = ({ att }) => {
   const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(false);
-  const [inView, setInView] = React.useState(false);
   const [lightboxOpen, setLightboxOpen] = React.useState(false);
 
-  const containerRef = React.useRef<HTMLDivElement>(null);
+  const typeInfo = getMediaType({
+    filename: att.originalFilename,
+    mimeType: att.mimeType || undefined,
+  });
 
-  const lowerName = (att.originalFilename || '').toLowerCase();
-  const mime = (att.mimeType || '').toLowerCase();
+  const displayName = att.originalFilename?.trim() || 'Attachment';
+  const sizeStr = att.sizeBytes ? `${Math.max(1, Math.round(att.sizeBytes / 1024))} KB` : '';
 
-  const isAudio =
-    mime.startsWith('audio/') ||
-    /\.(mp3|wav|ogg|m4a|aac|flac|weba)$/i.test(lowerName) ||
-    lowerName.includes('voice-note') ||
-    lowerName.includes('voice_recording') ||
-    lowerName.includes('audio-recording');
-  const isImage = !isAudio && (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(lowerName));
-  const isVideo =
-    !isAudio &&
-    !isImage &&
-    (mime.startsWith('video/') ||
-      /\.(mp4|mov|avi|mkv)$/i.test(lowerName) ||
-      (lowerName.endsWith('.webm') && !mime.startsWith('audio/')));
-
-  // Lazy load using IntersectionObserver
-  React.useEffect(() => {
-    if (!isImage && !isVideo && !isAudio) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setInView(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: '100px', threshold: 0.01 },
-    );
-
-    if (containerRef.current) {
-      observer.observe(containerRef.current);
-    }
-
-    return () => observer.disconnect();
-  }, [isImage, isVideo, isAudio]);
-
-  const loadMediaUrl = React.useCallback(async () => {
+  const loadMediaUrl = React.useCallback(async (): Promise<string | null> => {
     const cached = urlCache.get(att.id);
     if (cached && cached.expiresAt > Date.now()) {
       setDownloadUrl(cached.url);
-      setError(false);
       return cached.url;
     }
 
     setLoading(true);
-    setError(false);
     try {
-      const res = await ApiClient.post<{ url: string }>(`/media/${att.id}/download`);
+      const res = await ApiClient.post<{ url: string }>(`/media/${att.id}/download`, {
+        disposition: 'inline',
+      });
       urlCache.set(att.id, {
         url: res.url,
         expiresAt: Date.now() + 9 * 60 * 1000,
@@ -96,301 +88,646 @@ const AttachmentItem: React.FC<{
       setDownloadUrl(res.url);
       return res.url;
     } catch {
-      setError(true);
       return null;
     } finally {
       setLoading(false);
     }
   }, [att.id]);
 
-  // Fetch URL only when it scrolls into view
+  // Pre-load image thumbnail URL
   React.useEffect(() => {
-    if (inView && (isImage || isVideo || isAudio)) {
+    if (typeInfo.isImage && !downloadUrl) {
       loadMediaUrl();
     }
-  }, [inView, isImage, isVideo, isAudio, loadMediaUrl]);
+  }, [typeInfo.isImage, downloadUrl, loadMediaUrl]);
 
-  const handleDownload = async (e: React.MouseEvent) => {
+  const handleOpenPreview = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const url = await loadMediaUrl();
     if (url) {
-      window.open(url, '_blank');
-    } else {
-      alert('Failed to get download link');
+      setLightboxOpen(true);
     }
   };
 
-  if (!isImage && !isVideo && !isAudio) {
-    return (
-      <button
-        onClick={handleDownload}
-        disabled={loading}
-        style={{
-          padding: '6px 10px',
-          borderRadius: 'var(--radius-sm, 4px)',
-          backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-          border: '1px solid var(--border-medium, #e2e8f0)',
-          fontSize: '12px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          color: 'var(--text-primary)',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-          transition: 'all 0.15s',
-        }}
-      >
-        <FileText size={14} style={{ color: 'var(--primary)' }} />
-        <span style={{ textDecoration: 'underline' }}>{att.originalFilename}</span>
-        {loading && (
-          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>(loading...)</span>
-        )}
-      </button>
-    );
-  }
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await ApiClient.post<{ url: string }>(`/media/${att.id}/download`, {
+        disposition: 'attachment',
+      });
+      const a = document.createElement('a');
+      a.href = res.url;
+      a.download = displayName;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Download failed:', err);
+    }
+  };
 
   return (
-    <div ref={containerRef} style={{ display: 'inline-block' }}>
-      {loading && (
+    <>
+      {/* Gmail-Style Visual Attachment Card */}
+      <div
+        onClick={handleOpenPreview}
+        style={{
+          width: '180px',
+          backgroundColor: 'var(--bg-surface, #ffffff)',
+          border: '1px solid var(--border-medium, #e2e8f0)',
+          borderRadius: '8px',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+          flexShrink: 0,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
+          e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = 'var(--border-medium, #e2e8f0)';
+          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05)';
+        }}
+        title={`Click to preview ${displayName}`}
+      >
+        {/* Top Preview Canvas */}
         <div
           style={{
-            width: isImage ? '180px' : '220px',
-            height: isAudio ? '54px' : '100px',
-            borderRadius: '6px',
-            backgroundColor: 'var(--bg-surface-elevated, #f1f5f9)',
-            border: '1px solid var(--border-medium, #e2e8f0)',
+            height: '95px',
+            backgroundColor: 'var(--bg-app, #f8fafc)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'var(--text-muted)',
-            fontSize: '11px',
+            overflow: 'hidden',
+            position: 'relative',
+            borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
           }}
         >
-          <span>Loading preview...</span>
+          {typeInfo.isImage ? (
+            downloadUrl ? (
+              <img
+                src={downloadUrl}
+                alt={displayName}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <div style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                <ImageIcon size={22} color="#0284c7" />
+                <span>{loading ? 'Loading...' : 'Photo'}</span>
+              </div>
+            )
+          ) : typeInfo.isPdf ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '6px',
+                  backgroundColor: '#fee2e2',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FileText size={18} color="#dc2626" />
+              </div>
+              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)' }}>PDF Document</span>
+            </div>
+          ) : typeInfo.isVideo ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '6px',
+                  backgroundColor: '#f3e8ff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <VideoIcon size={18} color="#9333ea" />
+              </div>
+              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)' }}>Video</span>
+            </div>
+          ) : typeInfo.isAudio ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '6px',
+                  backgroundColor: '#fef3c7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Music size={18} color="#d97706" />
+              </div>
+              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)' }}>Audio</span>
+            </div>
+          ) : typeInfo.isSheet ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '6px',
+                  backgroundColor: '#d1fae5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FileSpreadsheet size={18} color="#059669" />
+              </div>
+              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)' }}>Spreadsheet</span>
+            </div>
+          ) : typeInfo.isArchive ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '6px',
+                  backgroundColor: '#ede9fe',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FileArchive size={18} color="#8b5cf6" />
+              </div>
+              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)' }}>Archive</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div
+                style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '6px',
+                  backgroundColor: '#e2e8f0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Paperclip size={18} color="#475569" />
+              </div>
+              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)' }}>Attachment</span>
+            </div>
+          )}
         </div>
-      )}
 
-      {error && (
+        {/* Bottom Footer Info + Action Buttons */}
         <div
           style={{
-            padding: '8px 12px',
-            borderRadius: '6px',
-            border: '1px solid #fee2e2',
-            backgroundColor: '#fef2f2',
+            padding: '6px 8px',
             display: 'flex',
-            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: 'var(--bg-surface, #ffffff)',
             gap: '4px',
           }}
         >
-          <span style={{ fontSize: '11px', color: '#b91c1c' }}>Failed to load preview</span>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={displayName}
+            >
+              {displayName}
+            </div>
+            {sizeStr && (
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                {sizeStr}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
             <button
+              type="button"
+              onClick={handleOpenPreview}
+              style={{
+                padding: '3px 5px',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
+                borderRadius: '4px',
+                backgroundColor: 'var(--bg-hover, #f1f5f9)',
+                color: 'var(--primary, #2563eb)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title="Preview"
+            >
+              <Eye size={11} />
+            </button>
+            <button
+              type="button"
               onClick={handleDownload}
               style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--primary)',
-                fontSize: '11px',
-                textDecoration: 'underline',
+                padding: '3px 5px',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
+                borderRadius: '4px',
+                backgroundColor: 'var(--bg-hover, #f1f5f9)',
+                color: 'var(--text-secondary, #64748b)',
                 cursor: 'pointer',
-                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
+              title="Download"
             >
-              Download
+              <Download size={11} />
             </button>
-            <button
-              onClick={loadMediaUrl}
+          </div>
+        </div>
+      </div>
+
+      {/* Lightbox Modal with Full-Screen In-App Viewer */}
+      {lightboxOpen && downloadUrl && (
+        <div
+          onClick={() => setLightboxOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            zIndex: 100000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            style={{
+              width: typeInfo.isPdf ? '1050px' : typeInfo.isAudio ? '580px' : undefined,
+              maxWidth: '92vw',
+              maxHeight: '92vh',
+              backgroundColor: 'var(--bg-surface, #ffffff)',
+              borderRadius: '14px',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
               style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-muted)',
-                fontSize: '11px',
-                textDecoration: 'underline',
-                cursor: 'pointer',
-                padding: 0,
+                padding: '14px 20px',
+                borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                gap: '16px',
+                flexShrink: 0,
               }}
             >
-              Retry
-            </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                {typeInfo.isImage ? (
+                  <ImageIcon size={18} color="#0284c7" />
+                ) : typeInfo.isPdf ? (
+                  <FileText size={18} color="#ef4444" />
+                ) : typeInfo.isVideo ? (
+                  <VideoIcon size={18} color="#9333ea" />
+                ) : typeInfo.isAudio ? (
+                  <Music size={18} color="#d97706" />
+                ) : typeInfo.isSheet ? (
+                  <FileSpreadsheet size={18} color="#059669" />
+                ) : typeInfo.isArchive ? (
+                  <FileArchive size={18} color="#8b5cf6" />
+                ) : (
+                  <Paperclip size={18} color="#64748b" />
+                )}
+                <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary, #0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {displayName}
+                </span>
+                {sizeStr ? (
+                  <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#e2e8f0', color: '#475569' }}>
+                    {sizeStr}
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <a
+                  href={downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', padding: '6px 12px' }}
+                >
+                  <ExternalLink size={13} /> Open in Tab
+                </a>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="btn btn-primary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '6px 12px' }}
+                >
+                  <Download size={13} /> Download
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#64748b',
+                    cursor: 'pointer',
+                    padding: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRadius: '6px',
+                  }}
+                  title="Close (Esc)"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Content Body */}
+            <div
+              style={{
+                flex: 1,
+                overflow: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: typeInfo.isPdf ? 0 : '24px',
+                backgroundColor: '#f1f5f9',
+                maxHeight: 'calc(92vh - 65px)',
+              }}
+            >
+              {typeInfo.isImage ? (
+                <img
+                  src={downloadUrl}
+                  alt={displayName}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: 'calc(90vh - 120px)',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+                    backgroundColor: '#ffffff',
+                  }}
+                />
+              ) : typeInfo.isPdf ? (
+                <object
+                  data={`${downloadUrl}#toolbar=1`}
+                  type="application/pdf"
+                  style={{
+                    width: '100%',
+                    height: '80vh',
+                    border: 'none',
+                    backgroundColor: '#ffffff',
+                  }}
+                >
+                  {/* Fallback if browser blocks inline object */}
+                  <div
+                    style={{
+                      height: '100%',
+                      minHeight: '340px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '40px 24px',
+                      textAlign: 'center',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '16px',
+                        backgroundColor: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: '16px',
+                      }}
+                    >
+                      <FileText size={32} color="#ef4444" />
+                    </div>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>
+                      {displayName}
+                    </h3>
+                    <p style={{ fontSize: '13px', color: '#64748b', maxWidth: '420px', marginBottom: '20px', lineHeight: 1.5 }}>
+                      Your browser's built-in PDF viewer is ready. Click below to view the full document in a clean tab or download it directly.
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <a
+                        href={downloadUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 18px', fontSize: '13px' }}
+                      >
+                        <ExternalLink size={14} /> Open in New Tab
+                      </a>
+                      <button
+                        type="button"
+                        onClick={handleDownload}
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 18px', fontSize: '13px' }}
+                      >
+                        <Download size={14} /> Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </object>
+              ) : typeInfo.isVideo ? (
+                <video
+                  src={downloadUrl}
+                  controls
+                  autoPlay
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: 'calc(90vh - 120px)',
+                    borderRadius: '8px',
+                    backgroundColor: '#000000',
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+                  }}
+                />
+              ) : typeInfo.isAudio ? (
+                <div
+                  style={{
+                    padding: '36px 40px',
+                    width: '100%',
+                    maxWidth: '500px',
+                    textAlign: 'center',
+                    backgroundColor: '#ffffff',
+                    borderRadius: '16px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.08)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '16px',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      borderRadius: '50%',
+                      backgroundColor: '#fffbeb',
+                      border: '2px solid #fef3c7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#d97706',
+                    }}
+                  >
+                    <Music size={32} />
+                  </div>
+                  <div>
+                    <h4 style={{ color: '#0f172a', marginBottom: '4px', fontSize: '16px', fontWeight: 700 }}>
+                      {displayName}
+                    </h4>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>
+                      Audio • {sizeStr}
+                    </span>
+                  </div>
+                  <div style={{ width: '100%', marginTop: '4px' }}>
+                    <audio controls autoPlay src={downloadUrl} style={{ width: '100%' }} />
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    padding: '40px 24px',
+                    backgroundColor: '#ffffff',
+                    borderRadius: '16px',
+                    border: '1px solid #e2e8f0',
+                    width: '100%',
+                    maxWidth: '500px',
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.05)',
+                  }}
+                >
+                  <File size={56} style={{ margin: '0 auto 16px', color: '#64748b' }} />
+                  <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                    {displayName}
+                  </h3>
+                  <p style={{ color: '#64748b', fontSize: '13px', marginBottom: '24px' }}>
+                    This file format can be downloaded and opened with your system viewer.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                    <a
+                      href={downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn btn-secondary"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '13px' }}
+                    >
+                      <ExternalLink size={14} /> Open in New Tab
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className="btn btn-primary"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 20px' }}
+                    >
+                      <Download size={15} />
+                      <span>Download File ({sizeStr})</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+export const TimelineView: React.FC<TimelineViewProps> = ({ comments, initialTicket }) => {
+  return (
+    <div className="timeline-list">
+      {/* Root/Opening Ticket Message (Zoho Desk / Zendesk Lead Message) */}
+      {initialTicket?.description && (
+        <div key="initial-ticket-description" className="timeline-item">
+          <div
+            className="user-avatar"
+            style={{
+              width: '32px',
+              height: '32px',
+              fontSize: '11px',
+              backgroundColor: 'var(--primary, #2563eb)',
+              color: '#ffffff',
+            }}
+          >
+            {(initialTicket.requester?.fullName || 'Requester').slice(0, 2).toUpperCase()}
+          </div>
+
+          <div className="timeline-card" style={{ borderLeft: '3px solid var(--primary, #2563eb)' }}>
+            <div className="timeline-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="author-name">
+                  {initialTicket.requester?.fullName || 'Requester'}
+                </span>
+              </div>
+              <span className="timestamp">
+                {initialTicket.createdAt
+                  ? new Date(initialTicket.createdAt).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : ''}
+              </span>
+            </div>
+
+            <div className="timeline-body">
+              <FormattedEmailContent text={initialTicket.description} />
+            </div>
+
+            {initialTicket.mediaAssets && initialTicket.mediaAssets.length > 0 && (
+              <div
+                style={{
+                  marginTop: '12px',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  alignItems: 'flex-start',
+                }}
+              >
+                {initialTicket.mediaAssets.map((att) => (
+                  <AttachmentItem key={att.id} att={att} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {!loading && !error && downloadUrl && (
-        <>
-          {isImage && (
-            <div
-              style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '180px' }}
-            >
-              <img
-                src={downloadUrl}
-                alt={att.originalFilename}
-                onClick={() => setLightboxOpen(true)}
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '120px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-medium, #e2e8f0)',
-                  cursor: 'pointer',
-                  objectFit: 'cover',
-                  transition: 'transform 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.02)')}
-                onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-              />
-              <span
-                style={{
-                  fontSize: '10px',
-                  color: 'var(--text-muted)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                🖼️ {att.originalFilename}
-              </span>
-            </div>
-          )}
-
-          {isVideo && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '220px' }}>
-              <video
-                src={downloadUrl}
-                controls
-                style={{
-                  width: '100%',
-                  maxHeight: '140px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-medium, #e2e8f0)',
-                  background: '#000',
-                }}
-              />
-              <span
-                style={{
-                  fontSize: '10px',
-                  color: 'var(--text-muted)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                📹 {att.originalFilename}
-              </span>
-            </div>
-          )}
-
-          {isAudio && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '220px' }}>
-              <audio
-                src={downloadUrl}
-                controls
-                style={{
-                  width: '100%',
-                }}
-              />
-              <span
-                style={{
-                  fontSize: '10px',
-                  color: 'var(--text-muted)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                🎙️ {att.originalFilename}
-              </span>
-            </div>
-          )}
-
-          {/* Lightbox Modal */}
-          {lightboxOpen && (
-            <div
-              onClick={() => setLightboxOpen(false)}
-              style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.85)',
-                zIndex: 100000,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '20px',
-                backdropFilter: 'blur(4px)',
-              }}
-            >
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '16px',
-                  right: '16px',
-                  display: 'flex',
-                  gap: '12px',
-                }}
-              >
-                <a
-                  href={downloadUrl}
-                  download={att.originalFilename}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.15)',
-                    color: '#fff',
-                    padding: '8px 14px',
-                    borderRadius: '20px',
-                    textDecoration: 'none',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                  }}
-                >
-                  Download
-                </a>
-                <button
-                  onClick={() => setLightboxOpen(false)}
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.15)',
-                    border: 'none',
-                    color: '#fff',
-                    width: '34px',
-                    height: '34px',
-                    borderRadius: '50%',
-                    cursor: 'pointer',
-                    fontSize: '20px',
-                    fontWeight: 600,
-                  }}
-                >
-                  &times;
-                </button>
-              </div>
-              <img
-                src={downloadUrl}
-                alt={att.originalFilename}
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '85vh',
-                  objectFit: 'contain',
-                  borderRadius: '8px',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                }}
-              />
-              <div style={{ marginTop: '12px', color: '#fff', fontSize: '13px' }}>
-                {att.originalFilename}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-};
-
-export const TimelineView: React.FC<TimelineViewProps> = ({ comments }) => {
-  return (
-    <div className="timeline-list">
       {comments.map((comment) => {
         const isInternal = comment.isInternal === true || comment.visibility === 'INTERNAL';
         const authorName = comment.author?.fullName || 'Support User';

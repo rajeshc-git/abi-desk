@@ -855,7 +855,7 @@ export class TicketService {
     });
 
     if (this.gateway) {
-      this.gateway.broadcastTicketCommented(tenantId, ticketId, comment);
+      this.gateway.broadcastTicketCommented(tenantId, ticketId, comment, ticket.number);
     }
 
     return comment;
@@ -1876,6 +1876,9 @@ export class TicketService {
       base64?: string;
       size?: number;
     }>;
+    inReplyTo?: string;
+    references?: string;
+    messageId?: string;
   }) {
     const senderEmail = parseEmailAddress(payload.from);
     const senderName = parseEmailName(payload.from);
@@ -1935,17 +1938,58 @@ export class TicketService {
 
       // Check if this inbound email is a reply to an existing ticket.
       const subject = payload.subject || '';
-      const ticketNumberMatch = subject.match(/\[Ticket #([A-Z0-9]+-\d+)\]/i) || subject.match(/\b([A-Z0-9]+-\d+)\b/i);
+      const cleanSubject = stripSubjectPrefixes(subject);
+      const isReplyOrFwd = isReplySubject(subject) || Boolean(payload.inReplyTo || payload.references);
 
-      if (ticketNumberMatch && ticketNumberMatch[1]) {
-        const ticketNumber = ticketNumberMatch[1].toUpperCase();
+      let existingTicket: { id: string; status: any; number?: string; subject?: string } | null = null;
 
-        const existingTicket = await tx.ticket.findFirst({
+      // Strategy 1: Explicit Ticket Number in Subject (e.g. "[Ticket #ABI-4556]" or "ABI-4556")
+      const subjectTicketMatch = subject.match(/\[Ticket #([A-Z0-9]+-\d+)\]/i) || subject.match(/\b([A-Z0-9]+-\d+)\b/i);
+      if (subjectTicketMatch && subjectTicketMatch[1]) {
+        const ticketNumber = subjectTicketMatch[1].toUpperCase();
+        existingTicket = await tx.ticket.findFirst({
           where: { tenantId, number: ticketNumber, deletedAt: null },
-          select: { id: true, status: true },
+          select: { id: true, status: true, number: true },
+        });
+      }
+
+      // Strategy 2: Explicit Ticket Number in Quoted Email Body (e.g. "[Ticket #ABI-4556]" or "Ticket #ABI-4556")
+      if (!existingTicket && payload.body) {
+        const bodyTicketMatch = payload.body.match(/\[Ticket #([A-Z0-9]+-\d+)\]/i) || payload.body.match(/Ticket #\s*([A-Z0-9]+-\d+)/i);
+        if (bodyTicketMatch && bodyTicketMatch[1]) {
+          const ticketNumber = bodyTicketMatch[1].toUpperCase();
+          existingTicket = await tx.ticket.findFirst({
+            where: { tenantId, number: ticketNumber, deletedAt: null },
+            select: { id: true, status: true, number: true },
+          });
+        }
+      }
+
+      // Strategy 3: Email Thread Subject Matching for this Requester
+      // If it's a reply/forward (e.g. "Re: testing") or has In-Reply-To/References,
+      // match against recent tickets created by the same requester with matching base subject.
+      if (!existingTicket && cleanSubject && (isReplyOrFwd || cleanSubject.length > 0)) {
+        const candidateTickets = await tx.ticket.findMany({
+          where: {
+            tenantId,
+            requesterId: requester.id,
+            deletedAt: null,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+          select: { id: true, status: true, number: true, subject: true },
         });
 
-        if (existingTicket) {
+        for (const candidate of candidateTickets) {
+          const candidateClean = stripSubjectPrefixes(candidate.subject);
+          if (candidateClean.toLowerCase() === cleanSubject.toLowerCase()) {
+            existingTicket = candidate;
+            break;
+          }
+        }
+      }
+
+      if (existingTicket) {
           const createdComment = await tx.ticketComment.create({
             data: {
               tenantId,
@@ -2053,7 +2097,7 @@ export class TicketService {
               createdAt: new Date(),
               author: { id: requester.id, fullName: senderName || senderEmail.split('@')[0] || 'Customer', email: senderEmail },
               visibility: 'PUBLIC',
-            });
+            }, existingTicket.number || ticketToReturn.number);
             if (shouldReopen) {
               this.gateway.broadcastTicketUpdated(tenantId, existingTicket.id, {
                 id: existingTicket.id,
@@ -2064,7 +2108,6 @@ export class TicketService {
 
           return ticketToReturn;
         }
-      }
 
       const sequence = await this.prisma.nextTicketSequence(tx, tenantId);
       const number = `${tenant.ticketPrefix}-${sequence}`;
@@ -2315,3 +2358,17 @@ function extensionForMime(mimeType: string): string {
 function sanitizeFilename(name: string): string {
   return name.replace(/["\r\n/\\]/g, '').slice(0, 255);
 }
+
+function isReplySubject(subject: string): boolean {
+  if (!subject) return false;
+  return /^\s*(re|fwd|fw|aw|sv|vs|antw)\s*:/i.test(subject);
+}
+
+function stripSubjectPrefixes(subject: string): string {
+  if (!subject) return '';
+  return subject
+    .replace(/^(\s*(re|fwd|fw|aw|sv|vs|antw)\s*:\s*)+/gi, '')
+    .replace(/\[Ticket #[^\]]+\]\s*/gi, '')
+    .trim();
+}
+

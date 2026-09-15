@@ -16,6 +16,7 @@ export interface TicketSummary {
   requester?: { fullName: string; email: string };
   assignee?: { fullName: string; email: string } | null;
   tags?: Array<{ tag: { name: string; slug: string; color?: string } }>;
+  publicCommentCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -303,6 +304,25 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
           >
             {ticket.requester?.fullName || 'Customer'}
           </span>
+          {((ticket.publicCommentCount ?? 0) > 0 || (ticket as any).comments?.length > 0) && (
+            <>
+              <span style={{ flexShrink: 0 }}>•</span>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--primary, #2563eb)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  flexShrink: 0,
+                }}
+                title={`${ticket.publicCommentCount || (ticket as any).comments?.length} replies`}
+              >
+                💬 {ticket.publicCommentCount || (ticket as any).comments?.length}
+              </span>
+            </>
+          )}
         </div>
         <span style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>{formattedDate}</span>
       </div>

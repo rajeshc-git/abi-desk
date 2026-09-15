@@ -176,9 +176,9 @@
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm, 4px);
   background-color: #f8fafc;
-  border: 1px solid var(--border-medium);
+  border: 1px solid var(--border-medium, #e2e8f0);
 }
 .tier-pill.L1 { color: #1d4ed8; border-color: #bfdbfe; background-color: #eff6ff; }
 .tier-pill.L2 { color: #6b21a8; border-color: #d8b4fe; background-color: #f3e8ff; }
@@ -195,36 +195,46 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* SLA Clock Rings */
+/* SLA Clock Widget */
 .sla-clock-widget {
-  background: #ffffff;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
+  background: var(--bg-surface-elevated, #f8fafc);
+  border: 1px solid var(--border-medium, #e2e8f0);
+  border-radius: var(--radius-md, 6px);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.sla-metric-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  box-shadow: var(--shadow-sm);
-}
-
-.sla-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
 .sla-title {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-muted, #64748b);
+  letter-spacing: 0.02em;
 }
 
-.sla-value {
-  font-size: 13px;
+.sla-value-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
   font-weight: 700;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono, monospace);
+  padding: 2px 7px;
+  border-radius: 4px;
+  background-color: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-subtle, #e2e8f0);
 }
 
 .sla-value.on-track { color: #047857; }

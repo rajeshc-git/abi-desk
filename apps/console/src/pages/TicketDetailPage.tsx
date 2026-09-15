@@ -58,13 +58,27 @@ export const TicketDetailPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
-  const [maximizedSection, setMaximizedSection] = useState<
-    'none' | 'description' | 'workspace'
-  >('none');
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeTab, setActiveTab] = useState<
     'timeline' | 'history' | 'diagnostics' | 'media' | 'approvals'
   >('timeline');
   const timelineScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFullscreen]);
+
+  const toggleFullscreen = () => {
+    setIsFullscreen((prev) => !prev);
+  };
 
   const canChangePriority =
     !!user &&
@@ -301,6 +315,8 @@ export const TicketDetailPage: React.FC = () => {
     }
   };
 
+  const [mobileTab, setMobileTab] = useState<'main' | 'sidebar'>('main');
+
   if (isLoading || !ticket) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -312,136 +328,83 @@ export const TicketDetailPage: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Top Header & Actions Bar */}
-      <div
-        style={{
-          flexShrink: 0,
-          padding: '12px 20px',
-          backgroundColor: 'var(--bg-sidebar)',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+      <div className="ticket-header-bar">
+        <div className="ticket-header-left">
           <button
             onClick={() => navigate('/inbox')}
-            className="btn btn-secondary btn-sm"
+            className="ticket-header-back-btn"
             title="Back to Inbox"
           >
             <ArrowLeft size={16} />
           </button>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: 'var(--primary)',
-                }}
-              >
-                #{ticket.number}
-              </span>
-              <TierBadge tier={ticket.tier} />
-              {canChangePriority ? (
-                <select
-                  value={ticket.priority}
-                  onChange={(e) => handlePriorityChange(e.target.value)}
-                  style={{
-                    padding: '3px 8px',
-                    backgroundColor: 'var(--bg-surface)',
-                    border: '1px solid var(--border-medium)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    color:
-                      ticket.priority === 'CRITICAL' || ticket.priority === 'URGENT'
-                        ? 'var(--color-critical)'
-                        : ticket.priority === 'HIGH'
-                        ? '#f59e0b'
-                        : 'var(--text-primary)',
-                    cursor: 'pointer',
-                  }}
-                  title="Change Priority (L1 / L2 / Staff)"
-                >
-                  <option value="LOW">Priority: LOW</option>
-                  <option value="NORMAL">Priority: NORMAL</option>
-                  <option value="HIGH">Priority: HIGH</option>
-                  <option value="URGENT">Priority: URGENT</option>
-                  <option value="CRITICAL">Priority: CRITICAL</option>
-                </select>
-              ) : (
-                <PriorityPill priority={ticket.priority} />
-              )}
-              <TicketCategoryManager
-                ticketId={ticket.id}
-                category={ticket.category}
-                onCategoryChange={(newCategory) => setTicket((prev: any) => ({ ...prev, category: newCategory }))}
-              />
-              <TicketTagManager
-                ticketId={ticket.id}
-                tags={ticket.tags}
-                onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
-              />
-              {(ticket.customFields?.organization || ticket.organization) && (
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                    color: '#38bdf8',
-                    border: '1px solid rgba(56, 189, 248, 0.25)',
-                  }}
-                  title="Client Organization / Account"
-                >
-                  🏢 {ticket.customFields?.organization || ticket.organization}
-                </span>
-              )}
-              {(ticket.customFields?.product || ticket.product) && (
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    backgroundColor: 'rgba(168, 85, 247, 0.12)',
-                    color: '#c084fc',
-                    border: '1px solid rgba(168, 85, 247, 0.25)',
-                  }}
-                  title="Product"
-                >
-                  📦 {ticket.customFields?.product || ticket.product}
-                </span>
-              )}
-            </div>
-            <h2
+          <span className="ticket-id-badge">
+            #{ticket.number}
+          </span>
+          <TierBadge tier={ticket.tier} />
+          {canChangePriority ? (
+            <select
+              value={ticket.priority}
+              onChange={(e) => handlePriorityChange(e.target.value)}
+              className="pill-select"
               style={{
-                fontSize: '15px',
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-                margin: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                color:
+                  ticket.priority === 'CRITICAL' || ticket.priority === 'URGENT'
+                    ? 'var(--color-critical)'
+                    : ticket.priority === 'HIGH'
+                    ? '#f59e0b'
+                    : 'var(--text-primary)',
               }}
+              title="Change Priority (L1 / L2 / Staff)"
             >
-              {ticket.subject}
-            </h2>
-          </div>
+              <option value="LOW">Priority: LOW</option>
+              <option value="NORMAL">Priority: NORMAL</option>
+              <option value="HIGH">Priority: HIGH</option>
+              <option value="URGENT">Priority: URGENT</option>
+              <option value="CRITICAL">Priority: CRITICAL</option>
+            </select>
+          ) : (
+            <PriorityPill priority={ticket.priority} />
+          )}
+          <TicketCategoryManager
+            ticketId={ticket.id}
+            category={ticket.category}
+            onCategoryChange={(newCategory) => setTicket((prev: any) => ({ ...prev, category: newCategory }))}
+          />
+          <TicketTagManager
+            ticketId={ticket.id}
+            tags={ticket.tags}
+            onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
+          />
+          {(ticket.customFields?.organization || ticket.organization) && (
+            <span
+              className="pill-badge"
+              style={{
+                backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                color: '#0284c7',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+              }}
+              title="Client Organization / Account"
+            >
+              🏢 {ticket.customFields?.organization || ticket.organization}
+            </span>
+          )}
+          {(ticket.customFields?.product || ticket.product) && (
+            <span
+              className="pill-badge"
+              style={{
+                backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                color: '#9333ea',
+                border: '1px solid rgba(168, 85, 247, 0.25)',
+              }}
+              title="Product"
+            >
+              📦 {ticket.customFields?.product || ticket.product}
+            </span>
+          )}
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        <div className="ticket-header-actions">
           {/* Zoho Desk Styled Status Dropdown */}
           <StatusPopover
             status={ticket.status}
@@ -449,40 +412,24 @@ export const TicketDetailPage: React.FC = () => {
           />
 
           {/* Tier Escalation / Transfer */}
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <select
-              value={ticket.tier}
-              onChange={(e) => handleTierEscalate(e.target.value)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '5px 12px',
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md, 6px)',
-                color: 'var(--text-primary)',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-                outline: 'none',
-              }}
-              title="Transfer / Escalate Tier"
-            >
-              <option value={ticket.tier} disabled>
-                Tier: {ticket.tier}
-              </option>
-              {['L1', 'L2', 'L3', 'DEV', 'QA'].map((tierOption) => {
-                if (tierOption === ticket.tier) return null;
-                return (
-                  <option key={tierOption} value={tierOption}>
-                    Move to {tierOption}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          <select
+            value={ticket.tier}
+            onChange={(e) => handleTierEscalate(e.target.value)}
+            className="pill-select"
+            title="Transfer / Escalate Tier"
+          >
+            <option value={ticket.tier} disabled>
+              Tier: {ticket.tier}
+            </option>
+            {['L1', 'L2', 'L3', 'DEV', 'QA'].map((tierOption) => {
+              if (tierOption === ticket.tier) return null;
+              return (
+                <option key={tierOption} value={tierOption}>
+                  Move to {tierOption}
+                </option>
+              );
+            })}
+          </select>
 
           {/* Zoho Desk Styled Assignment Popover (Teams & Agents) */}
           <AssignmentPopover
@@ -511,7 +458,7 @@ export const TicketDetailPage: React.FC = () => {
           {(!ticket.assignee || ticket.assignee.id !== user?.id) && (
             <button
               onClick={handleAssignToMe}
-              className="btn btn-secondary btn-sm"
+              className="ticket-action-pill"
               title="Assign to Myself"
             >
               <UserCheck size={14} /> Assign to Me
@@ -520,174 +467,65 @@ export const TicketDetailPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Mobile / Tablet Workspace Navigation Bar */}
+      <div className="mobile-workspace-tab-bar">
+        <button
+          className={`mobile-workspace-tab-btn ${mobileTab === 'main' ? 'active' : ''}`}
+          onClick={() => setMobileTab('main')}
+        >
+          <MessageSquare size={14} /> Conversation
+        </button>
+        <button
+          className={`mobile-workspace-tab-btn ${mobileTab === 'sidebar' ? 'active' : ''}`}
+          onClick={() => setMobileTab('sidebar')}
+        >
+          <UserCheck size={14} /> Properties & Customer
+        </button>
+      </div>
+
       {/* Main Split Body */}
-      <div
-        style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 320px', overflow: 'hidden' }}
-      >
+      <div className="ticket-workspace-body">
         {/* Left Column: Context, Tabs, Conversation */}
         <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            borderRight: '1px solid var(--border-subtle)',
-            backgroundColor: 'var(--bg-app)',
-          }}
+          className={`ticket-workspace-main ${mobileTab === 'sidebar' ? 'hidden-mobile' : ''} ${
+            isFullscreen ? 'is-maximized' : ''
+          }`}
         >
-          {/* Top Section: Collapsible & Maximizable Description & SLA */}
-          {maximizedSection !== 'workspace' && (
-            <div
-              style={{
-                flexShrink: 0,
-                ...(maximizedSection === 'description'
-                  ? { flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }
-                  : {}),
-                padding: '12px 20px',
-                backgroundColor: '#ffffff',
-                borderBottom: '1px solid var(--border-subtle)',
-                overflow: 'hidden',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '8px',
-                  flexShrink: 0,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      color: 'var(--text-muted)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                    }}
-                  >
-                    Initial Description
-                  </span>
-                  {maximizedSection === 'none' && (
-                    <button
-                      type="button"
-                      onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '3px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        color: 'var(--primary, #2563eb)',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                      }}
-                    >
-                      {isDescriptionExpanded ? (
-                        <>
-                          <span>Collapse</span>
-                          <ChevronUp size={12} />
-                        </>
-                      ) : (
-                        <>
-                          <span>Expand</span>
-                          <ChevronDown size={12} />
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-
-                {/* Right controls: SLA Badges + Maximize/Restore Toggle Button */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <SlaCountdown clocks={ticket.slaClocks} ticketStatus={ticket.status} />
-
-                  <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-subtle)' }} />
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMaximizedSection(maximizedSection === 'description' ? 'none' : 'description')
-                    }
-                    title={
-                      maximizedSection === 'description'
-                        ? 'Restore Split View'
-                        : 'Maximize Description Section'
-                    }
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color:
-                        maximizedSection === 'description'
-                          ? 'var(--primary, #2563eb)'
-                          : 'var(--text-secondary, #64748b)',
-                      backgroundColor:
-                        maximizedSection === 'description'
-                          ? 'rgba(37, 99, 235, 0.08)'
-                          : 'var(--bg-hover, #f1f5f9)',
-                      border: '1px solid var(--border-subtle, #e2e8f0)',
-                      borderRadius: '5px',
-                      padding: '3px 8px',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    {maximizedSection === 'description' ? (
-                      <>
-                        <Minimize2 size={12} />
-                        <span>Restore</span>
-                      </>
-                    ) : (
-                      <>
-                        <Maximize2 size={12} />
-                        <span>Maximize</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  margin: 0,
-                  lineHeight: 1.45,
-                  fontSize: '13px',
-                  color: 'var(--text-primary)',
-                  ...(maximizedSection === 'description'
-                    ? { flex: 1, maxHeight: 'none', height: '100%' }
-                    : { maxHeight: isDescriptionExpanded ? '320px' : '75px' }),
-                  overflowY: 'auto',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: '6px',
-                  padding: '8px 12px',
-                  backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-                  transition: 'max-height 0.2s ease',
-                }}
-              >
-                <FormattedEmailContent text={ticket.description} />
-              </div>
+          {/* Ticket Subject Header Banner */}
+          <div className="ticket-subject-banner">
+            <h1 className="ticket-subject-title" title={ticket.subject}>
+              {ticket.subject}
+            </h1>
+            <div className="ticket-subject-meta">
+              <span>
+                From <strong style={{ color: 'var(--text-primary)' }}>{ticket.requester?.fullName || ticket.requester?.email || ticket.customer?.fullName || 'Customer'}</strong>
+                {ticket.requester?.email ? ` (${ticket.requester.email})` : ''}
+              </span>
+              {ticket.createdAt && (
+                <>
+                  <span className="meta-dot">•</span>
+                  <span>{new Date(ticket.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                </>
+              )}
+              {ticket.channel && (
+                <>
+                  <span className="meta-dot">•</span>
+                  <span style={{ textTransform: 'capitalize' }}>via {ticket.channel.toLowerCase()}</span>
+                </>
+              )}
             </div>
-          )}
+          </div>
 
-          {/* Bottom Section: Workspace Tabs & Dynamic Responsive Content */}
-          {maximizedSection !== 'description' && (
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                minHeight: 0,
-              }}
-            >
+          {/* Workspace Tabs & Dynamic Responsive Content */}
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              minHeight: 0,
+            }}
+          >
               {/* Workspace Tabs Header */}
               <div
                 style={{
@@ -718,7 +556,7 @@ export const TicketDetailPage: React.FC = () => {
                     gap: '6px',
                   }}
                 >
-                  <MessageSquare size={14} /> Conversation ({comments.length})
+                  <MessageSquare size={14} /> Conversation ({comments.length > 0 ? `${comments.length} ${comments.length === 1 ? 'reply' : 'replies'}` : '1'})
                 </button>
 
                 <button
@@ -789,48 +627,36 @@ export const TicketDetailPage: React.FC = () => {
                   <Video size={14} /> Screen Recordings & Media ({mediaAssets.length})
                 </button>
 
-                {/* Symmetrical Right Control: Maximize/Restore Workspace Section */}
+                {/* Symmetrical Right Control: Browser Fullscreen Toggle */}
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
                   <button
                     type="button"
-                    onClick={() =>
-                      setMaximizedSection(maximizedSection === 'workspace' ? 'none' : 'workspace')
-                    }
-                    title={
-                      maximizedSection === 'workspace'
-                        ? 'Restore Split View'
-                        : 'Maximize Activity Workspace'
-                    }
+                    onClick={toggleFullscreen}
+                    title={isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '4px',
+                      gap: '5px',
                       fontSize: '11px',
                       fontWeight: 600,
-                      color:
-                        maximizedSection === 'workspace'
-                          ? 'var(--primary, #2563eb)'
-                          : 'var(--text-secondary, #64748b)',
-                      backgroundColor:
-                        maximizedSection === 'workspace'
-                          ? 'rgba(37, 99, 235, 0.08)'
-                          : 'var(--bg-hover, #f1f5f9)',
+                      color: isFullscreen ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #64748b)',
+                      backgroundColor: isFullscreen ? 'rgba(37, 99, 235, 0.08)' : 'var(--bg-hover, #f1f5f9)',
                       border: '1px solid var(--border-subtle, #e2e8f0)',
                       borderRadius: '5px',
-                      padding: '3px 8px',
+                      padding: '4px 9px',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
                     }}
                   >
-                    {maximizedSection === 'workspace' ? (
+                    {isFullscreen ? (
                       <>
                         <Minimize2 size={12} />
-                        <span>Restore</span>
+                        <span>Exit Full Screen</span>
                       </>
                     ) : (
                       <>
                         <Maximize2 size={12} />
-                        <span>Maximize</span>
+                        <span>Full Screen</span>
                       </>
                     )}
                   </button>
@@ -850,7 +676,16 @@ export const TicketDetailPage: React.FC = () => {
                         padding: '8px 0',
                       }}
                     >
-                      <TimelineView comments={comments} />
+                      <TimelineView
+                        comments={comments}
+                        initialTicket={{
+                          description: ticket.description,
+                          requester: ticket.requester,
+                          createdAt: ticket.createdAt,
+                          channel: ticket.channel,
+                          mediaAssets: ticket.mediaAssets || [],
+                        }}
+                      />
                     </div>
 
                     {/* Docked Reply Composer at the bottom — Always visible without scrolling */}
@@ -887,20 +722,10 @@ export const TicketDetailPage: React.FC = () => {
                 )}
               </div>
             </div>
-          )}
         </div>
 
         {/* Right Column: Customer & Ticket Sidebar Info */}
-        <div
-          style={{
-            padding: '16px',
-            overflowY: 'auto',
-            backgroundColor: 'var(--bg-sidebar)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '14px',
-          }}
-        >
+        <div className={`ticket-workspace-sidebar ${mobileTab === 'main' ? 'hidden-mobile' : ''}`}>
           {/* Zoho Desk 3-Tier Architecture: Organization & Product */}
           <OrganizationProductManager
             ticketId={ticket.id}
@@ -976,6 +801,22 @@ export const TicketDetailPage: React.FC = () => {
                 <strong>Brand:</strong> {ticket.brand?.name || 'Default Brand'}
               </div>
             </div>
+          </div>
+
+          {/* SLA Targets & Clocks Card */}
+          <div className="card" style={{ padding: '14px' }}>
+            <h4
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                marginBottom: '10px',
+              }}
+            >
+              SLA Targets & Clocks
+            </h4>
+            <SlaCountdown clocks={ticket.slaClocks} ticketStatus={ticket.status} />
           </div>
         </div>
       </div>

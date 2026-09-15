@@ -128,22 +128,25 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
       {/* Assigned Category Badge */}
       {category ? (
         <span
+          className="category-pill"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '5px',
+            gap: '6px',
+            height: '32px',
+            boxSizing: 'border-box',
             backgroundColor: `${categoryColor}14`,
             color: categoryColor,
             border: `1px solid ${categoryColor}35`,
-            borderRadius: '4px',
-            padding: '2px 8px',
-            fontSize: '11px',
+            borderRadius: '6px',
+            padding: '0 10px',
+            fontSize: '12px',
             fontWeight: 600,
             whiteSpace: 'nowrap',
             transition: 'all 0.15s ease',
           }}
         >
-          <Folder size={11} />
+          <Folder size={13} />
           <span
             onClick={(e) => {
               e.stopPropagation();
@@ -176,8 +179,8 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
                 fontSize: '10px',
                 lineHeight: 1,
                 borderRadius: '50%',
-                width: '13px',
-                height: '13px',
+                width: '14px',
+                height: '14px',
                 opacity: 0.7,
                 transition: 'opacity 0.15s ease',
               }}
@@ -190,7 +193,7 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
                 e.currentTarget.style.backgroundColor = 'transparent';
               }}
             >
-              <X size={10} />
+              <X size={11} />
             </button>
           )}
         </span>
@@ -200,6 +203,7 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
       {!readonly && (
         <button
           type="button"
+          className="category-pill"
           onClick={(e) => {
             e.stopPropagation();
             setIsOpen((prev) => !prev);
@@ -207,33 +211,35 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '4px',
-            backgroundColor: isOpen ? '#f5f3ff' : 'transparent',
-            color: isOpen ? '#7c3aed' : 'var(--text-muted)',
-            border: isOpen ? '1px solid #ddd6fe' : '1px dashed var(--border-medium)',
-            borderRadius: '4px',
-            padding: '2px 7px',
-            fontSize: '11px',
-            fontWeight: 500,
+            gap: '5px',
+            height: '32px',
+            boxSizing: 'border-box',
+            backgroundColor: isOpen ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-surface, #ffffff)',
+            color: isOpen ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #475569)',
+            border: isOpen ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-medium, #e2e8f0)',
+            borderRadius: '6px',
+            padding: '0 10px',
+            fontSize: '12px',
+            fontWeight: 600,
             cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
             transition: 'all 0.15s ease',
           }}
           onMouseEnter={(e) => {
             if (!isOpen) {
-              e.currentTarget.style.backgroundColor = 'var(--bg-subtle)';
-              e.currentTarget.style.color = 'var(--text-primary)';
+              e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
+              e.currentTarget.style.color = 'var(--text-primary, #0f172a)';
             }
           }}
           onMouseLeave={(e) => {
             if (!isOpen) {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = 'var(--text-muted)';
+              e.currentTarget.style.borderColor = 'var(--border-medium, #e2e8f0)';
+              e.currentTarget.style.color = 'var(--text-secondary, #475569)';
             }
           }}
-          title={category ? 'Change category' : 'Assign category'}
         >
-          {category ? <Folder size={11} /> : <Plus size={11} />}
-          <span>{category ? 'Change' : 'Category'}</span>
+          <Folder size={13} style={{ color: 'var(--text-muted)' }} />
+          <span>{category ? 'Change' : '+ Category'}</span>
         </button>
       )}
 

@@ -36,7 +36,9 @@ export const Shell: React.FC = () => {
 
       // Only toast for customer public replies
       if (data.comment?.author?.kind === 'CUSTOMER' || data.comment?.visibility === 'PUBLIC') {
-        toast.info(`💬 New reply on ticket #${data.ticketId.slice(0, 8)}`);
+        const ticketNum = data.ticketNumber || (data.ticket?.number) || data.ticketId.slice(0, 8);
+        const cleanNumber = String(ticketNum).replace(/^#/, '');
+        toast.info(`💬 New reply on ticket #${cleanNumber}`);
       }
 
       try {

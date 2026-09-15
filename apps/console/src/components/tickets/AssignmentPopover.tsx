@@ -166,27 +166,33 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
       {/* Trigger Button */}
       <button
         type="button"
+        className="assignment-popover-btn"
         onClick={() => {
           setIsOpen(!isOpen);
           setSearchQuery('');
         }}
         style={{
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
           gap: '8px',
-          padding: '6px 12px',
-          backgroundColor: 'var(--bg-surface)',
-          border: '1px solid var(--border-medium)',
-          borderRadius: 'var(--radius-md)',
-          color: 'var(--text-primary)',
+          height: '32px',
+          padding: '0 12px',
+          backgroundColor: 'var(--bg-surface, #ffffff)',
+          border: '1px solid var(--border-medium, #e2e8f0)',
+          borderRadius: 'var(--radius-md, 6px)',
+          color: 'var(--text-primary, #0f172a)',
           fontSize: '12px',
           fontWeight: 600,
           cursor: 'pointer',
+          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
           transition: 'all 0.15s ease',
+          outline: 'none',
+          boxSizing: 'border-box',
         }}
         title="Assign Agent or Team"
       >
         <div
+          className="assignment-avatar-disc"
           style={{
             width: '20px',
             height: '20px',

@@ -18,6 +18,9 @@ import { ApiClient } from '../../api/client';
 export interface MediaAssetItem {
   id: string;
   kind: 'SCREENSHOT' | 'SCREEN_RECORDING' | 'VOICE_RECORDING' | 'ATTACHMENT';
+  ticketId?: string | null;
+  commentId?: string | null;
+  chatMessageId?: string | null;
   filename?: string | null;
   originalFilename?: string | null;
   mimeType: string;

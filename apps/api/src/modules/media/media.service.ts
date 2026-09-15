@@ -524,6 +524,9 @@ export class MediaService {
 /** Fields returned to clients. `storageKey` is included for internal use, never serialized. */
 const MEDIA_SELECT = {
   id: true,
+  ticketId: true,
+  commentId: true,
+  chatMessageId: true,
   kind: true,
   status: true,
   storageKey: true,
@@ -545,6 +548,9 @@ const MEDIA_SELECT = {
 
 type MediaRow = {
   id: string;
+  ticketId: string | null;
+  commentId: string | null;
+  chatMessageId: string | null;
   kind: string;
   status: string;
   storageKey: string;
@@ -574,6 +580,9 @@ type MediaRow = {
 function toMediaResponse(row: MediaRow) {
   return {
     id: row.id,
+    ticketId: row.ticketId ?? null,
+    commentId: row.commentId ?? null,
+    chatMessageId: row.chatMessageId ?? null,
     kind: row.kind,
     status: row.status,
     filename: row.originalFilename,

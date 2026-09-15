@@ -124,18 +124,21 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
         return (
           <span
             key={idx}
+            className="tag-pill"
             onClick={() => setSelectedTag({ name: tag.name, slug: tag.slug, color: tag.color })}
             style={{
-              fontSize: '11px',
+              fontSize: '12px',
               fontWeight: 600,
+              height: '32px',
+              boxSizing: 'border-box',
               backgroundColor: `${color}15`,
               color: color,
               border: `1px solid ${color}40`,
-              borderRadius: '4px',
-              padding: '2px 7px',
+              borderRadius: '6px',
+              padding: '0 10px',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '5px',
+              gap: '6px',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
             }}
@@ -177,6 +180,7 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
         <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
           <button
             type="button"
+            className="tag-pill"
             onClick={(e) => {
               e.stopPropagation();
               setIsOpen(!isOpen);
@@ -184,31 +188,34 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '4px',
-              fontSize: '11px',
+              gap: '5px',
+              height: '32px',
+              boxSizing: 'border-box',
+              fontSize: '12px',
               fontWeight: 600,
-              padding: '2px 8px',
-              borderRadius: '4px',
-              border: '1px dashed var(--border-medium)',
-              backgroundColor: isOpen ? 'var(--bg-hover)' : 'transparent',
-              color: 'var(--text-secondary)',
+              padding: '0 10px',
+              borderRadius: '6px',
+              border: isOpen ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-medium, #e2e8f0)',
+              backgroundColor: isOpen ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-surface, #ffffff)',
+              color: isOpen ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #475569)',
               cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
               transition: 'all 0.15s ease',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-              e.currentTarget.style.borderColor = 'var(--primary)';
-              e.currentTarget.style.color = 'var(--primary)';
+              if (!isOpen) {
+                e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
+                e.currentTarget.style.color = 'var(--text-primary, #0f172a)';
+              }
             }}
             onMouseLeave={(e) => {
               if (!isOpen) {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.borderColor = 'var(--border-medium)';
-                e.currentTarget.style.color = 'var(--text-secondary)';
+                e.currentTarget.style.borderColor = 'var(--border-medium, #e2e8f0)';
+                e.currentTarget.style.color = 'var(--text-secondary, #475569)';
               }
             }}
           >
-            <Plus size={11} />
+            <Plus size={13} style={{ color: 'var(--text-muted)' }} />
             <span>Tag</span>
           </button>
 

@@ -235,12 +235,13 @@
   flex-direction: column;
 }
 
-/* Split Pane Workspaces */
+/* Split Pane Workspaces (Inbox Page) */
 .split-pane-layout {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 360px minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .split-left-pane {
@@ -249,6 +250,8 @@
   overflow-x: hidden;
   min-width: 0;
   background-color: #ffffff;
+  display: flex;
+  flex-direction: column;
 }
 
 .split-right-pane {
@@ -256,4 +259,431 @@
   background-color: var(--bg-app);
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
+
+@media (max-width: 1024px) {
+  .split-pane-layout {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .split-pane-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .split-pane-layout.has-selected .split-left-pane {
+    display: none !important;
+  }
+
+  .split-pane-layout:not(.has-selected) .split-right-pane {
+    display: none !important;
+  }
+
+  .split-left-pane, .split-right-pane {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    flex: 1;
+  }
+}
+
+/* Symmetrical Header & Action Controls */
+.ticket-header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface, #ffffff);
+  flex-shrink: 0;
+  gap: 10px 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.ticket-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.ticket-header-back-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid var(--border-medium, #e2e8f0);
+  background-color: var(--bg-surface, #ffffff);
+  color: var(--text-secondary, #475569);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.ticket-header-back-btn:hover {
+  background-color: var(--bg-surface-hover, #f8fafc);
+  color: var(--text-primary, #0f172a);
+  border-color: var(--primary, #2563eb);
+}
+
+.ticket-id-badge {
+  height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary, #2563eb);
+  background-color: var(--primary-surface, #eff6ff);
+  border: 1px solid var(--primary-border, #bfdbfe);
+  border-radius: var(--radius-md, 6px);
+  letter-spacing: -0.01em;
+  box-sizing: border-box;
+}
+
+.ticket-header-bar .tier-pill,
+.ticket-header-left .tier-pill,
+.split-right-pane .tier-pill {
+  height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: var(--radius-md, 6px);
+  box-sizing: border-box;
+}
+
+.ticket-header-bar .prio-pill,
+.ticket-header-left .prio-pill,
+.split-right-pane .prio-pill {
+  height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid var(--border-medium, #e2e8f0);
+  background-color: var(--bg-surface, #ffffff);
+  box-sizing: border-box;
+}
+
+.ticket-subject-banner {
+  padding: 14px 20px 12px 20px;
+  background-color: var(--bg-surface, #ffffff);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ticket-subject-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+
+.ticket-subject-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  flex-wrap: wrap;
+}
+
+.ticket-subject-meta .meta-dot {
+  opacity: 0.5;
+}
+
+.ticket-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.ticket-action-pill {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  background-color: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-medium, #e2e8f0);
+  border-radius: var(--radius-md, 6px);
+  color: var(--text-primary, #0f172a);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.15s ease;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.ticket-action-pill:hover {
+  border-color: var(--primary, #2563eb);
+  background-color: var(--bg-surface-hover, #f8fafc);
+}
+
+.header-divider {
+  width: 1px;
+  height: 20px;
+  background-color: var(--border-subtle, #e2e8f0);
+  margin: 0 2px;
+}
+
+/* Symmetrical Pill Select */
+.pill-select {
+  height: 32px;
+  padding: 0 10px;
+  background-color: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-medium, #e2e8f0);
+  border-radius: var(--radius-md, 6px);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  outline: none;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.pill-select:hover {
+  border-color: var(--primary, #2563eb);
+}
+
+.pill-badge {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 12px;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
+/* Full Ticket Workspace Layout */
+.ticket-workspace-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.ticket-workspace-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--border-subtle);
+  background-color: var(--bg-app);
+  min-width: 0;
+  min-height: 0;
+  transition: all 0.2s ease-in-out;
+}
+
+/* Windowed Maximized Docked Fullscreen Mode (No OS/Browser Fullscreen) */
+.ticket-workspace-main.is-maximized {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 2500 !important;
+  background-color: var(--bg-app, #f8fafc) !important;
+  border-right: none !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35) !important;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.ticket-workspace-sidebar {
+  padding: 16px;
+  overflow-y: auto;
+  background-color: var(--bg-sidebar, #f8fafc);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* Responsive Mobile / Tablet Tab Switcher (hidden on desktop) */
+.mobile-workspace-tab-bar {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .app-sidebar {
+    width: 210px;
+  }
+
+  .ticket-workspace-body {
+    grid-template-columns: minmax(0, 1fr) 280px;
+  }
+
+  .ticket-header-bar {
+    padding: 8px 16px;
+    gap: 8px 12px;
+  }
+}
+
+@media (max-width: 860px) {
+  .ticket-id-badge,
+  .tier-pill,
+  .pill-select,
+  .prio-pill,
+  .pill-badge,
+  .ticket-action-pill,
+  .ticket-header-back-btn,
+  .category-pill,
+  .tag-pill,
+  .status-popover-btn,
+  .assignment-popover-btn {
+    height: 26px !important;
+    font-size: 11px !important;
+    padding: 0 7px !important;
+    border-radius: 4px !important;
+    gap: 5px !important;
+  }
+
+  .ticket-header-back-btn {
+    width: 26px !important;
+    min-width: 26px !important;
+    padding: 0 !important;
+  }
+
+  .ticket-header-back-btn svg,
+  .category-pill svg,
+  .tag-pill svg,
+  .status-popover-btn svg,
+  .assignment-popover-btn svg,
+  .ticket-action-pill svg {
+    width: 12px !important;
+    height: 12px !important;
+  }
+
+  .assignment-avatar-disc {
+    width: 16px !important;
+    height: 16px !important;
+    font-size: 9px !important;
+  }
+
+  .assignment-avatar-disc svg {
+    width: 10px !important;
+    height: 10px !important;
+  }
+
+  .mobile-workspace-tab-bar {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border-subtle);
+    background-color: var(--bg-surface);
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  .mobile-workspace-tab-btn {
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-secondary);
+    border-bottom: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .mobile-workspace-tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  .ticket-workspace-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .ticket-workspace-main {
+    border-right: none;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .ticket-workspace-sidebar {
+    border-top: 1px solid var(--border-subtle);
+    flex: 1;
+    min-height: 0;
+  }
+
+  .ticket-workspace-sidebar.hidden-mobile,
+  .ticket-workspace-main.hidden-mobile {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .ticket-header-bar {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .ticket-header-left {
+    min-width: 100%;
+  }
+
+  .ticket-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .ticket-subject-banner {
+    padding: 10px 14px 8px 14px;
+  }
+
+  .ticket-subject-title {
+    font-size: 14px;
+  }
+
+  .mobile-only-back-btn {
+    display: inline-flex !important;
+  }
+}
+
+.mobile-only-back-btn {
+  display: none;
+}
+
