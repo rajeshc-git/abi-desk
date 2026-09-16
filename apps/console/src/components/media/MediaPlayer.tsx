@@ -468,7 +468,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                   title="Open in new browser tab"
                 >
                   <ExternalLink size={13} />
-                  <span>Open in Tab</span>
+                  <span className="preview-action-text-full">Open in Tab</span>
+                  <span className="preview-action-text-short">Open</span>
                 </a>
                 <button
                   type="button"
@@ -594,7 +595,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media = [] }) => {
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 18px' }}
                       >
                         <ExternalLink size={14} />
-                        <span>Open in New Tab</span>
+                        <span className="preview-action-text-full">Open in New Tab</span>
+                        <span className="preview-action-text-short">Open</span>
                       </a>
                       <button
                         type="button"

@@ -144,7 +144,7 @@ const InboxAttachmentCard: React.FC<{
             <img
               src={inlineUrl}
               alt={displayName}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', backgroundColor: '#ffffff' }}
             />
           ) : (
             <div style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
@@ -717,7 +717,11 @@ export const InboxPage: React.FC = () => {
   };
 
   const handleTicketCreated = (newTicket: TicketSummary) => {
-    setTickets((prev) => [newTicket, ...prev]);
+    setTickets((prev) => {
+      const exists = prev.some((t) => t.id === newTicket.id);
+      if (exists) return prev;
+      return [newTicket, ...prev];
+    });
     handleSelectTicket(newTicket);
   };
 
@@ -1075,114 +1079,115 @@ export const InboxPage: React.FC = () => {
               overflow: 'hidden',
             }}
           >
-            {/* Top Toolbar (Single Sleek Row) */}
+            {/* Top Toolbar (Single Sleek Row Dock) */}
             <div
+              className="ticket-header-toolbar card"
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 16px',
-                borderBottom: '1px solid var(--border-subtle)',
+                padding: '8px 12px',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
                 backgroundColor: 'var(--bg-surface)',
-                gap: '8px',
-                flexWrap: 'wrap',
+                gap: '6px',
                 flexShrink: 0,
+                margin: 0,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => setSelectedTicket(null)}
-                  className="ticket-header-back-btn mobile-only-back-btn"
-                  title="Back to Ticket List"
+              <button
+                onClick={() => setSelectedTicket(null)}
+                className="ticket-header-back-btn mobile-only-back-btn"
+                title="Back to Ticket List"
+              >
+                <ArrowLeft size={16} />
+              </button>
+              <span className="ticket-id-badge">
+                #{selectedTicket.number}
+              </span>
+              <TierBadge tier={selectedTicket.tier} />
+              <StatusPopover
+                status={selectedTicket.status}
+                onStatusChange={handleQuickStatusChange}
+              />
+              {canChangePriority ? (
+                <select
+                  value={selectedTicket.priority}
+                  onChange={(e) => handlePriorityChange(e.target.value)}
+                  className="pill-select"
+                  style={{
+                    color:
+                      selectedTicket.priority === 'CRITICAL' || selectedTicket.priority === 'URGENT'
+                        ? 'var(--color-critical, #ef4444)'
+                        : selectedTicket.priority === 'HIGH'
+                        ? '#f59e0b'
+                        : 'var(--text-primary)',
+                  }}
+                  title="Change Priority (L1 / L2 / Staff)"
                 >
-                  <ArrowLeft size={16} />
-                </button>
-                <span className="ticket-id-badge">
-                  #{selectedTicket.number}
+                  <option value="LOW">Priority: LOW</option>
+                  <option value="NORMAL">Priority: NORMAL</option>
+                  <option value="HIGH">Priority: HIGH</option>
+                  <option value="URGENT">Priority: URGENT</option>
+                  <option value="CRITICAL">Priority: CRITICAL</option>
+                </select>
+              ) : (
+                <PriorityPill priority={selectedTicket.priority} />
+              )}
+              <TicketCategoryManager
+                ticketId={selectedTicket.id}
+                category={selectedTicket.category}
+                onCategoryChange={(newCategory) => {
+                  setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
+                  setTickets((prev) =>
+                    prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
+                  );
+                }}
+              />
+              <TicketTagManager
+                ticketId={selectedTicket.id}
+                tags={selectedTicket.tags}
+                onTagsChange={(newTags) => {
+                  setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
+                  setTickets((prev) =>
+                    prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
+                  );
+                }}
+              />
+              {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
+                <span
+                  className="pill-badge"
+                  style={{
+                    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                    color: '#0284c7',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                  }}
+                  title="Organization"
+                >
+                  🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
                 </span>
-                <TierBadge tier={selectedTicket.tier} />
-                <StatusPopover
-                  status={selectedTicket.status}
-                  onStatusChange={handleQuickStatusChange}
-                />
-                {canChangePriority ? (
-                  <select
-                    value={selectedTicket.priority}
-                    onChange={(e) => handlePriorityChange(e.target.value)}
-                    className="pill-select"
-                    style={{
-                      color:
-                        selectedTicket.priority === 'CRITICAL' || selectedTicket.priority === 'URGENT'
-                          ? 'var(--color-critical, #ef4444)'
-                          : selectedTicket.priority === 'HIGH'
-                          ? '#f59e0b'
-                          : 'var(--text-primary)',
-                    }}
-                    title="Change Priority (L1 / L2 / Staff)"
-                  >
-                    <option value="LOW">Priority: LOW</option>
-                    <option value="NORMAL">Priority: NORMAL</option>
-                    <option value="HIGH">Priority: HIGH</option>
-                    <option value="URGENT">Priority: URGENT</option>
-                    <option value="CRITICAL">Priority: CRITICAL</option>
-                  </select>
-                ) : (
-                  <PriorityPill priority={selectedTicket.priority} />
-                )}
-                <TicketCategoryManager
-                  ticketId={selectedTicket.id}
-                  category={selectedTicket.category}
-                  onCategoryChange={(newCategory) => {
-                    setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
-                    setTickets((prev) =>
-                      prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
-                    );
+              )}
+              {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
+                <span
+                  className="pill-badge"
+                  style={{
+                    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                    color: '#9333ea',
+                    border: '1px solid rgba(168, 85, 247, 0.25)',
                   }}
-                />
-                <TicketTagManager
-                  ticketId={selectedTicket.id}
-                  tags={selectedTicket.tags}
-                  onTagsChange={(newTags) => {
-                    setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
-                    setTickets((prev) =>
-                      prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
-                    );
-                  }}
-                />
-                {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
-                  <span
-                    className="pill-badge"
-                    style={{
-                      backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                      color: '#0284c7',
-                      border: '1px solid rgba(56, 189, 248, 0.25)',
-                    }}
-                    title="Organization"
-                  >
-                    🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
-                  </span>
-                )}
-                {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
-                  <span
-                    className="pill-badge"
-                    style={{
-                      backgroundColor: 'rgba(168, 85, 247, 0.12)',
-                      color: '#9333ea',
-                      border: '1px solid rgba(168, 85, 247, 0.25)',
-                    }}
-                    title="Product"
-                  >
-                    📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
-                  </span>
-                )}
-              </div>
+                  title="Product"
+                >
+                  📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
+                </span>
+              )}
 
               <button
+                type="button"
                 onClick={() => navigate(`/tickets/${selectedTicket.id}`)}
-                className="btn btn-primary"
-                style={{ height: '32px', flexShrink: 0, gap: '6px' }}
+                className="btn btn-primary ticket-workspace-btn"
+                title="Open Full Workspace"
               >
-                <ExternalLink size={14} /> Open Full Workspace
+                <ExternalLink size={14} />
+                <span className="ticket-workspace-btn-text">Open Full Workspace</span>
               </button>
             </div>
 
@@ -1240,104 +1245,97 @@ export const InboxPage: React.FC = () => {
             </div>
 
             {/* Middle Content Area: Conversation Thread with Thread Accordion */}
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Thread Header Bar & Expand/Collapse Toggle */}
               <div
-                className="card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '10px',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h4
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                      margin: 0,
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    Conversation Thread
+                  </h4>
+                  {selectedComments.length > 0 && (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        color: 'var(--primary, #2563eb)',
+                        padding: '1px 8px',
+                        borderRadius: '12px',
+                      }}
+                    >
+                      {selectedComments.length} {selectedComments.length === 1 ? 'reply' : 'replies'}
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={toggleExpandAll}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--primary, #2563eb)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  {isAllExpanded ? (
+                    <>
+                      <ChevronUp size={14} /> Collapse Previous
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={14} /> Expand All
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Scrollable Accordion Stream */}
+              <div
                 style={{
                   flex: 1,
                   minHeight: 0,
+                  overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
-                  overflow: 'hidden',
-                  padding: '14px 16px',
-                  margin: 0,
-                  borderRadius: 0,
-                  border: 'none',
-                  backgroundColor: 'transparent',
+                  gap: '10px',
+                  padding: 0,
                 }}
               >
-                {/* Thread Header Bar & Expand/Collapse Toggle */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '12px',
-                    flexShrink: 0,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h4
-                      style={{
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        color: 'var(--text-muted)',
-                        margin: 0,
-                        letterSpacing: '0.04em',
-                      }}
-                    >
-                      Conversation Thread
-                    </h4>
-                    {selectedComments.length > 0 && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                          color: 'var(--primary, #2563eb)',
-                          padding: '1px 8px',
-                          borderRadius: '12px',
-                        }}
-                      >
-                        {selectedComments.length} {selectedComments.length === 1 ? 'reply' : 'replies'}
-                      </span>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={toggleExpandAll}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--primary, #2563eb)',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '3px 8px',
-                      borderRadius: '4px',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    {isAllExpanded ? (
-                      <>
-                        <ChevronUp size={14} /> Collapse Previous
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown size={14} /> Expand All
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Scrollable Accordion Stream */}
-                <div
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    overflowY: 'auto',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    paddingRight: '6px',
-                  }}
-                >
                   {/* Initial Description Accordion Item */}
                   {(() => {
                     const rootMedia = selectedMedia.filter((m: any) => !m.commentId);
@@ -1377,7 +1375,7 @@ export const InboxPage: React.FC = () => {
                             if (!isDescriptionExpanded) e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
                             <div
                               style={{
                                 width: '26px',
@@ -1401,6 +1399,7 @@ export const InboxPage: React.FC = () => {
                             </span>
 
                             <span
+                              className="thread-initial-badge"
                               style={{
                                 fontSize: '10px',
                                 color: 'var(--text-muted)',
@@ -1412,11 +1411,13 @@ export const InboxPage: React.FC = () => {
                                 flexShrink: 0,
                               }}
                             >
-                              Initial Request
+                              <span className="initial-badge-full">Initial Request</span>
+                              <span className="initial-badge-short">Initial</span>
                             </span>
 
                             {!isDescriptionExpanded && (
                               <span
+                                className="thread-header-snippet"
                                 style={{
                                   fontSize: '12px',
                                   color: 'var(--text-secondary)',
@@ -1424,6 +1425,8 @@ export const InboxPage: React.FC = () => {
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
                                   marginLeft: '4px',
+                                  minWidth: 0,
+                                  flex: 1,
                                 }}
                               >
                                 {plainSnippet || 'View message content...'}
@@ -1431,7 +1434,7 @@ export const InboxPage: React.FC = () => {
                             )}
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto', paddingLeft: '8px' }}>
                             {rootMedia.length > 0 && (
                               <span
                                 style={{
@@ -1449,7 +1452,7 @@ export const InboxPage: React.FC = () => {
                                 <Paperclip size={11} /> {rootMedia.length}
                               </span>
                             )}
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               {selectedTicket.createdAt
                                 ? new Date(selectedTicket.createdAt).toLocaleDateString(undefined, {
                                     month: 'short',
@@ -1607,6 +1610,7 @@ export const InboxPage: React.FC = () => {
                                 </span>
                               ) : (
                                 <span
+                                  className="thread-reply-badge"
                                   style={{
                                     fontSize: '10px',
                                     color: '#0369a1',
@@ -1618,12 +1622,14 @@ export const InboxPage: React.FC = () => {
                                     flexShrink: 0,
                                   }}
                                 >
-                                  Customer Reply
+                                  <span className="reply-badge-full">Customer Reply</span>
+                                  <span className="reply-badge-short">Reply</span>
                                 </span>
                               )}
 
                               {!isExpanded && (
                                 <span
+                                  className="thread-header-snippet"
                                   style={{
                                     fontSize: '12px',
                                     color: 'var(--text-secondary)',
@@ -1631,6 +1637,8 @@ export const InboxPage: React.FC = () => {
                                     textOverflow: 'ellipsis',
                                     whiteSpace: 'nowrap',
                                     marginLeft: '4px',
+                                    minWidth: 0,
+                                    flex: 1,
                                   }}
                                 >
                                   {plainSnippet || 'View message content...'}
@@ -1638,7 +1646,7 @@ export const InboxPage: React.FC = () => {
                               )}
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto', paddingLeft: '8px' }}>
                               {commentMedia.length > 0 && (
                                 <span
                                   style={{
@@ -1656,7 +1664,7 @@ export const InboxPage: React.FC = () => {
                                   <Paperclip size={11} /> {commentMedia.length}
                                 </span>
                               )}
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                                 {comment.createdAt
                                   ? new Date(comment.createdAt).toLocaleDateString(undefined, {
                                       month: 'short',
@@ -1670,10 +1678,17 @@ export const InboxPage: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Expanded Message Content */}
+                          {/* Expanded Content View */}
                           {isExpanded && (
-                            <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                              <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                            <div style={{ padding: '14px 16px', backgroundColor: isInternal ? '#fffdf5' : '#ffffff' }}>
+                              <div
+                                style={{
+                                  fontSize: '13px',
+                                  lineHeight: '1.6',
+                                  color: 'var(--text-primary)',
+                                  wordBreak: 'break-word',
+                                }}
+                              >
                                 <FormattedEmailContent text={comment.body} />
                               </div>
 
@@ -1706,42 +1721,25 @@ export const InboxPage: React.FC = () => {
                   )}
                 </div>
               </div>
-            </div>
 
             {/* Bottom Compact Metadata Status Bar */}
-            <div
-              className="card"
-              style={{
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 16px',
-                margin: 0,
-                fontSize: '12px',
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                flexWrap: 'wrap',
-                gap: '8px 16px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Requester:</span>
-                <strong style={{ color: 'var(--text-primary)' }}>{selectedTicket.requester?.fullName || 'Customer'}</strong>
+            <div className="card ticket-bottom-metadata-bar">
+              <div className="ticket-bottom-metadata-item">
+                <span className="metadata-label">Requester:</span>
+                <strong className="metadata-value">{selectedTicket.requester?.fullName || 'Customer'}</strong>
                 {selectedTicket.requester?.email && (
-                  <span style={{ color: 'var(--text-secondary)' }}>({selectedTicket.requester.email})</span>
+                  <span className="ticket-email-text">({selectedTicket.requester.email})</span>
                 )}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Assignee:</span>
-                <strong style={{ color: 'var(--text-primary)' }}>{selectedTicket.assignee?.fullName || 'Unassigned (Queue)'}</strong>
+              <div className="ticket-bottom-metadata-item">
+                <span className="metadata-label">Assignee:</span>
+                <strong className="metadata-value">{selectedTicket.assignee?.fullName || 'Unassigned (Queue)'}</strong>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Channel:</span>
-                <span style={{ textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-primary)' }}>{selectedTicket.channel}</span>
+              <div className="ticket-bottom-metadata-item">
+                <span className="metadata-label">Channel:</span>
+                <span className="metadata-value metadata-channel">{selectedTicket.channel}</span>
               </div>
             </div>
             </div>
@@ -1790,41 +1788,41 @@ export const InboxPage: React.FC = () => {
             style={{
               position: 'fixed',
               inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              backgroundColor: 'rgba(15, 23, 42, 0.45)',
               zIndex: 3000,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               padding: '24px',
-              backdropFilter: 'blur(4px)',
+              backdropFilter: 'blur(8px)',
             }}
             onClick={() => setPreviewLightbox(null)}
           >
             <div
               style={{
-                width: typeInfo.isPdf ? '1000px' : typeInfo.isAudio ? '520px' : undefined,
+                width: typeInfo.isPdf ? '1050px' : typeInfo.isAudio ? '580px' : undefined,
                 maxWidth: '92vw',
-                maxHeight: '88vh',
-                backgroundColor: 'var(--bg-surface)',
-                borderRadius: '12px',
+                maxHeight: '92vh',
+                backgroundColor: 'var(--bg-surface, #ffffff)',
+                borderRadius: '14px',
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
-                border: '1px solid var(--border-medium, rgba(255,255,255,0.1))',
+                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
               }}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
               <div
                 style={{
-                  padding: '12px 18px',
-                  borderBottom: '1px solid var(--border-subtle)',
+                  padding: '14px 20px',
+                  borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  backgroundColor: 'var(--bg-surface)',
+                  backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
                   gap: '16px',
                   flexShrink: 0,
                 }}
@@ -1858,7 +1856,9 @@ export const InboxPage: React.FC = () => {
                     className="btn btn-secondary btn-sm"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '30px', fontSize: '12px' }}
                   >
-                    <ExternalLink size={13} /> Open Tab
+                    <ExternalLink size={13} />
+                    <span className="preview-action-text-full">Open Tab</span>
+                    <span className="preview-action-text-short">Open</span>
                   </a>
                   <button
                     type="button"
@@ -1887,15 +1887,23 @@ export const InboxPage: React.FC = () => {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  padding: typeInfo.isPdf ? 0 : '16px',
-                  backgroundColor: typeInfo.isImage || typeInfo.isVideo ? '#0b0f19' : '#f8fafc',
+                  padding: typeInfo.isPdf ? 0 : '24px',
+                  backgroundColor: typeInfo.isVideo ? '#0b0f19' : '#f1f5f9',
+                  maxHeight: 'calc(92vh - 65px)',
                 }}
               >
                 {typeInfo.isImage ? (
                   <img
                     src={previewLightbox.url}
                     alt={displayName}
-                    style={{ maxWidth: '100%', maxHeight: '76vh', objectFit: 'contain', borderRadius: '4px' }}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: 'calc(90vh - 120px)',
+                      objectFit: 'contain',
+                      borderRadius: '8px',
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+                      backgroundColor: '#ffffff',
+                    }}
                   />
                 ) : typeInfo.isPdf ? (
                   <object
@@ -1951,7 +1959,9 @@ export const InboxPage: React.FC = () => {
                           className="btn btn-primary"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '13px' }}
                         >
-                          <ExternalLink size={14} /> Open in New Tab
+                          <ExternalLink size={14} />
+                          <span className="preview-action-text-full">Open in New Tab</span>
+                          <span className="preview-action-text-short">Open</span>
                         </a>
                         <button
                           type="button"
@@ -2032,7 +2042,9 @@ export const InboxPage: React.FC = () => {
                         className="btn btn-primary"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '13px' }}
                       >
-                        <ExternalLink size={14} /> Open in New Tab
+                        <ExternalLink size={14} />
+                        <span className="preview-action-text-full">Open in New Tab</span>
+                        <span className="preview-action-text-short">Open</span>
                       </a>
                       <button
                         type="button"

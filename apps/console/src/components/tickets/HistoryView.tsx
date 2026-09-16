@@ -546,25 +546,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
       }}
     >
       {/* Zoho Desk Style Sub-Header Toolbar */}
-      <div
-        style={{
-          padding: '12px 20px',
-          backgroundColor: 'var(--bg-surface, #ffffff)',
-          borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px',
-          flexWrap: 'wrap',
-        }}
-      >
-        {/* Left Side: Ticket History Filter Dropdown */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div className="history-view-toolbar">
+        {/* Left Side: Ticket History Filter Dropdowns */}
+        <div className="history-toolbar-filters">
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            <span className="history-label desktop-only-history-label" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
               Ticket History -
             </span>
             <select
+              className="history-category-select"
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value as CategoryFilter)}
               style={{
@@ -587,12 +577,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
             </select>
           </div>
 
-          <span style={{ color: 'var(--border-subtle, #cbd5e1)' }}>|</span>
+          <span className="history-toolbar-separator desktop-only-history-label" style={{ color: 'var(--border-subtle, #cbd5e1)' }}>|</span>
 
           {/* Actor Role Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Filter by:</span>
+          <div className="history-actor-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="desktop-only-history-label" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Filter by:</span>
             <select
+              className="history-actor-select"
               value={actorFilter}
               onChange={(e) => setActorFilter(e.target.value as any)}
               style={{
@@ -616,14 +607,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
         </div>
 
         {/* Right Side: Search and Refresh */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div
-            style={{
-              position: 'relative',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
+        <div className="history-toolbar-actions">
+          <div className="history-search-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Search
               size={13}
               style={{
@@ -634,6 +619,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
             />
             <input
               type="text"
+              className="history-search-input"
               placeholder="Search history..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -651,6 +637,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
           </div>
 
           <button
+            type="button"
+            className="history-refresh-btn"
             onClick={() => loadHistory(true)}
             title="Refresh history"
             disabled={isRefreshing}
@@ -673,19 +661,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
               className={isRefreshing ? 'animate-spin' : ''}
               style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }}
             />
-            <span>Refresh</span>
+            <span className="history-refresh-text">Refresh</span>
           </button>
         </div>
       </div>
 
       {/* History Stream Content Area */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '20px 28px',
-        }}
-      >
+      <div className="history-stream-container">
         {isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
             <LoadingSpinner />

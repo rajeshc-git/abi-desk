@@ -36,7 +36,11 @@ import {
   X,
   CalendarDays,
   GripVertical,
+  Monitor,
+  ShieldCheck,
+  Activity,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { ApiClient } from '../api/client';
@@ -173,7 +177,7 @@ export interface SavedRoster {
   grid: Record<string, ShiftCode[]>;
   edits: Record<string, ShiftCode>;
   editCount: number;
-  status: 'Draft' | 'Shared' | 'Amended';
+  status: 'Draft' | 'Published' | 'Revised';
   revision: number;
   sharedAt: string | null;
   changelog: ChangelogItem[];
@@ -378,7 +382,7 @@ export const RosterPage: React.FC = () => {
     if (activeTeam && Array.isArray(activeTeam.rosters) && activeTeam.rosters.length > 0) {
       if (!currentRoster || !activeTeam.rosters.some((r) => r.id === currentRoster.id)) {
         const latest =
-          activeTeam.rosters.slice().reverse().find((r) => r.status === 'Shared') ||
+          activeTeam.rosters.slice().reverse().find((r) => r.status === 'Published' || r.status === 'Revised') ||
           activeTeam.rosters[activeTeam.rosters.length - 1];
         if (latest) {
           setCurrentRoster(latest);
@@ -536,7 +540,7 @@ export const RosterPage: React.FC = () => {
                     grid: r.gridData || {},
                     edits: r.manualEdits || {},
                     editCount: Object.keys(r.manualEdits || {}).length,
-                    status: (r.status === 'PUBLISHED' ? 'Shared' : r.status === 'AMENDED' ? 'Amended' : 'Draft') as any,
+                    status: (r.status === 'PUBLISHED' ? 'Published' : r.status === 'AMENDED' ? 'Revised' : 'Draft') as any,
                     revision: r.revision || 1,
                     sharedAt: r.publishedAt || null,
                     changelog: r.changelog || [],
@@ -995,7 +999,7 @@ export const RosterPage: React.FC = () => {
       if (inputNote === null) return;
       note = inputNote || 'Revision update';
       nextRevision = currentRoster.revision + 1;
-      if (currentRoster.status === 'Shared') nextStatus = 'Amended';
+      if (currentRoster.status === 'Published') nextStatus = 'Revised';
     }
 
     const updatedChangelog = [
@@ -1016,7 +1020,7 @@ export const RosterPage: React.FC = () => {
         title: savedSnap.title,
         startDate: savedSnap.startISO,
         endDate: savedSnap.endISO,
-        status: savedSnap.status === 'Shared' ? 'PUBLISHED' : savedSnap.status === 'Amended' ? 'AMENDED' : 'DRAFT',
+        status: savedSnap.status === 'Published' ? 'PUBLISHED' : savedSnap.status === 'Revised' ? 'AMENDED' : 'DRAFT',
         revision: savedSnap.revision,
         configSnap: savedSnap.configSnap,
         gridData: savedSnap.grid,
@@ -1049,16 +1053,16 @@ export const RosterPage: React.FC = () => {
     toast.success(asRevision ? `Saved revision r${nextRevision} to database` : 'Roster saved to database');
   };
 
-  const handleMarkShared = async () => {
+  const handleMarkPublished = async () => {
     if (!currentRoster) return;
     const sharedAt = new Date().toISOString();
     const updatedChangelog = [
       ...(currentRoster.changelog || []),
-      { at: sharedAt, revision: currentRoster.revision, note: 'Marked as officially shared' },
+      { at: sharedAt, revision: currentRoster.revision, note: 'Marked as officially published' },
     ];
     const updated: SavedRoster = {
       ...currentRoster,
-      status: 'Shared' as const,
+      status: 'Published' as const,
       sharedAt,
       changelog: updatedChangelog,
     };
@@ -1066,23 +1070,25 @@ export const RosterPage: React.FC = () => {
     // Publish to PostgreSQL via REST API
     try {
       await ApiClient.post(`/admin/roster/rosters/${currentRoster.id}/publish`, {
-        note: 'Marked as officially shared',
+        note: 'Marked as officially published',
       });
     } catch (e) {
-      console.warn('Server roster publish note', e);
+      console.warn('Server publish failed, updated locally', e);
     }
 
     const nextTeams = db.teams.map((t) => {
       if (t.id === activeTeam.id) {
-        const nextRosters = t.rosters.map((r) => (r.id === updated.id ? updated : r));
-        return { ...t, rosters: nextRosters };
+        return {
+          ...t,
+          rosters: t.rosters.map((r) => (r.id === updated.id ? updated : r)),
+        };
       }
       return t;
     });
 
     persistDB({ ...db, teams: nextTeams });
     setCurrentRoster(updated);
-    toast.success('Roster marked as officially shared and published in database');
+    toast.success(`Roster ${updated.title} marked as Published!`);
   };
 
   const handleExportCsv = (roster: SavedRoster) => {
@@ -1297,7 +1303,7 @@ export const RosterPage: React.FC = () => {
     <div style="text-align: right; font-size: 11px; color: #475569;">
       <div><b>Period:</b> ${roster.startISO} &rarr; ${roster.endISO} (${roster.days.length} days)</div>
       <div style="margin-top: 2px;">
-        <b>Status:</b> <span style="font-weight: 700; color: ${roster.status === 'Shared' ? '#15803d' : '#b45309'};">${roster.status}</span> 
+        <b>Status:</b> <span style="font-weight: 700; color: ${roster.status === 'Published' ? '#15803d' : roster.status === 'Revised' ? '#b45309' : '#475569'};">${roster.status}</span> 
         (Rev <b>r${roster.revision}</b>) · Printed: ${new Date().toLocaleDateString()}
       </div>
     </div>
@@ -1413,9 +1419,88 @@ export const RosterPage: React.FC = () => {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', width: '100%', padding: '24px 32px' }} className="custom-scrollbar">
-      <div style={{ maxWidth: '1600px', margin: '0 auto', width: '100%', paddingBottom: '60px' }}>
-      {/* Header */}
+    <div style={{ flex: 1, overflowY: 'auto', width: '100%', padding: 0 }} className="custom-scrollbar roster-page-wrapper">
+      {/* Mobile & Portrait Tablet Screen Restriction Notice (< 1024px) */}
+      <div className="analytics-mobile-restriction">
+        <div className="analytics-restriction-card">
+          <div className="analytics-restriction-icon-wrapper">
+            <div className="analytics-restriction-icon-disc">
+              <Calendar size={32} />
+            </div>
+            <div className="analytics-restriction-sub-disc">
+              <Monitor size={16} />
+            </div>
+          </div>
+
+          <div className="analytics-restriction-badge">
+            <ShieldCheck size={13} />
+            <span>Desktop & Landscape Tablet Experience</span>
+          </div>
+
+          <h2 className="analytics-restriction-title">
+            Optimized for Widescreen Displays
+          </h2>
+
+          <p className="analytics-restriction-desc">
+            Shift Roster & Product Mapping matrices feature 30-day team rotation grids, multi-shift assignment tables, and L1/L2 product allocation timelines designed specifically for larger screens.
+          </p>
+
+          <div className="analytics-restriction-specs">
+            <div className="analytics-spec-item">
+              <div className="analytics-spec-icon">💻</div>
+              <div className="analytics-spec-info">
+                <strong>Desktop & Laptop</strong>
+                <span>Minimum width 1366 × 768</span>
+              </div>
+            </div>
+            <div className="analytics-spec-item">
+              <div className="analytics-spec-icon">📱</div>
+              <div className="analytics-spec-info">
+                <strong>Tablet (Landscape)</strong>
+                <span>Minimum 1024 × 768 (iPad Mini or larger in landscape)</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="analytics-restriction-actions">
+            <Link
+              to="/inbox"
+              className="btn btn-primary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+              }}
+            >
+              <Layers size={16} /> Open Ticket Inbox
+            </Link>
+            <Link
+              to="/live-chat"
+              className="btn btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+              }}
+            >
+              <Activity size={16} /> Live Chat Desk
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Dashboard (≥ 1024px) */}
+      <div className="analytics-desktop-content" style={{ padding: '24px 32px' }}>
+        <div style={{ maxWidth: '1600px', margin: '0 auto', width: '100%', paddingBottom: '60px' }}>
+          {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1662,15 +1747,15 @@ export const RosterPage: React.FC = () => {
                         borderRadius: '20px',
                         fontWeight: '650',
                         background:
-                          currentRoster.status === 'Shared'
+                          currentRoster.status === 'Published'
                             ? '#e6f4ec'
-                            : currentRoster.status === 'Amended'
+                            : currentRoster.status === 'Revised'
                             ? '#fef3c7'
                             : '#f1f5f9',
                         color:
-                          currentRoster.status === 'Shared'
+                          currentRoster.status === 'Published'
                             ? '#15803d'
-                            : currentRoster.status === 'Amended'
+                            : currentRoster.status === 'Revised'
                             ? '#b45309'
                             : '#475569',
                       }}
@@ -1725,13 +1810,13 @@ export const RosterPage: React.FC = () => {
                         <Edit2 size={13} /> Save New Revision
                       </button>
 
-                      {currentRoster.status !== 'Shared' && (
+                      {currentRoster.status !== 'Published' && (
                         <button
-                          onClick={handleMarkShared}
+                          onClick={handleMarkPublished}
                           className="btn btn-secondary"
                           style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#15803d' }}
                         >
-                          <Share2 size={13} /> Mark Shared
+                          <Share2 size={13} /> Publish Roster
                         </button>
                       )}
                     </>
@@ -4332,7 +4417,7 @@ export const RosterPage: React.FC = () => {
             Saved Rosters &amp; Audit Trail for {teamName(activeTeam)}
           </h3>
           <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
-            Complete version history with amendment trails and 1-click reopen &amp; export.
+            Complete version history with revision trails and 1-click reopen &amp; export.
           </p>
 
           {activeTeam.rosters.length === 0 ? (
@@ -4369,9 +4454,9 @@ export const RosterPage: React.FC = () => {
                           borderRadius: '12px',
                           fontWeight: '650',
                           background:
-                            r.status === 'Shared' ? '#e6f4ec' : r.status === 'Amended' ? '#fef3c7' : '#f1f5f9',
+                            r.status === 'Published' ? '#e6f4ec' : r.status === 'Revised' ? '#fef3c7' : '#f1f5f9',
                           color:
-                            r.status === 'Shared' ? '#15803d' : r.status === 'Amended' ? '#b45309' : '#475569',
+                            r.status === 'Published' ? '#15803d' : r.status === 'Revised' ? '#b45309' : '#475569',
                         }}
                       >
                         {r.status}
@@ -4384,7 +4469,7 @@ export const RosterPage: React.FC = () => {
 
                   {/* Changelog preview */}
                   <div style={{ background: '#fafbfd', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '8px 10px', fontSize: '11.5px', color: 'var(--text-secondary)', maxHeight: '90px', overflowY: 'auto', margin: '10px 0' }}>
-                    <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px' }}>Amendment Trail:</div>
+                    <div style={{ fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px' }}>Revision History:</div>
                     {(r.changelog || []).map((c, ci) => (
                       <div key={ci} style={{ padding: '2px 0' }}>
                         <code>r{c.revision}</code> · {new Date(c.at).toLocaleDateString()} — {c.note}
@@ -4970,6 +5055,7 @@ export const RosterPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+        </div>
       </div>
     </div>
   );

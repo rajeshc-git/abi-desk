@@ -17,6 +17,8 @@ import {
   Clock,
   Key,
   Webhook,
+  X,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ZohoDeskLogo } from '../common/ZohoDeskLogo';
@@ -27,7 +29,12 @@ import { ApiKeysSettings } from '../settings/ApiKeysSettings';
 import { WebhooksSettings } from '../settings/WebhooksSettings';
 import { ComplianceSettings } from '../settings/ComplianceSettings';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => {
   const location = useLocation();
   const { user, logout, activeBrandId, brands, reloadBrands, updatePersonalTheme } = useAuth();
 
@@ -35,6 +42,13 @@ export const Sidebar: React.FC = () => {
     user?.permissions?.includes('admin:brand:manage') ||
     user?.roles?.includes('TENANT_ADMIN') ||
     user?.roles?.includes('ADMIN');
+
+  const isAdmin =
+    user?.roles?.some((r: string) => ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r)) ||
+    user?.permissions?.includes('admin:manage') ||
+    user?.permissions?.includes('admin:brand:manage') ||
+    user?.roles?.includes('ADMIN') ||
+    user?.roles?.includes('TENANT_ADMIN');
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -212,9 +226,14 @@ export const Sidebar: React.FC = () => {
 
   return (
     <>
-      <aside className="app-sidebar">
+      <aside className={`app-sidebar${isOpen ? ' sidebar-open' : ''}`}>
         <div className="sidebar-header" style={{ padding: '14px 16px' }}>
         <ZohoDeskLogo size={32} showText={true} />
+        {onClose && (
+          <button className="sidebar-close-btn" onClick={onClose} title="Close sidebar">
+            <X size={18} />
+          </button>
+        )}
       </div>
 
       <nav className="sidebar-nav">
@@ -241,7 +260,7 @@ export const Sidebar: React.FC = () => {
           const Icon = item.icon;
 
           return (
-            <Link key={item.path} to={item.path} className={`nav-item ${isActive ? 'active' : ''}`}>
+            <Link key={item.path} to={item.path} className={`nav-item ${isActive ? 'active' : ''}`} onClick={onClose}>
               <Icon size={18} />
               <span>{item.title}</span>
             </Link>
@@ -269,7 +288,10 @@ export const Sidebar: React.FC = () => {
         </div>
         <div style={{ display: 'flex', gap: '4px' }}>
           <button
-            onClick={() => setIsSettingsOpen(true)}
+            onClick={() => {
+              if (!isAdmin) setActiveSettingsTab('theme');
+              setIsSettingsOpen(true);
+            }}
             title="Console Settings"
             style={{
               background: 'transparent',
@@ -329,10 +351,14 @@ export const Sidebar: React.FC = () => {
             }}
           >
             {[
-              { id: 'theme', label: 'Console Theme', icon: Palette },
-              { id: 'api-keys', label: 'API Keys', icon: Key },
-              { id: 'webhooks', label: 'Webhooks', icon: Webhook },
-              { id: 'compliance', label: 'GDPR Compliance', icon: Shield },
+              { id: 'theme' as const, label: 'Console Theme', icon: Palette },
+              ...(isAdmin
+                ? [
+                    { id: 'api-keys' as const, label: 'API Keys', icon: Key },
+                    { id: 'webhooks' as const, label: 'Webhooks', icon: Webhook },
+                    { id: 'compliance' as const, label: 'GDPR Compliance', icon: Shield },
+                  ]
+                : []),
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeSettingsTab === tab.id;
@@ -455,6 +481,7 @@ export const Sidebar: React.FC = () => {
                   {saveTarget === 'COMPANY' ? 'Choose Brand Theme Preset (Applies to all users & widget):' : 'Choose Personal Theme Preset (Applies to your console only):'}
                 </label>
                 <div
+                  className="settings-theme-presets-grid"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
@@ -468,6 +495,7 @@ export const Sidebar: React.FC = () => {
                       <button
                         key={preset.name}
                         onClick={() => handleColorChange(preset.hex)}
+                        className="settings-theme-preset-btn"
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -483,6 +511,7 @@ export const Sidebar: React.FC = () => {
                         }}
                       >
                         <div
+                          className="theme-preset-disc"
                           style={{
                             width: '24px',
                             height: '24px',
@@ -492,7 +521,7 @@ export const Sidebar: React.FC = () => {
                             boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                           }}
                         />
-                        <div style={{ flex: 1 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <div
                             style={{
                               display: 'flex',
@@ -501,17 +530,21 @@ export const Sidebar: React.FC = () => {
                             }}
                           >
                             <span
+                              className="theme-preset-name"
                               style={{
                                 fontSize: '13px',
                                 fontWeight: 600,
                                 color: isSelected ? preset.hex : 'var(--text-primary)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
                               }}
                             >
                               {preset.name}
                             </span>
-                            {isSelected && <Check size={14} style={{ color: preset.hex }} />}
+                            {isSelected && <Check size={14} style={{ color: preset.hex, flexShrink: 0 }} />}
                           </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <div className="theme-preset-hex" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                             {preset.hex}
                           </div>
                         </div>
@@ -522,12 +555,14 @@ export const Sidebar: React.FC = () => {
               </div>
 
               <div
+                className="settings-theme-custom-row"
                 style={{
                   paddingTop: '16px',
                   borderTop: '1px solid var(--border-subtle)',
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'center',
+                  alignItems: 'flex-end',
+                  gap: '14px',
                 }}
               >
                 <div>
@@ -542,7 +577,7 @@ export const Sidebar: React.FC = () => {
                   >
                     Or Pick a Custom HEX Color:
                   </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div className="settings-theme-custom-inputs" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <input
                       type="color"
                       value={selectedThemeColor}
@@ -582,15 +617,18 @@ export const Sidebar: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div className="settings-theme-actions-row" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {saveTarget === 'PERSONAL' && user?.preferences?.themeColor && (
                     <button
                       onClick={handleResetToBrandTheme}
                       disabled={isThemeSaving}
                       className="btn btn-secondary"
                       title="Reset to Company Brand Theme"
+                      style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
                     >
-                      Reset to Brand Default
+                      <RotateCcw size={13} />
+                      <span className="save-theme-text-full">Reset to Brand Default</span>
+                      <span className="save-theme-text-short">Reset</span>
                     </button>
                   )}
                   <button
@@ -600,16 +638,21 @@ export const Sidebar: React.FC = () => {
                     style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
                     <Save size={14} />
-                    <span>{isThemeSaving ? 'Saving...' : saveTarget === 'COMPANY' ? 'Save Brand Theme' : 'Save Personal Theme'}</span>
+                    <span className="save-theme-text-full">
+                      {isThemeSaving ? 'Saving...' : saveTarget === 'COMPANY' ? 'Save Brand Theme' : 'Save Personal Theme'}
+                    </span>
+                    <span className="save-theme-text-short">
+                      {isThemeSaving ? 'Saving...' : 'Save Theme'}
+                    </span>
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {activeSettingsTab === 'api-keys' && <ApiKeysSettings />}
-          {activeSettingsTab === 'webhooks' && <WebhooksSettings />}
-          {activeSettingsTab === 'compliance' && <ComplianceSettings />}
+          {isAdmin && activeSettingsTab === 'api-keys' && <ApiKeysSettings />}
+          {isAdmin && activeSettingsTab === 'webhooks' && <WebhooksSettings />}
+          {isAdmin && activeSettingsTab === 'compliance' && <ComplianceSettings />}
         </div>
       </Modal>
 

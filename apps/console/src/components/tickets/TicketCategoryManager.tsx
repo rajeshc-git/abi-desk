@@ -246,11 +246,13 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
       {/* Floating Category Picker Popover */}
       {isOpen && (
         <div
+          className="category-picker-popover"
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
             left: 0,
             width: '240px',
+            maxWidth: 'calc(100vw - 32px)',
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-medium)',
             borderRadius: '8px',

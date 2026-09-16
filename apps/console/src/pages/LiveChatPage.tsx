@@ -284,41 +284,19 @@ export const LiveChatPage: React.FC = () => {
   };
 
   return (
-    <div className="split-pane-layout" style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+    <div
+      className={`split-pane-layout livechat-split-layout ${activeConv ? 'has-selected' : ''}`}
+      style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}
+    >
       {/* Left Pane: Active Chat Conversations Queue */}
-      <div
-        className="split-left-pane"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: 'var(--bg-app)',
-          borderRight: '1px solid var(--border-subtle)',
-        }}
-      >
-        <div
-          style={{
-            padding: '20px 24px',
-            borderBottom: '1px solid var(--border-subtle)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
+      <div className="split-left-pane livechat-left-pane">
+        <div className="livechat-queue-header">
           <div>
-            <h2
-              style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}
-            >
-              Live Chat Desk
-            </h2>
+            <h2 className="livechat-queue-title">Live Chat Desk</h2>
             <div
+              className="livechat-gateway-status"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '11px',
                 color: isConnected ? '#10b981' : '#f59e0b',
-                marginTop: '4px',
-                fontWeight: 600,
               }}
             >
               <span
@@ -335,18 +313,11 @@ export const LiveChatPage: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+        <div className="livechat-queue-list">
           {isLoading ? (
             <LoadingSpinner size={24} text="Loading chats..." />
           ) : filteredConversations.length === 0 ? (
-            <div
-              style={{
-                padding: '40px 20px',
-                textAlign: 'center',
-                color: 'var(--text-muted)',
-                fontSize: '13px',
-              }}
-            >
+            <div className="livechat-queue-empty">
               No active chat visitors right now.
             </div>
           ) : (
@@ -364,33 +335,12 @@ export const LiveChatPage: React.FC = () => {
                   <div
                     key={c.id}
                     onClick={() => selectConversation(c)}
-                    style={{
-                      padding: '12px 14px',
-                      borderRadius: '12px',
-                      backgroundColor: isActive ? 'var(--bg-surface)' : 'transparent',
-                      boxShadow: isActive ? 'var(--shadow-md)' : 'none',
-                      border: isActive ? '1px solid var(--border-subtle)' : '1px solid transparent',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                    }}
+                    className={`livechat-conv-item ${isActive ? 'active' : ''}`}
                   >
                     <div
+                      className="livechat-conv-avatar"
                       style={{
-                        width: '38px',
-                        height: '38px',
-                        borderRadius: '50%',
                         background: avatarBg,
-                        color: 'var(--primary)',
-                        border: '1px solid var(--primary-border)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        fontSize: '13px',
-                        flexShrink: 0,
                       }}
                     >
                       {renderAvatarContent(senderName, 16)}
@@ -404,50 +354,16 @@ export const LiveChatPage: React.FC = () => {
                           marginBottom: '2px',
                         }}
                       >
-                        <span
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            color: 'var(--text-primary)',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
+                        <span className="livechat-conv-name">
                           {senderName}
                         </span>
                       </div>
-                      <div
-                        style={{
-                          fontSize: '12px',
-                          color: 'var(--text-muted)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
+                      <div className="livechat-conv-preview">
                         {c.lastMessagePreview || 'New chat session started'}
                       </div>
                     </div>
                     {unreadCount > 0 && (
-                      <div
-                        style={{
-                          minWidth: '20px',
-                          height: '20px',
-                          borderRadius: '10px',
-                          backgroundColor: 'var(--primary)',
-                          color: 'var(--text-inverse)',
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          padding: '0 6px',
-                          flexShrink: 0,
-                          animation:
-                            'console-badge-pop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
-                        }}
-                      >
+                      <div className="livechat-unread-badge">
                         {unreadCount}
                       </div>
                     )}
@@ -460,59 +376,28 @@ export const LiveChatPage: React.FC = () => {
       </div>
 
       {/* Right Pane: Live Chat Stream Workspace */}
-      <div
-        className="split-right-pane"
-        style={{ backgroundColor: 'var(--bg-surface)', display: 'flex', flexDirection: 'column' }}
-      >
+      <div className="split-right-pane livechat-right-pane">
         {activeConv ? (
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Header */}
-            <div
-              style={{
-                padding: '16px 24px',
-                borderBottom: '1px solid var(--border-subtle)',
-                backgroundColor: 'var(--bg-surface)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                zIndex: 10,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div className="livechat-header">
+              <div className="livechat-header-user">
                 <button
+                  type="button"
                   onClick={() => setActiveConv(null)}
-                  className="mobile-back-btn"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    padding: '8px',
-                    marginRight: '4px',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                    display: 'none',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  className="ticket-header-back-btn mobile-only-back-btn"
+                  title="Back to Chat Queue"
                 >
-                  <ArrowLeft size={20} />
+                  <ArrowLeft size={16} />
                 </button>
                 <div
+                  className="livechat-avatar"
                   style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '50%',
                     background: getAvatarColor(
                       activeConv.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
                         activeConv.subject,
                       false,
                     ),
-                    color: 'var(--primary)',
-                    border: '1px solid var(--primary-border)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 700,
-                    fontSize: '14px',
                   }}
                 >
                   {renderAvatarContent(
@@ -521,36 +406,20 @@ export const LiveChatPage: React.FC = () => {
                     18,
                   )}
                 </div>
-                <div>
-                  <h3
-                    style={{
-                      fontSize: '15px',
-                      fontWeight: 700,
-                      color: 'var(--text-primary)',
-                      margin: 0,
-                    }}
-                  >
+                <div className="livechat-header-info">
+                  <h3 className="livechat-header-name">
                     {activeConv.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
                       activeConv.subject ||
                       'Live Chat Visitor'}
                   </h3>
                   {activeConv.pageUrl && (
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        color: 'var(--text-secondary)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        marginTop: '2px',
-                      }}
-                    >
-                      <Globe size={11} /> Origin:{' '}
+                    <div className="livechat-origin-badge">
+                      <Globe size={11} />
+                      <span className="livechat-origin-label">Origin:</span>{' '}
                       <a
                         href={activeConv.pageUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: 'var(--primary)', textDecoration: 'none' }}
                       >
                         {activeConv.pageUrl}
                       </a>
@@ -559,64 +428,35 @@ export const LiveChatPage: React.FC = () => {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div className="livechat-header-actions">
                 {activeConv.status === 'QUEUED' && (
                   <button
+                    type="button"
                     onClick={handleAcceptChat}
-                    className="btn btn-secondary btn-sm"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                      padding: '6px 12px',
-                    }}
+                    className="btn btn-secondary livechat-action-btn"
+                    title="Accept Chat"
                   >
-                    <UserPlus size={14} /> Accept Chat
+                    <UserPlus size={14} />
+                    <span className="livechat-action-btn-text">Accept Chat</span>
                   </button>
                 )}
                 {activeConv.status !== 'CLOSED' && (
                   <button
+                    type="button"
                     onClick={handlePromoteToTicket}
-                    className="btn btn-primary btn-sm"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                      padding: '6px 12px',
-                    }}
+                    className="btn btn-primary livechat-action-btn"
+                    title="Promote to Ticket"
                   >
-                    <ArrowUpRight size={14} /> Promote to Ticket
+                    <ArrowUpRight size={14} />
+                    <span className="livechat-action-btn-text">Promote to Ticket</span>
                   </button>
                 )}
               </div>
             </div>
 
             {/* Chat Stream */}
-            <div
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: '24px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '20px',
-                backgroundColor: 'var(--bg-app)',
-              }}
-            >
-              <div
-                style={{
-                  maxWidth: '800px',
-                  margin: '0 auto',
-                  width: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '16px',
-                }}
-              >
+            <div className="livechat-stream-container">
+              <div className="livechat-stream-inner">
                 {messages.map((m) => {
                   const isAgent = m.sender?.kind === 'STAFF';
                   const isSystem = m.kind === 'SYSTEM' || m.kind === 'TICKET_LINK';
@@ -627,17 +467,7 @@ export const LiveChatPage: React.FC = () => {
                         key={m.id}
                         style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}
                       >
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color: 'var(--text-muted)',
-                            backgroundColor: 'var(--bg-surface-hover)',
-                            padding: '4px 12px',
-                            borderRadius: '12px',
-                            fontWeight: 500,
-                            border: '1px solid var(--border-subtle)',
-                          }}
-                        >
+                        <span className="livechat-system-badge">
                           {m.body}
                         </span>
                       </div>
@@ -650,65 +480,24 @@ export const LiveChatPage: React.FC = () => {
                   return (
                     <div
                       key={m.id}
-                      style={{
-                        display: 'flex',
-                        gap: '12px',
-                        flexDirection: isAgent ? 'row-reverse' : 'row',
-                        alignItems: 'flex-start',
-                        animation: 'console-fade-up 0.25s ease-out forwards',
-                      }}
+                      className={`livechat-bubble-row ${isAgent ? 'is-agent' : 'is-customer'}`}
                     >
                       <div
+                        className="livechat-bubble-avatar"
                         style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
                           background: avatarBg,
                           color: isAgent ? 'var(--text-inverse)' : 'var(--primary)',
                           border: isAgent ? 'none' : '1px solid var(--primary-border)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 700,
-                          fontSize: '11px',
-                          flexShrink: 0,
-                          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
                         }}
                       >
                         {renderAvatarContent(senderName, 14)}
                       </div>
 
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: isAgent ? 'flex-end' : 'flex-start',
-                          maxWidth: '70%',
-                        }}
-                      >
-                        <div
-                          style={{
-                            padding: '12px 16px',
-                            borderRadius: isAgent ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                            backgroundColor: isAgent ? 'var(--primary)' : 'var(--bg-surface)',
-                            color: isAgent ? 'var(--text-inverse)' : 'var(--text-primary)',
-                            border: isAgent ? 'none' : '1px solid var(--border-subtle)',
-                            fontSize: '13px',
-                            lineHeight: 1.5,
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-                          }}
-                        >
+                      <div className="livechat-bubble-content">
+                        <div className="livechat-bubble-body">
                           {m.body}
                         </div>
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            color: 'var(--text-muted)',
-                            marginTop: '4px',
-                            marginLeft: '4px',
-                            marginRight: '4px',
-                          }}
-                        >
+                        <span className="livechat-bubble-meta">
                           {senderName} · {formatTime(m.createdAt)}
                         </span>
                       </div>
@@ -719,24 +508,8 @@ export const LiveChatPage: React.FC = () => {
             </div>
 
             {/* Input Bar */}
-            <div
-              style={{
-                padding: '20px 24px',
-                backgroundColor: 'var(--bg-surface)',
-                borderTop: '1px solid var(--border-subtle)',
-              }}
-            >
-              <form
-                onSubmit={handleSendMessage}
-                style={{
-                  maxWidth: '800px',
-                  margin: '0 auto',
-                  width: '100%',
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
+            <div className="livechat-composer-container">
+              <form onSubmit={handleSendMessage} className="livechat-composer-form">
                 <input
                   type="text"
                   value={inputMsg}
@@ -749,21 +522,7 @@ export const LiveChatPage: React.FC = () => {
                         : 'Type a message to the customer...'
                   }
                   disabled={activeConv.status === 'CLOSED' || activeConv.status === 'QUEUED'}
-                  style={{
-                    width: '100%',
-                    padding: '12px 48px 12px 16px',
-                    backgroundColor:
-                      activeConv.status === 'CLOSED' || activeConv.status === 'QUEUED'
-                        ? 'var(--bg-surface-hover)'
-                        : 'var(--bg-app)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: '24px',
-                    color: 'var(--text-primary)',
-                    fontSize: '13px',
-                    outline: 'none',
-                    transition: 'all 0.2s',
-                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)',
-                  }}
+                  className="livechat-composer-input"
                 />
                 <button
                   type="submit"
@@ -772,25 +531,17 @@ export const LiveChatPage: React.FC = () => {
                     activeConv.status === 'CLOSED' ||
                     activeConv.status === 'QUEUED'
                   }
+                  className="livechat-composer-send"
                   style={{
-                    position: 'absolute',
-                    right: '6px',
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
                     backgroundColor:
                       inputMsg.trim() && activeConv.status !== 'QUEUED'
                         ? 'var(--primary)'
                         : 'var(--border-subtle)',
                     color: 'var(--text-inverse)',
-                    border: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
                     cursor:
                       inputMsg.trim() && activeConv.status !== 'QUEUED' ? 'pointer' : 'not-allowed',
-                    transition: 'all 0.2s',
                   }}
+                  title="Send Message"
                 >
                   <Send size={14} />
                 </button>
@@ -798,17 +549,7 @@ export const LiveChatPage: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-muted)',
-              gap: '12px',
-            }}
-          >
+          <div className="livechat-empty-workspace">
             <MessageSquare size={32} style={{ opacity: 0.5 }} />
             <span style={{ fontSize: '14px', fontWeight: 500 }}>
               Select a live chat visitor from the left queue to begin.
@@ -816,32 +557,6 @@ export const LiveChatPage: React.FC = () => {
           </div>
         )}
       </div>
-      <style>{`
-        @keyframes console-fade-up {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes console-badge-pop {
-          from { opacity: 0; transform: scale(0.6); }
-          to { opacity: 1; transform: scale(1); }
-        }
-        @media (max-width: 768px) {
-          .split-pane-layout {
-            grid-template-columns: 1fr !important;
-          }
-          .split-left-pane {
-            display: ${activeConv ? 'none !important' : 'flex !important'};
-            width: 100% !important;
-          }
-          .split-right-pane {
-            display: ${activeConv ? 'flex !important' : 'none !important'};
-            width: 100% !important;
-          }
-          .mobile-back-btn {
-            display: flex !important;
-          }
-        }
-      `}</style>
     </div>
   );
 };

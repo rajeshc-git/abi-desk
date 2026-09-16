@@ -20,6 +20,7 @@ import {
   Activity,
   ChevronRight,
   ExternalLink,
+  Monitor,
 } from 'lucide-react';
 import { Link, Navigate } from 'react-router-dom';
 import { ApiClient } from '../api/client';
@@ -256,17 +257,96 @@ export const AnalyticsPage: React.FC = () => {
   }
 
   return (
-    <div className="workspace-container" style={{ gap: '20px' }}>
-      {/* Top Header & Executive Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '16px',
-        }}
-      >
+    <div className="workspace-container analytics-page-wrapper" style={{ gap: '20px' }}>
+      {/* Mobile & Portrait Tablet Screen Restriction Notice (< 1024px) */}
+      <div className="analytics-mobile-restriction">
+        <div className="analytics-restriction-card">
+          <div className="analytics-restriction-icon-wrapper">
+            <div className="analytics-restriction-icon-disc">
+              <BarChart3 size={32} />
+            </div>
+            <div className="analytics-restriction-sub-disc">
+              <Monitor size={16} />
+            </div>
+          </div>
+
+          <div className="analytics-restriction-badge">
+            <ShieldCheck size={13} />
+            <span>Desktop & Landscape Tablet Experience</span>
+          </div>
+
+          <h2 className="analytics-restriction-title">
+            Optimized for Widescreen Displays
+          </h2>
+
+          <p className="analytics-restriction-desc">
+            Analytics & SLA dashboards feature high-density inflow heatmaps, interactive 3D breakdown models, and multi-column SLA timelines engineered specifically for larger screens.
+          </p>
+
+          <div className="analytics-restriction-specs">
+            <div className="analytics-spec-item">
+              <div className="analytics-spec-icon">💻</div>
+              <div className="analytics-spec-info">
+                <strong>Desktop & Laptop</strong>
+                <span>Minimum width 1366 × 768</span>
+              </div>
+            </div>
+            <div className="analytics-spec-item">
+              <div className="analytics-spec-icon">📱</div>
+              <div className="analytics-spec-info">
+                <strong>Tablet (Landscape)</strong>
+                <span>Minimum 1024 × 768 (iPad Mini or larger in landscape)</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="analytics-restriction-actions">
+            <Link
+              to="/inbox"
+              className="btn btn-primary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+              }}
+            >
+              <Layers size={16} /> Open Ticket Inbox
+            </Link>
+            <Link
+              to="/live-chat"
+              className="btn btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+              }}
+            >
+              <Activity size={16} /> Live Chat Desk
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Dashboard (≥ 1024px) */}
+      <div className="analytics-desktop-content">
+        {/* Top Header & Executive Toolbar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '16px',
+          }}
+        >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Analytics & SLA</h1>
@@ -1485,6 +1565,7 @@ export const AnalyticsPage: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

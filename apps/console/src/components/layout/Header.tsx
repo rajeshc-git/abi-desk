@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Layers, Bell, Tag as TagIcon, Folder, X } from 'lucide-react';
+import { Search, Layers, Bell, Tag as TagIcon, Folder, X, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSearch, type SearchTag, type SearchCategory } from '../../context/SearchContext';
 import { ApiClient } from '../../api/client';
 
-export const Header: React.FC = () => {
+interface HeaderProps {
+  onToggleSidebar?: () => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   const { brands, activeBrandId, setActiveBrandId } = useAuth();
   const location = useLocation();
   const {
@@ -141,7 +145,17 @@ export const Header: React.FC = () => {
 
   return (
     <header className="app-header">
-      <div className="header-left" style={{ flex: 1, minWidth: 0, marginRight: '20px' }}>
+      <div className="header-left" style={{ flex: 1, minWidth: 0 }}>
+        {onToggleSidebar && (
+          <button
+            type="button"
+            className="hamburger-btn"
+            onClick={onToggleSidebar}
+            title="Toggle sidebar"
+          >
+            <Menu size={20} />
+          </button>
+        )}
         {!hideSearchBar && (
           <div
             ref={wrapperRef}
@@ -153,11 +167,11 @@ export const Header: React.FC = () => {
               backgroundColor: '#f8fafc',
               border: isFocused ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-md)',
-              padding: '4px 10px',
+              padding: '0 10px',
               gap: '6px',
-              minWidth: '360px',
-              maxWidth: '860px',
               width: '100%',
+              height: '32px',
+              boxSizing: 'border-box',
               flex: '1 1 auto',
               transition: 'all 0.15s ease',
               boxShadow: isFocused ? '0 0 0 3px var(--primary-surface)' : 'none',
@@ -366,16 +380,16 @@ export const Header: React.FC = () => {
               type="text"
               placeholder={
                 isChatPage
-                  ? 'Search chats or messages... (Ctrl+K)'
+                  ? 'Search chats... (Ctrl+K)'
                   : selectedTag
                     ? 'Search within tag...'
                     : selectedCategory
                       ? 'Search within category...'
                       : selectedOrganization
-                        ? 'Search within organization...'
+                        ? 'Search org...'
                         : selectedProduct
-                          ? 'Search within product...'
-                          : 'Search tickets, tags or categories... (Ctrl+K)'
+                          ? 'Search product...'
+                          : 'Search tickets... (Ctrl+K)'
               }
               value={searchQuery}
               onChange={(e) => {
@@ -396,7 +410,7 @@ export const Header: React.FC = () => {
                 fontSize: '13px',
                 color: 'var(--text-primary)',
                 padding: '4px 0',
-                minWidth: '100px',
+                minWidth: 0,
               }}
             />
 
@@ -601,7 +615,7 @@ export const Header: React.FC = () => {
 
       <div className="header-right">
         {brands.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="header-brand-select-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={16} style={{ color: 'var(--text-muted)' }} />
             <select
               className="brand-select"
@@ -618,17 +632,19 @@ export const Header: React.FC = () => {
         )}
 
         <button
+          type="button"
+          className="notification-btn header-action-btn"
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-md)',
             color: 'var(--text-secondary)',
-            width: '36px',
-            height: '36px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
+            padding: 0,
+            flexShrink: 0,
           }}
           title="Notifications"
         >

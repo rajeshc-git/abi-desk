@@ -23,6 +23,7 @@ interface AssignmentPopoverProps {
   currentAssignee?: { id: string; fullName?: string; email?: string } | null;
   currentTeam?: { id: string; name?: string } | null;
   onAssigned?: (assignment: { assignee?: any; team?: any; status?: string }) => void;
+  align?: 'left' | 'right' | 'auto';
 }
 
 export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
@@ -30,6 +31,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
   currentAssignee,
   currentTeam,
   onAssigned,
+  align = 'left',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'agents' | 'teams'>('agents');
@@ -230,11 +232,13 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
       {/* Zoho Desk Styled Popover */}
       {isOpen && (
         <div
+          className="assignment-popover-dropdown"
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
-            right: 0,
+            ...(align === 'right' ? { right: 0, left: 'auto' } : { left: 0, right: 'auto' }),
             width: '280px',
+            maxWidth: 'calc(100vw - 32px)',
             backgroundColor: 'var(--bg-surface, #ffffff)',
             borderRadius: '8px',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
@@ -256,6 +260,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
           >
             <button
               type="button"
+              className="assignment-popover-tab"
               onClick={() => {
                 setActiveTab('teams');
                 setSearchQuery('');
@@ -278,6 +283,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
             </button>
             <button
               type="button"
+              className="assignment-popover-tab"
               onClick={() => {
                 setActiveTab('agents');
                 setSearchQuery('');
@@ -306,6 +312,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
               <input
                 type="text"
                 autoFocus
+                className="assignment-popover-search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={activeTab === 'agents' ? 'Search Agents' : 'Search Teams'}
@@ -352,6 +359,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                   return (
                     <div
                       key={agent.id}
+                      className="assignment-popover-item"
                       onClick={() => handleAssignAgent(agent)}
                       style={{
                         display: 'flex',
@@ -371,6 +379,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                         <div
+                          className="assignment-popover-avatar"
                           style={{
                             width: '36px',
                             height: '36px',
@@ -390,6 +399,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div
+                            className="assignment-popover-name"
                             style={{
                               fontSize: '13px',
                               fontWeight: 600,
@@ -402,6 +412,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                             {agent.fullName || agent.displayName || 'Agent'}
                           </div>
                           <div
+                            className="assignment-popover-subtext"
                             style={{
                               fontSize: '11px',
                               color: '#64748b',
@@ -429,6 +440,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                 return (
                   <div
                     key={team.id}
+                    className="assignment-popover-item"
                     onClick={() => handleAssignTeam(team)}
                     style={{
                       display: 'flex',
@@ -448,6 +460,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
                       <div
+                        className="assignment-popover-avatar"
                         style={{
                           width: '36px',
                           height: '36px',
@@ -467,6 +480,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                       </div>
                       <div style={{ minWidth: 0 }}>
                         <div
+                          className="assignment-popover-name"
                           style={{
                             fontSize: '13px',
                             fontWeight: 600,
@@ -479,7 +493,7 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                           {team.name}
                         </div>
                         {team.tier && (
-                          <div style={{ fontSize: '11px', color: '#64748b' }}>Tier: {team.tier}</div>
+                          <div className="assignment-popover-subtext" style={{ fontSize: '11px', color: '#64748b' }}>Tier: {team.tier}</div>
                         )}
                       </div>
                     </div>

@@ -31,6 +31,10 @@ import {
   Building2,
   Box,
   ChevronDown,
+  Monitor,
+  ShieldCheck,
+  Layers,
+  Activity,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { Modal } from '../components/common/Modal';
@@ -1438,8 +1442,87 @@ export const AdminPage: React.FC = () => {
   };
 
   return (
-    <div className="workspace-container" style={{ gap: '20px' }}>
-      {/* Header */}
+    <div className="workspace-container admin-page-wrapper" style={{ gap: '20px' }}>
+      {/* Mobile & Portrait Tablet Screen Restriction Notice (< 1024px) */}
+      <div className="analytics-mobile-restriction">
+        <div className="analytics-restriction-card">
+          <div className="analytics-restriction-icon-wrapper">
+            <div className="analytics-restriction-icon-disc">
+              <Settings size={32} />
+            </div>
+            <div className="analytics-restriction-sub-disc">
+              <Monitor size={16} />
+            </div>
+          </div>
+
+          <div className="analytics-restriction-badge">
+            <ShieldCheck size={13} />
+            <span>Desktop & Landscape Tablet Experience</span>
+          </div>
+
+          <h2 className="analytics-restriction-title">
+            Optimized for Widescreen Displays
+          </h2>
+
+          <p className="analytics-restriction-desc">
+            System Administration & Setup consoles feature multi-brand management, embed snippet builders, queue matrices, staff roles, and webhook integrations designed specifically for larger displays.
+          </p>
+
+          <div className="analytics-restriction-specs">
+            <div className="analytics-spec-item">
+              <div className="analytics-spec-icon">💻</div>
+              <div className="analytics-spec-info">
+                <strong>Desktop & Laptop</strong>
+                <span>Minimum width 1366 × 768</span>
+              </div>
+            </div>
+            <div className="analytics-spec-item">
+              <div className="analytics-spec-icon">📱</div>
+              <div className="analytics-spec-info">
+                <strong>Tablet (Landscape)</strong>
+                <span>Minimum 1024 × 768 (iPad Mini or larger in landscape)</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="analytics-restriction-actions">
+            <Link
+              to="/inbox"
+              className="btn btn-primary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+              }}
+            >
+              <Layers size={16} /> Open Ticket Inbox
+            </Link>
+            <Link
+              to="/live-chat"
+              className="btn btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                borderRadius: '8px',
+              }}
+            >
+              <Activity size={16} /> Live Chat Desk
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop Dashboard (≥ 1024px) */}
+      <div className="analytics-desktop-content">
+        {/* Header */}
       <div
         style={{
           display: 'flex',
@@ -6550,6 +6633,7 @@ export const AdminPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+      </div>
     </div>
   );
 };

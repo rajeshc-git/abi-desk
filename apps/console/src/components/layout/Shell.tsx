@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useSocket } from '../../context/SocketContext';
@@ -13,6 +13,21 @@ export const Shell: React.FC = () => {
   const { user, token, isLoading, activeBrandId, brands } = useAuth();
   const toast = useToast();
   const { socket } = useSocket();
+  const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Auto-close sidebar on route change (mobile/tablet)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => !prev);
+  }, []);
+
+  const handleCloseSidebar = useCallback(() => {
+    setSidebarOpen(false);
+  }, []);
 
   // Global Real-time ticket notifications (active on all sidebar pages)
   useEffect(() => {
@@ -125,9 +140,14 @@ export const Shell: React.FC = () => {
   return (
     <SearchProvider>
       <div className="app-shell">
-        <Sidebar />
+        {/* Sidebar backdrop overlay (mobile/tablet) */}
+        <div
+          className={`sidebar-backdrop${sidebarOpen ? ' visible' : ''}`}
+          onClick={handleCloseSidebar}
+        />
+        <Sidebar isOpen={sidebarOpen} onClose={handleCloseSidebar} />
         <div className="app-main">
-          <Header />
+          <Header onToggleSidebar={handleToggleSidebar} />
           <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <Outlet />
           </main>

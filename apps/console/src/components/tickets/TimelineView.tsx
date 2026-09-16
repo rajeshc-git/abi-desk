@@ -437,7 +437,9 @@ const AttachmentItem: React.FC<{
                   className="btn btn-secondary btn-sm"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', padding: '6px 12px' }}
                 >
-                  <ExternalLink size={13} /> Open in Tab
+                  <ExternalLink size={13} />
+                  <span className="preview-action-text-full">Open in Tab</span>
+                  <span className="preview-action-text-short">Open</span>
                 </a>
                 <button
                   type="button"
@@ -547,7 +549,9 @@ const AttachmentItem: React.FC<{
                         className="btn btn-primary"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 18px', fontSize: '13px' }}
                       >
-                        <ExternalLink size={14} /> Open in New Tab
+                        <ExternalLink size={14} />
+                        <span className="preview-action-text-full">Open in New Tab</span>
+                        <span className="preview-action-text-short">Open</span>
                       </a>
                       <button
                         type="button"
@@ -645,7 +649,9 @@ const AttachmentItem: React.FC<{
                       className="btn btn-secondary"
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '13px' }}
                     >
-                      <ExternalLink size={14} /> Open in New Tab
+                      <ExternalLink size={14} />
+                      <span className="preview-action-text-full">Open in New Tab</span>
+                      <span className="preview-action-text-short">Open</span>
                     </a>
                     <button
                       type="button"

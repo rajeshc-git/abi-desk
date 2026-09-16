@@ -222,11 +222,13 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
           {/* Floating Tag Picker Popover */}
           {isOpen && (
             <div
+              className="tag-picker-popover"
               style={{
                 position: 'absolute',
                 top: 'calc(100% + 4px)',
                 left: 0,
                 width: '240px',
+                maxWidth: 'calc(100vw - 32px)',
                 backgroundColor: 'var(--bg-surface)',
                 border: '1px solid var(--border-medium)',
                 borderRadius: '8px',

@@ -44,6 +44,7 @@ interface StatusPopoverProps {
   onStatusChange: (newStatus: string) => Promise<void> | void;
   disabled?: boolean;
   size?: 'sm' | 'md';
+  align?: 'left' | 'right';
 }
 
 export const StatusPopover: React.FC<StatusPopoverProps> = ({
@@ -51,6 +52,7 @@ export const StatusPopover: React.FC<StatusPopoverProps> = ({
   onStatusChange,
   disabled = false,
   size = 'md',
+  align = 'right',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -157,11 +159,13 @@ export const StatusPopover: React.FC<StatusPopoverProps> = ({
       {/* Zoho Desk Styled Popover */}
       {isOpen && (
         <div
+          className="status-popover-dropdown"
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
-            left: 0,
+            ...(align === 'right' ? { right: 0, left: 'auto' } : { left: 0, right: 'auto' }),
             width: '260px',
+            maxWidth: 'calc(100vw - 24px)',
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-medium)',
             borderRadius: '8px',
