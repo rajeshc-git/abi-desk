@@ -24,6 +24,9 @@ import {
   type CreateTicketDto,
   type ListCommentsDto,
   type ListTicketsDto,
+  type MergeTicketsDto,
+  type SplitTicketDto,
+  type UnmergeTicketDto,
   type UpdateCategoryDto,
   type UpdateOrganizationDto,
   type UpdateTagDto,
@@ -266,6 +269,12 @@ export class TicketService {
         description: true,
         subcategory: true,
         customFields: true,
+        rootCause: true,
+        capaNotes: true,
+        rcaUpdatedAt: true,
+        capaUpdatedAt: true,
+        rcaUpdatedBy: { select: { id: true, fullName: true, email: true } },
+        capaUpdatedBy: { select: { id: true, fullName: true, email: true } },
         confirmationRequestedAt: true,
         confirmedAt: true,
         lastCustomerReplyAt: true,
@@ -279,6 +288,42 @@ export class TicketService {
         mediaAssets: {
           where: { commentId: null, chatMessageId: null },
           select: { id: true, originalFilename: true, mimeType: true },
+        },
+        linksTo: {
+          select: {
+            id: true,
+            type: true,
+            createdAt: true,
+            source: {
+              select: {
+                id: true,
+                number: true,
+                subject: true,
+                status: true,
+                tier: true,
+                priority: true,
+                requester: { select: { id: true, fullName: true, email: true } },
+              },
+            },
+          },
+        },
+        linksFrom: {
+          select: {
+            id: true,
+            type: true,
+            createdAt: true,
+            target: {
+              select: {
+                id: true,
+                number: true,
+                subject: true,
+                status: true,
+                tier: true,
+                priority: true,
+                requester: { select: { id: true, fullName: true, email: true } },
+              },
+            },
+          },
         },
         _count: { select: { mediaAssets: true, watchers: true, comments: true } },
       },
@@ -553,11 +598,14 @@ export class TicketService {
       const isAuthorizedForPriority =
         principal.roles.includes('L2_SUPPORT') ||
         principal.roles.includes('L3_SUPPORT') ||
+        principal.roles.includes('DEV_TEAM') ||
+        principal.roles.includes('DEVOPS_TEAM') ||
+        principal.roles.includes('TENANT_ADMIN') ||
         principal.roles.includes('PLATFORM_ADMIN');
 
       if (!isAuthorizedForPriority) {
         throw AppException.permissionDenied(
-          'Only Tier 2 (L2) and Tier 3 (L3) support roles are authorized to adjust ticket priority.',
+          'Only authorized support, engineering, DevOps, and admin roles may adjust ticket priority.',
           { ticketId: id, currentPriority: existing.priority, requestedPriority: dto.priority, roles: principal.roles },
         );
       }
@@ -614,6 +662,20 @@ export class TicketService {
           ...(dto.type !== undefined ? { type: dto.type } : {}),
           ...(dto.category !== undefined ? { category: dto.category } : {}),
           ...(dto.subcategory !== undefined ? { subcategory: dto.subcategory } : {}),
+          ...(dto.rootCause !== undefined
+            ? {
+                rootCause: dto.rootCause,
+                rcaUpdatedAt: new Date(),
+                rcaUpdatedById: principal.userId,
+              }
+            : {}),
+          ...(dto.capaNotes !== undefined
+            ? {
+                capaNotes: dto.capaNotes,
+                capaUpdatedAt: new Date(),
+                capaUpdatedById: principal.userId,
+              }
+            : {}),
           ...(mergedCustomFields !== undefined
             ? { customFields: mergedCustomFields as Prisma.InputJsonValue }
             : {}),
@@ -627,6 +689,10 @@ export class TicketService {
           type: true,
           category: true,
           subcategory: true,
+          rootCause: true,
+          capaNotes: true,
+          rcaUpdatedAt: true,
+          capaUpdatedAt: true,
         },
       });
 
@@ -1081,6 +1147,350 @@ export class TicketService {
     });
 
     return { source: source.number, target: target.number, type };
+  }
+
+  /**
+   * Merges one or more secondary tickets into a primary master ticket.
+   * - Creates TicketLink (MERGED_INTO) records
+   * - Adds internal notes summarizing the merge on all involved tickets
+   * - Transitions secondary tickets to CLOSED
+   * - Emits MERGED ticket events for audit timeline
+   */
+  async merge(principal: AuthenticatedPrincipal, dto: MergeTicketsDto) {
+    const tenantId = this.requireTenant(principal);
+    const { primaryTicketId, secondaryTicketIds, note } = dto;
+
+    if (secondaryTicketIds.includes(primaryTicketId)) {
+      throw AppException.badRequest('Primary ticket cannot be included in secondary tickets to merge.');
+    }
+
+    const uniqueSecondaryIds = Array.from(new Set(secondaryTicketIds));
+    if (uniqueSecondaryIds.length === 0) {
+      throw AppException.badRequest('At least one secondary ticket is required to merge.');
+    }
+
+    const primary = await this.findByIdOrThrow(principal, primaryTicketId);
+    const secondaries = await Promise.all(
+      uniqueSecondaryIds.map((id) => this.findByIdOrThrow(principal, id)),
+    );
+
+    await this.prisma.run(async (tx) => {
+      const secondarySummaries: string[] = [];
+
+      for (const sec of secondaries) {
+        // 1. Create or ensure TicketLink
+        const existingLink = await tx.ticketLink.findFirst({
+          where: { sourceId: sec.id, targetId: primary.id, type: 'MERGED_INTO' },
+        });
+
+        if (!existingLink) {
+          await tx.ticketLink.create({
+            data: {
+              tenantId,
+              sourceId: sec.id,
+              targetId: primary.id,
+              type: 'MERGED_INTO',
+              createdById: principal.userId,
+            },
+          });
+        }
+
+        // 2. Close secondary ticket
+        await tx.ticket.update({
+          where: { id: sec.id },
+          data: {
+            status: 'CLOSED',
+            closedAt: new Date(),
+            lastActivityAt: new Date(),
+          },
+        });
+
+        // 3. Record MERGED event on secondary ticket
+        await this.recordEvent(tx, {
+          tenantId,
+          ticketId: sec.id,
+          type: 'MERGED',
+          actorId: principal.userId,
+          toValue: primary.number,
+          metadata: {
+            action: 'MERGED_INTO_PRIMARY',
+            primaryTicketId: primary.id,
+            primaryTicketNumber: primary.number,
+            previousStatus: sec.status,
+            note,
+          },
+        });
+
+        secondarySummaries.push(
+          `- **#${sec.number}**: ${sec.subject} (Requester: ${sec.requester?.fullName || sec.requester?.email || 'Unknown'})`,
+        );
+      }
+
+      await tx.ticket.update({
+        where: { id: primary.id },
+        data: {
+          lastActivityAt: new Date(),
+        },
+      });
+
+      // 4. Record MERGED event on primary ticket
+      await this.recordEvent(tx, {
+        tenantId,
+        ticketId: primary.id,
+        type: 'MERGED',
+        actorId: principal.userId,
+        toValue: secondaries.map((s) => s.number).join(', '),
+        metadata: {
+          action: 'MERGED_SECONDARY_TICKETS',
+          secondaryTicketIds: secondaries.map((s) => s.id),
+          secondaryTicketNumbers: secondaries.map((s) => s.number),
+          note,
+        },
+      });
+    });
+
+    return this.findByIdOrThrow(principal, primary.id);
+  }
+
+  /**
+   * Unmerges a secondary ticket from a primary ticket.
+   * - Deletes MERGED_INTO TicketLink
+   * - Reopens secondary ticket to OPEN
+   * - Emits REOPENED and LINKED timeline events
+   */
+  async unmerge(principal: AuthenticatedPrincipal, primaryTicketId: string, dto: UnmergeTicketDto) {
+    const tenantId = this.requireTenant(principal);
+    const { secondaryTicketId, note } = dto;
+
+    const [primary, secondary] = await Promise.all([
+      this.findByIdOrThrow(principal, primaryTicketId),
+      this.findByIdOrThrow(principal, secondaryTicketId),
+    ]);
+
+    await this.prisma.run(async (tx) => {
+      // 1. Delete merge link
+      await tx.ticketLink.deleteMany({
+        where: {
+          sourceId: secondary.id,
+          targetId: primary.id,
+          type: 'MERGED_INTO',
+        },
+      });
+
+      // 2. Find pre-merge status if available
+      const lastMergeEvent = await tx.ticketEvent.findFirst({
+        where: {
+          ticketId: secondary.id,
+          type: 'MERGED',
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const restoredStatus = (lastMergeEvent?.metadata as any)?.previousStatus || 'OPEN';
+
+      // 3. Reopen secondary ticket to its exact pre-merge status
+      await tx.ticket.update({
+        where: { id: secondary.id },
+        data: {
+          status: restoredStatus,
+          closedAt: null,
+          reopenedAt: new Date(),
+          reopenCount: { increment: 1 },
+          lastActivityAt: new Date(),
+        },
+      });
+
+      await tx.ticket.update({
+        where: { id: primary.id },
+        data: {
+          lastActivityAt: new Date(),
+        },
+      });
+
+      // 4. Record events
+      await this.recordEvent(tx, {
+        tenantId,
+        ticketId: secondary.id,
+        type: 'REOPENED',
+        actorId: principal.userId,
+        toValue: restoredStatus,
+        metadata: {
+          action: 'UNMERGED_FROM_PRIMARY',
+          primaryTicketId: primary.id,
+          primaryTicketNumber: primary.number,
+          restoredStatus,
+          note,
+        },
+      });
+
+      await this.recordEvent(tx, {
+        tenantId,
+        ticketId: primary.id,
+        type: 'LINKED',
+        actorId: principal.userId,
+        fromValue: secondary.number,
+        metadata: {
+          action: 'UNMERGED_SECONDARY_TICKET',
+          secondaryTicketId: secondary.id,
+          secondaryTicketNumber: secondary.number,
+          note,
+        },
+      });
+    });
+
+    return this.findByIdOrThrow(principal, primary.id);
+  }
+
+  /**
+   * Splits a specific comment into a new standalone ticket (Zoho Desk model).
+   * - Creates new Ticket with the comment content as its initial description
+   * - Sets requester to the comment author (if customer) or source ticket requester
+   * - Links parent ticket and split ticket via TicketLink (RELATED)
+   * - Emits audit events on both parent and split tickets
+   * - Initializes SLA clocks for the new ticket
+   */
+  async split(principal: AuthenticatedPrincipal, sourceTicketId: string, dto: SplitTicketDto) {
+    const tenantId = this.requireTenant(principal);
+    const { commentId, subject, description, priority, type, category, subcategory, tier, organization, product, teamId, assigneeId } = dto;
+
+    const source = await this.findByIdOrThrow(principal, sourceTicketId);
+
+    // Find the comment in the database
+    const comment = await this.prisma.client.ticketComment.findFirst({
+      where: {
+        id: commentId,
+        ticketId: source.id,
+        tenantId,
+      },
+      include: {
+        author: {
+          select: { id: true, email: true, fullName: true, kind: true },
+        },
+      },
+    });
+
+    if (!comment) {
+      throw AppException.notFound('Comment not found on the specified ticket.');
+    }
+
+    // Determine requester: if comment author is CUSTOMER, use author; else fallback to source ticket's requester
+    const requesterId = comment.author?.kind === 'CUSTOMER' ? comment.author.id : source.requester?.id || principal.userId;
+
+    const createdSplitTicket = await this.prisma.run(async (tx) => {
+      const brandId = source.brandId;
+
+      const tenant = await tx.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { ticketPrefix: true },
+      });
+
+      const sequence = await this.prisma.nextTicketSequence(tx, tenantId);
+      const number = `${tenant.ticketPrefix}-${sequence}`;
+
+      const targetPriority = priority || source.priority || 'NORMAL';
+      const targetType = type || source.type || 'INCIDENT';
+      const targetCategory = category !== undefined ? category : source.category;
+      const targetSubcategory = subcategory !== undefined ? subcategory : source.subcategory;
+      const targetTier = tier || 'L1';
+
+      const customFields = (source.customFields && typeof source.customFields === 'object') ? { ...(source.customFields as any) } : {};
+      if (organization !== undefined) {
+        if (organization) customFields.organization = organization;
+        else delete customFields.organization;
+      }
+      if (product !== undefined) {
+        if (product) customFields.product = product;
+        else delete customFields.product;
+      }
+
+      const finalDescription = (description && description.trim().length > 0) ? description.trim() : comment.body;
+
+      const created = await tx.ticket.create({
+        data: {
+          tenantId,
+          brandId,
+          number,
+          sequence,
+          subject: subject.trim(),
+          description: finalDescription,
+          priority: targetPriority,
+          type: targetType,
+          channel: source.channel || 'EMAIL',
+          category: targetCategory ?? null,
+          subcategory: targetSubcategory ?? null,
+          requesterId,
+          status: 'OPEN',
+          tier: targetTier,
+          teamId: teamId ?? null,
+          assigneeId: assigneeId ?? null,
+          lastActivityAt: new Date(),
+          customFields: customFields as Prisma.InputJsonValue,
+        },
+        select: { id: true, number: true, subject: true, status: true, priority: true, tier: true },
+      });
+
+      // Link source ticket -> new split ticket (RELATED)
+      await tx.ticketLink.create({
+        data: {
+          tenantId,
+          sourceId: source.id,
+          targetId: created.id,
+          type: 'RELATED',
+          createdById: principal.userId,
+        },
+      });
+
+      // Record CREATED event on new ticket
+      await this.recordEvent(tx, {
+        tenantId,
+        ticketId: created.id,
+        type: 'CREATED',
+        actorId: principal.userId,
+        toValue: created.number,
+        metadata: {
+          action: 'SPLIT_FROM_PARENT',
+          parentTicketId: source.id,
+          parentTicketNumber: source.number,
+          commentId: comment.id,
+          channel: source.channel,
+          priority: targetPriority,
+          ...(customFields.organization ? { organization: customFields.organization } : {}),
+          ...(customFields.product ? { productName: customFields.product } : {}),
+        },
+      });
+
+      // Record LINKED event on parent ticket
+      await this.recordEvent(tx, {
+        tenantId,
+        ticketId: source.id,
+        type: 'LINKED',
+        actorId: principal.userId,
+        toValue: created.number,
+        metadata: {
+          action: 'SPLIT_TO_NEW_TICKET',
+          splitTicketId: created.id,
+          splitTicketNumber: created.number,
+          commentId: comment.id,
+        },
+      });
+
+      await this.applyAutoDomainTags(tx, tenantId, created.id, requesterId);
+      if (targetCategory) {
+        await this.applyAutoCategoryKeywords(tx, tenantId, created.id, created.subject, comment.body, customFields);
+      }
+
+      await this.sla.initializeClocksForTicket(tx, tenantId, {
+        id: created.id,
+        number: created.number,
+        priority: created.priority,
+        brandId,
+        category: targetCategory,
+        createdAt: new Date(),
+      });
+
+      return created;
+    });
+
+    return this.findByIdOrThrow(principal, createdSplitTicket.id);
   }
 
   // =========================================================================

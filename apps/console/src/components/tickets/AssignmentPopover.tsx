@@ -176,39 +176,42 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: '8px',
-          height: '32px',
-          padding: '0 12px',
-          backgroundColor: 'var(--bg-surface, #ffffff)',
-          border: '1px solid var(--border-medium, #e2e8f0)',
+          gap: '6px',
+          height: '28px',
+          padding: '0 8px',
+          backgroundColor: isOpen ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-surface, #ffffff)',
+          border: `1px solid ${isOpen ? 'var(--primary-border, #bfdbfe)' : 'var(--border-medium, #e2e8f0)'}`,
           borderRadius: 'var(--radius-md, 6px)',
-          color: 'var(--text-primary, #0f172a)',
-          fontSize: '12px',
+          color: isOpen ? 'var(--primary, #2563eb)' : 'var(--text-primary, #0f172a)',
+          fontSize: '11.5px',
           fontWeight: 600,
           cursor: 'pointer',
           boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
           transition: 'all 0.15s ease',
           outline: 'none',
           boxSizing: 'border-box',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
         }}
         title="Assign Agent or Team"
       >
         <div
           className="assignment-avatar-disc"
           style={{
-            width: '20px',
-            height: '20px',
+            width: '18px',
+            height: '18px',
             borderRadius: '50%',
             backgroundColor: currentAssignee ? 'var(--primary-subtle, #e0e7ff)' : 'var(--bg-hover)',
             color: currentAssignee ? 'var(--primary, #2563eb)' : 'var(--text-muted)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '10px',
+            fontSize: '9.5px',
             fontWeight: 700,
+            flexShrink: 0,
           }}
         >
-          {currentAssignee ? getInitials(currentAssignee.fullName || currentAssignee.email || 'A') : <User size={12} />}
+          {currentAssignee ? getInitials(currentAssignee.fullName || currentAssignee.email || 'A') : <User size={11} />}
         </div>
         <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {currentAssignee?.fullName || currentAssignee?.email || 'Unassigned'}
@@ -217,16 +220,17 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
           <span
             style={{
               fontSize: '10px',
-              padding: '2px 6px',
+              padding: '1px 5px',
               backgroundColor: 'var(--bg-hover)',
               borderRadius: '4px',
               color: 'var(--text-secondary)',
+              fontWeight: 600,
             }}
           >
             {currentTeam.name}
           </span>
         )}
-        <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
+        <ChevronDown size={12} style={{ color: 'var(--text-muted)', marginLeft: '1px' }} />
       </button>
 
       {/* Zoho Desk Styled Popover */}

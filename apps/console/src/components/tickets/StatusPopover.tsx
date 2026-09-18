@@ -121,20 +121,22 @@ export const StatusPopover: React.FC<StatusPopoverProps> = ({
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: '7px',
-          height: '32px',
-          padding: '0 12px',
+          gap: '6px',
+          height: '28px',
+          padding: '0 9px',
           backgroundColor: 'var(--bg-surface, #ffffff)',
           border: '1px solid var(--border-medium, #e2e8f0)',
           borderRadius: 'var(--radius-md, 6px)',
           color: 'var(--text-primary, #0f172a)',
-          fontSize: '12px',
+          fontSize: '11.5px',
           fontWeight: 600,
           cursor: disabled || isUpdating ? 'not-allowed' : 'pointer',
           boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
           transition: 'all 0.15s ease-in-out',
           outline: 'none',
           boxSizing: 'border-box',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
         }}
         title="Change Status (Zoho Desk style)"
       >

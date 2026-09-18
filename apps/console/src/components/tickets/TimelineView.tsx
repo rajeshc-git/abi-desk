@@ -17,6 +17,10 @@ import {
   FileArchive,
   FileCode,
   File,
+  MoreHorizontal,
+  Scissors,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { ApiClient } from '../../api/client';
 import { FormattedEmailContent } from '../common/FormattedEmailContent';
@@ -43,6 +47,7 @@ export interface ActivityItem {
 interface TimelineViewProps {
   comments: CommentItem[];
   activities?: ActivityItem[];
+  onSplitComment?: (comment: CommentItem) => void;
   initialTicket?: {
     description?: string;
     requester?: { fullName: string; email?: string };
@@ -673,7 +678,157 @@ const AttachmentItem: React.FC<{
   );
 };
 
-export const TimelineView: React.FC<TimelineViewProps> = ({ comments, initialTicket }) => {
+const CommentActionMenu: React.FC<{
+  comment: CommentItem;
+  onSplit: () => void;
+}> = ({ comment, onSplit }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(comment.body);
+    setCopied(true);
+    setTimeout(() => {
+      setCopied(false);
+      setIsOpen(false);
+    }, 1200);
+  };
+
+  return (
+    <div ref={menuRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen((prev) => !prev);
+        }}
+        className="comment-action-menu-trigger"
+        title="Message options"
+        style={{
+          background: isOpen ? 'var(--bg-hover, #f1f5f9)' : 'transparent',
+          border: 'none',
+          borderRadius: '4px',
+          color: 'var(--text-muted, #94a3b8)',
+          cursor: 'pointer',
+          padding: '2px 4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all 0.15s ease',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = 'var(--text-primary)';
+          e.currentTarget.style.backgroundColor = 'var(--bg-hover, #f1f5f9)';
+        }}
+        onMouseLeave={(e) => {
+          if (!isOpen) {
+            e.currentTarget.style.color = 'var(--text-muted)';
+            e.currentTarget.style.backgroundColor = 'transparent';
+          }
+        }}
+      >
+        <MoreHorizontal size={15} />
+      </button>
+
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            right: 0,
+            width: '180px',
+            backgroundColor: 'var(--bg-surface, #ffffff)',
+            border: '1px solid var(--border-medium, #e2e8f0)',
+            borderRadius: '8px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            zIndex: 100,
+            overflow: 'hidden',
+            padding: '4px',
+            animation: 'fadeIn 0.12s ease-out',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={handleCopy}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '7px 10px',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: 'var(--text-primary)',
+              background: 'none',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover, #f1f5f9)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            {copied ? <Check size={13} color="#16a34a" /> : <Copy size={13} color="var(--text-muted)" />}
+            <span>{copied ? 'Copied!' : 'Copy Text'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen(false);
+              onSplit();
+            }}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '7px 10px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#2563eb',
+              background: 'none',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.08)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <Scissors size={13} color="#2563eb" />
+            <span>Split as new ticket</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const TimelineView: React.FC<TimelineViewProps> = ({
+  comments,
+  activities = [],
+  initialTicket,
+  onSplitComment,
+}) => {
   return (
     <div className="timeline-list">
       {/* Root/Opening Ticket Message (Zoho Desk / Zendesk Lead Message) */}
@@ -734,7 +889,18 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ comments, initialTic
         </div>
       )}
 
-      {comments.map((comment) => {
+      {comments
+        .filter(
+          (c: any) =>
+            c.systemLabel !== 'Merge Automation' &&
+            c.systemLabel !== 'Unmerge Action' &&
+            !c.body?.startsWith('Merged ') &&
+            !c.body?.startsWith('Merged into ') &&
+            !c.body?.startsWith('Unmerged ') &&
+            !c.body?.includes('into this ticket:') &&
+            !c.body?.includes('has been unmerged from this ticket.')
+        )
+        .map((comment) => {
         const isInternal = comment.isInternal === true || comment.visibility === 'INTERNAL';
         const authorName = comment.author?.fullName || 'Support User';
         const formattedDate = new Date(comment.createdAt).toLocaleString(undefined, {
@@ -902,7 +1068,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ comments, initialTic
                 </div>
               )}
 
-              <div className="timeline-header">
+              <div className="timeline-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span className="author-name">{authorName}</span>
                   {!isInternal && (
@@ -919,7 +1085,15 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ comments, initialTic
                     </span>
                   )}
                 </div>
-                <span className="timestamp">{formattedDate}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="timestamp">{formattedDate}</span>
+                  {onSplitComment && (
+                    <CommentActionMenu
+                      comment={comment}
+                      onSplit={() => onSplitComment(comment)}
+                    />
+                  )}
+                </div>
               </div>
 
               <div className="timeline-body">

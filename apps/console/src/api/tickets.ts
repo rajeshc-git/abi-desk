@@ -5,7 +5,7 @@ export interface CreateTicketDto {
   description: string;
   type?: 'INCIDENT' | 'PROBLEM' | 'CHANGE_REQUEST' | 'SERVICE_REQUEST' | 'QUESTION';
   priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | 'CRITICAL';
-  tier?: 'L1' | 'L2' | 'L3' | 'DEV' | 'QA';
+  tier?: 'L1' | 'L2' | 'L3' | 'DEV' | 'DEVOPS' | 'QA';
   brandId?: string;
   queueId?: string;
   organization?: string;
@@ -39,6 +39,25 @@ export const TicketsApi = {
       status: updates.status || updates.toStatus,
       ...updates,
     }),
+  merge: (primaryTicketId: string, secondaryTicketIds: string[], note?: string) =>
+    ApiClient.post('/tickets/merge', { primaryTicketId, secondaryTicketIds, note }),
+  unmerge: (primaryTicketId: string, secondaryTicketId: string, note?: string) =>
+    ApiClient.post(`/tickets/${primaryTicketId}/unmerge`, { secondaryTicketId, note }),
+  split: (
+    ticketId: string,
+    data: {
+      commentId: string;
+      subject: string;
+      description?: string;
+      priority?: string;
+      category?: string;
+      tier?: string;
+      organization?: string;
+      product?: string;
+      teamId?: string;
+      assigneeId?: string;
+    },
+  ) => ApiClient.post(`/tickets/${ticketId}/split`, data),
   uploadFile: async (
     file: File,
     kind: 'SCREENSHOT' | 'SCREEN_RECORDING' | 'VOICE_RECORDING' | 'ATTACHMENT' = 'ATTACHMENT',

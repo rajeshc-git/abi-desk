@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Filter,
   RefreshCw,
@@ -22,6 +22,7 @@ import {
   Download,
   User,
   X,
+  GitMerge,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { TicketsApi } from '../api/tickets';
@@ -29,7 +30,9 @@ import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { TicketCard, TicketSummary } from '../components/tickets/TicketCard';
 import { CreateTicketModal } from '../components/tickets/CreateTicketModal';
+import { MergeTicketsModal } from '../components/tickets/MergeTicketsModal';
 import { StatusPopover } from '../components/tickets/StatusPopover';
+import { PriorityPopover } from '../components/tickets/PriorityPopover';
 import { StatusTransitionModal } from '../components/tickets/StatusTransitionModal';
 import { TicketTagManager } from '../components/tickets/TicketTagManager';
 import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
@@ -298,6 +301,18 @@ const InboxAttachmentCard: React.FC<{
   );
 };
 
+const filterConversationComments = (list: any[]): any[] =>
+  (list || []).filter(
+    (c: any) =>
+      c.systemLabel !== 'Merge Automation' &&
+      c.systemLabel !== 'Unmerge Action' &&
+      !c.body?.startsWith('Merged ') &&
+      !c.body?.startsWith('Merged into ') &&
+      !c.body?.startsWith('Unmerged ') &&
+      !c.body?.includes('into this ticket:') &&
+      !c.body?.includes('has been unmerged from this ticket.'),
+  );
+
 export const InboxPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, activeBrandId } = useAuth();
@@ -325,6 +340,7 @@ export const InboxPage: React.FC = () => {
     }
   };
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tickets, setTickets] = useState<TicketSummary[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<TicketSummary | null>(null);
   const [selectedMedia, setSelectedMedia] = useState<MediaAssetItem[]>([]);
@@ -338,8 +354,11 @@ export const InboxPage: React.FC = () => {
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState<Set<string>>(new Set());
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState<boolean>(true);
+  const [expandedMergedTicketIds, setExpandedMergedTicketIds] = useState<Set<string>>(new Set());
+  const [mergedTicketDetails, setMergedTicketDetails] = useState<Record<string, { ticket: any; comments: any[]; isLoading: boolean }>>({});
   const [previewLightbox, setPreviewLightbox] = useState<{ media: any; url: string } | null>(null);
   const [pendingStatusTransition, setPendingStatusTransition] = useState<{
     toStatus: string;
@@ -446,7 +465,7 @@ export const InboxPage: React.FC = () => {
       .then((res: any) => {
         if (!cancelled) {
           const list = res?.comments || res?.items || (Array.isArray(res) ? res : []);
-          setSelectedComments(list);
+          setSelectedComments(filterConversationComments(list));
         }
       })
       .catch(() => {
@@ -578,7 +597,7 @@ export const InboxPage: React.FC = () => {
         ApiClient.get<any>(`/tickets/${data.ticketId}/comments?pageSize=100`)
           .then((res: any) => {
             const list = res?.comments || res?.items || (Array.isArray(res) ? res : []);
-            setSelectedComments(list);
+            setSelectedComments(filterConversationComments(list));
           })
           .catch(() => {});
       } else {
@@ -625,12 +644,15 @@ export const InboxPage: React.FC = () => {
 
       if (statusFilter === 'ALL_OPEN') {
         params.openOnly = 'true';
+      } else if (statusFilter === 'UNASSIGNED') {
+        params.unassigned = 'true';
+        params.openOnly = 'true';
       } else if (statusFilter === 'MY_TICKETS') {
         params.assignee = 'me';
         params.openOnly = 'true';
         if (user?.id) params.assigneeId = user.id;
       } else if (statusFilter === 'ESCALATED') {
-        params.tier = 'L2,L3,DEV,QA';
+        params.tier = 'L2,L3,DEV,DEVOPS,QA';
         params.openOnly = 'true';
       } else if (statusFilter === 'RESOLVED') {
         params.status = 'RESOLVED,CLOSED,CANCELLED';
@@ -648,7 +670,26 @@ export const InboxPage: React.FC = () => {
       setPage(1);
       setHasMore(1 < pages);
 
-      if (list.length > 0 && (!selectedTicket || reset)) {
+      const targetTicketId = searchParams.get('ticketId') || sessionStorage.getItem('last_selected_ticket_id');
+      const matched = targetTicketId ? list.find((t: any) => t.id === targetTicketId) : null;
+
+      if (matched) {
+        setSelectedTicket(matched);
+      } else if (targetTicketId && (!selectedTicket || selectedTicket.id !== targetTicketId)) {
+        TicketsApi.getById(targetTicketId)
+          .then((t) => {
+            if (t) {
+              setSelectedTicket(t);
+            } else if (list.length > 0 && (!selectedTicket || reset)) {
+              setSelectedTicket(list[0]);
+            }
+          })
+          .catch(() => {
+            if (list.length > 0 && (!selectedTicket || reset)) {
+              setSelectedTicket(list[0]);
+            }
+          });
+      } else if (list.length > 0 && (!selectedTicket || reset)) {
         setSelectedTicket(list[0]);
       }
     } catch {
@@ -682,12 +723,15 @@ export const InboxPage: React.FC = () => {
 
       if (statusFilter === 'ALL_OPEN') {
         params.openOnly = 'true';
+      } else if (statusFilter === 'UNASSIGNED') {
+        params.unassigned = 'true';
+        params.openOnly = 'true';
       } else if (statusFilter === 'MY_TICKETS') {
         params.assignee = 'me';
         params.openOnly = 'true';
         if (user?.id) params.assigneeId = user.id;
       } else if (statusFilter === 'ESCALATED') {
-        params.tier = 'L2,L3,DEV,QA';
+        params.tier = 'L2,L3,DEV,DEVOPS,QA';
         params.openOnly = 'true';
       } else if (statusFilter === 'RESOLVED') {
         params.status = 'RESOLVED,CLOSED,CANCELLED';
@@ -727,6 +771,17 @@ export const InboxPage: React.FC = () => {
 
   const handleSelectTicket = (t: TicketSummary) => {
     setSelectedTicket(t);
+    try {
+      sessionStorage.setItem('last_selected_ticket_id', t.id);
+    } catch {}
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('ticketId', t.id);
+        return next;
+      },
+      { replace: true }
+    );
     setUnreadTicketIds((prev) => {
       if (!prev.has(t.id)) return prev;
       const next = new Set(prev);
@@ -734,6 +789,23 @@ export const InboxPage: React.FC = () => {
       return next;
     });
   };
+
+  // Sync selectedTicket when ticketId query param or tickets list changes
+  useEffect(() => {
+    const paramId = searchParams.get('ticketId') || sessionStorage.getItem('last_selected_ticket_id');
+    if (paramId && (!selectedTicket || selectedTicket.id !== paramId)) {
+      const found = tickets.find((t) => t.id === paramId);
+      if (found) {
+        setSelectedTicket(found);
+      } else if (tickets.length > 0) {
+        TicketsApi.getById(paramId)
+          .then((t) => {
+            if (t) setSelectedTicket(t);
+          })
+          .catch(() => {});
+      }
+    }
+  }, [searchParams, tickets]);
 
   const toggleSelectTicket = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -745,27 +817,31 @@ export const InboxPage: React.FC = () => {
     });
   };
 
-  const handleBulkAssign = async () => {
-    if (!user || selectedIds.size === 0) return;
+  const handleMergeTickets = async (primaryTicketId: string, secondaryTicketIds: string[], note?: string) => {
     try {
-      await TicketsApi.bulkUpdate(Array.from(selectedIds), { assigneeId: user.id });
-      toast.success(`Assigned ${selectedIds.size} tickets to you!`);
+      const updatedMaster: any = await TicketsApi.merge(primaryTicketId, secondaryTicketIds, note);
+      toast.success(`Successfully merged ${secondaryTicketIds.length} ticket(s) into #${updatedMaster.number}`);
       setSelectedIds(new Set());
-      loadTickets();
+      await loadTickets(true);
+      if (selectedTicket?.id === primaryTicketId || secondaryTicketIds.includes(selectedTicket?.id || '')) {
+        setSelectedTicket(updatedMaster);
+      }
     } catch (err: any) {
-      toast.error(`Bulk update failed: ${err.message}`);
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to merge tickets');
+      throw err;
     }
   };
 
-  const handleBulkClose = async () => {
-    if (selectedIds.size === 0) return;
+  const handleUnmergeTicket = async (primaryTicketId: string, secondaryTicketId: string) => {
     try {
-      await TicketsApi.bulkUpdate(Array.from(selectedIds), { toStatus: 'CLOSED', status: 'CLOSED' });
-      toast.success(`Closed ${selectedIds.size} tickets!`);
-      setSelectedIds(new Set());
-      loadTickets();
+      const updatedMaster: any = await TicketsApi.unmerge(primaryTicketId, secondaryTicketId);
+      toast.success('Ticket unmerged and restored to Open status.');
+      await loadTickets(true);
+      if (selectedTicket?.id === primaryTicketId || selectedTicket?.id === secondaryTicketId) {
+        setSelectedTicket(updatedMaster);
+      }
     } catch (err: any) {
-      toast.error(`Bulk close failed: ${err.message}`);
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to unmerge ticket');
     }
   };
 
@@ -801,7 +877,9 @@ export const InboxPage: React.FC = () => {
   const canChangePriority =
     !!user &&
     Boolean(
-      user.roles?.some((r: string) => ['L2_SUPPORT', 'L3_SUPPORT', 'PLATFORM_ADMIN'].includes(r)),
+      user.roles?.some((r: string) =>
+        ['L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN'].includes(r),
+      ),
     );
 
   const handlePriorityChange = async (newPriority: string) => {
@@ -858,10 +936,11 @@ export const InboxPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Status Tabs */}
-          <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '2px' }}>
+          {/* Status Tabs Segmented Control */}
+          <div className="inbox-status-tabs-container">
             {[
               { id: 'ALL_OPEN', label: 'All Open' },
+              { id: 'UNASSIGNED', label: 'Unassigned' },
               { id: 'MY_TICKETS', label: 'My Tickets' },
               { id: 'ESCALATED', label: 'Escalated' },
               { id: 'RESOLVED', label: 'Resolved' },
@@ -869,17 +948,7 @@ export const InboxPage: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setStatusFilter(tab.id)}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  borderRadius: 'var(--radius-full)',
-                  border: 'none',
-                  backgroundColor: statusFilter === tab.id ? 'var(--primary)' : 'var(--bg-surface)',
-                  color: statusFilter === tab.id ? '#ffffff' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
+                className={`inbox-status-tab-btn ${statusFilter === tab.id ? 'active' : ''}`}
               >
                 {tab.label}
               </button>
@@ -902,20 +971,33 @@ export const InboxPage: React.FC = () => {
             }}
           >
             <span>{selectedIds.size} selected</span>
-            <div style={{ display: 'flex', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {selectedIds.size >= 2 && (
+                <button
+                  type="button"
+                  onClick={() => setIsMergeOpen(true)}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: '11px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: 600,
+                  }}
+                  title="Merge selected tickets into a master ticket"
+                >
+                  <GitMerge size={12} /> Merge ({selectedIds.size})
+                </button>
+              )}
               <button
-                onClick={handleBulkAssign}
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
                 className="btn btn-secondary btn-sm"
                 style={{ padding: '3px 8px', fontSize: '11px' }}
+                title="Deselect all tickets"
               >
-                <UserCheck size={12} /> Assign to Me
-              </button>
-              <button
-                onClick={handleBulkClose}
-                className="btn btn-danger btn-sm"
-                style={{ padding: '3px 8px', fontSize: '11px' }}
-              >
-                <Trash2 size={12} /> Close Selected
+                Clear Selected
               </button>
             </div>
           </div>
@@ -1085,17 +1167,33 @@ export const InboxPage: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                padding: '8px 12px',
+                padding: '6px 10px',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '8px',
                 backgroundColor: 'var(--bg-surface)',
-                gap: '6px',
+                gap: '5px',
                 flexShrink: 0,
                 margin: 0,
+                flexWrap: 'nowrap',
+                position: 'relative',
+                zIndex: 40,
               }}
             >
               <button
-                onClick={() => setSelectedTicket(null)}
+                onClick={() => {
+                  setSelectedTicket(null);
+                  try {
+                    sessionStorage.removeItem('last_selected_ticket_id');
+                  } catch {}
+                  setSearchParams(
+                    (prev) => {
+                      const next = new URLSearchParams(prev);
+                      next.delete('ticketId');
+                      return next;
+                    },
+                    { replace: true }
+                  );
+                }}
                 className="ticket-header-back-btn mobile-only-back-btn"
                 title="Back to Ticket List"
               >
@@ -1108,31 +1206,14 @@ export const InboxPage: React.FC = () => {
               <StatusPopover
                 status={selectedTicket.status}
                 onStatusChange={handleQuickStatusChange}
+                align="left"
               />
-              {canChangePriority ? (
-                <select
-                  value={selectedTicket.priority}
-                  onChange={(e) => handlePriorityChange(e.target.value)}
-                  className="pill-select"
-                  style={{
-                    color:
-                      selectedTicket.priority === 'CRITICAL' || selectedTicket.priority === 'URGENT'
-                        ? 'var(--color-critical, #ef4444)'
-                        : selectedTicket.priority === 'HIGH'
-                        ? '#f59e0b'
-                        : 'var(--text-primary)',
-                  }}
-                  title="Change Priority (L1 / L2 / Staff)"
-                >
-                  <option value="LOW">Priority: LOW</option>
-                  <option value="NORMAL">Priority: NORMAL</option>
-                  <option value="HIGH">Priority: HIGH</option>
-                  <option value="URGENT">Priority: URGENT</option>
-                  <option value="CRITICAL">Priority: CRITICAL</option>
-                </select>
-              ) : (
-                <PriorityPill priority={selectedTicket.priority} />
-              )}
+              <PriorityPopover
+                priority={selectedTicket.priority}
+                onPriorityChange={handlePriorityChange}
+                disabled={!canChangePriority}
+                align="left"
+              />
               <TicketCategoryManager
                 ticketId={selectedTicket.id}
                 category={selectedTicket.category}
@@ -1146,6 +1227,7 @@ export const InboxPage: React.FC = () => {
               <TicketTagManager
                 ticketId={selectedTicket.id}
                 tags={selectedTicket.tags}
+                maxVisible={2}
                 onTagsChange={(newTags) => {
                   setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
                   setTickets((prev) =>
@@ -1160,6 +1242,7 @@ export const InboxPage: React.FC = () => {
                     backgroundColor: 'rgba(56, 189, 248, 0.12)',
                     color: '#0284c7',
                     border: '1px solid rgba(56, 189, 248, 0.25)',
+                    whiteSpace: 'nowrap',
                   }}
                   title="Organization"
                 >
@@ -1173,6 +1256,7 @@ export const InboxPage: React.FC = () => {
                     backgroundColor: 'rgba(168, 85, 247, 0.12)',
                     color: '#9333ea',
                     border: '1px solid rgba(168, 85, 247, 0.25)',
+                    whiteSpace: 'nowrap',
                   }}
                   title="Product"
                 >
@@ -1186,7 +1270,7 @@ export const InboxPage: React.FC = () => {
                 className="btn btn-primary ticket-workspace-btn"
                 title="Open Full Workspace"
               >
-                <ExternalLink size={14} />
+                <ExternalLink size={13} />
                 <span className="ticket-workspace-btn-text">Open Full Workspace</span>
               </button>
             </div>
@@ -1243,6 +1327,359 @@ export const InboxPage: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* Merged Secondary Tickets Banner (When viewing a Master Ticket) */}
+            {((selectedTicket as any).linksTo?.filter((l: any) => l.type === 'MERGED_INTO') || []).length > 0 && (
+              <div
+                style={{
+                  padding: '10px 16px',
+                  backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                  borderBottom: '1px solid rgba(37, 99, 235, 0.15)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  flexShrink: 0,
+                  maxHeight: '420px',
+                  overflowY: 'auto',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: 'var(--primary)',
+                  }}
+                >
+                  <GitMerge size={14} />
+                  <span>
+                    Merged Tickets (
+                    {
+                      (selectedTicket as any).linksTo.filter((l: any) => l.type === 'MERGED_INTO')
+                        .length
+                    }
+                    )
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {(selectedTicket as any).linksTo
+                    .filter((l: any) => l.type === 'MERGED_INTO')
+                    .map((link: any) => {
+                      const secId = link.source?.id || link.fromTicketId;
+                      const isExpanded = expandedMergedTicketIds.has(secId);
+                      const details = mergedTicketDetails[secId];
+
+                      const handleToggleMergedExpand = async () => {
+                        setExpandedMergedTicketIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(secId)) {
+                            next.delete(secId);
+                          } else {
+                            next.add(secId);
+                          }
+                          return next;
+                        });
+
+                        if (!mergedTicketDetails[secId]?.ticket && !mergedTicketDetails[secId]?.isLoading) {
+                          setMergedTicketDetails((prev) => ({
+                            ...prev,
+                            [secId]: { ticket: null, comments: [], isLoading: true },
+                          }));
+                          try {
+                            const [fullSecTicket, commentsRes] = await Promise.all([
+                              TicketsApi.getById(secId),
+                              ApiClient.get<any>(`/tickets/${secId}/comments?pageSize=100`),
+                            ]);
+                            const rawComments = Array.isArray(commentsRes) ? commentsRes : commentsRes?.comments || [];
+                            setMergedTicketDetails((prev) => ({
+                              ...prev,
+                              [secId]: {
+                                ticket: fullSecTicket,
+                                comments: filterConversationComments(rawComments),
+                                isLoading: false,
+                              },
+                            }));
+                          } catch {
+                            setMergedTicketDetails((prev) => ({
+                              ...prev,
+                              [secId]: { ticket: null, comments: [], isLoading: false },
+                            }));
+                          }
+                        }
+                      };
+
+                      return (
+                        <div
+                          key={link.id}
+                          style={{
+                            backgroundColor: '#ffffff',
+                            borderRadius: '8px',
+                            border: isExpanded ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-subtle)',
+                            overflow: 'hidden',
+                            boxShadow: isExpanded ? 'var(--shadow-sm)' : 'none',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px 12px',
+                              backgroundColor: isExpanded ? 'var(--primary-surface, #eff6ff)' : '#ffffff',
+                              borderBottom: isExpanded ? '1px solid var(--border-subtle)' : 'none',
+                              fontSize: '12px',
+                              gap: '8px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                              <span
+                                style={{
+                                  fontWeight: 700,
+                                  color: 'var(--primary)',
+                                  backgroundColor: '#ffffff',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--border-subtle)',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                #{link.source?.number}
+                              </span>
+                              <span
+                                style={{
+                                  color: 'var(--text-primary)',
+                                  fontWeight: 600,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {link.source?.subject}
+                              </span>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>
+                                ({link.source?.requester?.fullName || link.source?.requester?.email || 'Requester'})
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                onClick={handleToggleMergedExpand}
+                                className={`btn ${isExpanded ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '3px 8px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                {isExpanded ? 'Hide Content' : 'View Content'}
+                                {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/tickets/${selectedTicket.id}?tab=merged`)}
+                                className="btn btn-ghost btn-sm"
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '3px 6px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  color: 'var(--text-secondary)',
+                                }}
+                                title="Open Merged tab in full workspace"
+                              >
+                                <ExternalLink size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUnmergeTicket(selectedTicket.id, link.source?.id)}
+                                className="btn btn-ghost btn-sm"
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '3px 8px',
+                                  color: '#dc2626',
+                                  border: '1px solid #fecaca',
+                                  borderRadius: '4px',
+                                }}
+                                title="Unmerge ticket and restore to Open"
+                              >
+                                Unmerge
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expanded Content View (Matches Master Ticket Content View with Smooth Scrolling) */}
+                          {isExpanded && (
+                            <div
+                              style={{
+                                padding: '12px 14px',
+                                backgroundColor: '#fafbfc',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '10px',
+                                maxHeight: '350px',
+                                overflowY: 'auto',
+                              }}
+                            >
+                              {details?.isLoading ? (
+                                <LoadingSpinner size={16} text="Loading merged ticket message..." />
+                              ) : (
+                                <>
+                                  {/* Merged Ticket Initial Request Box */}
+                                  <div
+                                    style={{
+                                      backgroundColor: '#ffffff',
+                                      borderRadius: '6px',
+                                      border: '1px solid var(--border-subtle)',
+                                      padding: '10px 14px',
+                                      maxHeight: '260px',
+                                      overflowY: 'auto',
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 700,
+                                        color: 'var(--text-secondary)',
+                                        marginBottom: '6px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                      }}
+                                    >
+                                      <span style={{ backgroundColor: 'var(--bg-app)', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                                        Initial Request (#{link.source?.number})
+                                      </span>
+                                      <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                                        from {link.source?.requester?.fullName || link.source?.requester?.email || 'Requester'}
+                                      </span>
+                                    </div>
+                                    <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                                      <FormattedEmailContent
+                                        text={details?.ticket?.description || link.source?.description || 'No message description.'}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Merged Ticket Conversation History */}
+                                  {details?.comments && details.comments.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                        Replies ({details.comments.length}):
+                                      </div>
+                                      {details.comments.map((c: any) => {
+                                        const isInt = c.visibility === 'INTERNAL' || c.isInternal;
+                                        return (
+                                          <div
+                                            key={c.id}
+                                            style={{
+                                              backgroundColor: isInt ? '#fffbeb' : '#ffffff',
+                                              border: isInt ? '1px solid #fde68a' : '1px solid var(--border-subtle)',
+                                              borderRadius: '6px',
+                                              padding: '8px 12px',
+                                              display: 'flex',
+                                              flexDirection: 'column',
+                                              gap: '4px',
+                                            }}
+                                          >
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' }}>
+                                              <span style={{ fontWeight: 600, color: isInt ? '#92400e' : 'var(--text-primary)' }}>
+                                                {c.author?.fullName || c.author?.email || 'Customer'}
+                                                {isInt && (
+                                                  <span style={{ marginLeft: '6px', fontSize: '10px', color: '#b45309', backgroundColor: '#fef3c7', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
+                                                    Internal Note
+                                                  </span>
+                                                )}
+                                              </span>
+                                              <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
+                                                {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                                              </span>
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: 1.45 }}>
+                                              <FormattedEmailContent text={c.body} />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Merged Into Master Ticket Banner (When viewing a Closed Secondary Ticket) */}
+            {(selectedTicket as any).linksFrom?.find((l: any) => l.type === 'MERGED_INTO') && (
+              <div
+                style={{
+                  padding: '10px 16px',
+                  backgroundColor: '#fffbeb',
+                  borderBottom: '1px solid #fef3c7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '12px',
+                  color: '#92400e',
+                  flexShrink: 0,
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <GitMerge size={14} />
+                  <span>
+                    This ticket has been merged into Master Ticket{' '}
+                    <strong style={{ color: '#78350f' }}>
+                      #{(selectedTicket as any).linksFrom.find((l: any) => l.type === 'MERGED_INTO')?.target?.number}
+                    </strong>
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetId = (selectedTicket as any).linksFrom.find(
+                        (l: any) => l.type === 'MERGED_INTO',
+                      )?.target?.id;
+                      if (targetId) {
+                        TicketsApi.getById(targetId).then((t) => setSelectedTicket(t));
+                      }
+                    }}
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '11px', padding: '2px 8px' }}
+                  >
+                    View Master Ticket
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetId = (selectedTicket as any).linksFrom.find(
+                        (l: any) => l.type === 'MERGED_INTO',
+                      )?.target?.id;
+                      if (targetId) {
+                        handleUnmergeTicket(targetId, selectedTicket.id);
+                      }
+                    }}
+                    className="btn btn-danger btn-sm"
+                    style={{ fontSize: '11px', padding: '2px 8px' }}
+                    title="Unmerge and restore this ticket"
+                  >
+                    Unmerge
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Middle Content Area: Conversation Thread with Thread Accordion */}
             <div
@@ -1763,6 +2200,14 @@ export const InboxPage: React.FC = () => {
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onCreated={handleTicketCreated}
+      />
+
+      {/* Merge Tickets Modal */}
+      <MergeTicketsModal
+        isOpen={isMergeOpen}
+        onClose={() => setIsMergeOpen(false)}
+        selectedTickets={tickets.filter((t) => selectedIds.has(t.id))}
+        onConfirmMerge={handleMergeTickets}
       />
 
       {/* Status Transition Note Modal */}

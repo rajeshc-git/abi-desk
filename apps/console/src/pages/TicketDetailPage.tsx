@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   MessageSquare,
@@ -14,12 +14,15 @@ import {
   Zap,
   Grid,
   X,
+  GitMerge,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
+import { TicketsApi } from '../api/tickets';
 import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { DiagnosticsView, DiagnosticsData } from '../components/tickets/DiagnosticsView';
 import { MediaPlayer, MediaAssetItem } from '../components/media/MediaPlayer';
+import { MergedTicketsView } from '../components/tickets/MergedTicketsView';
 import { ReplyComposer } from '../components/tickets/ReplyComposer';
 import { SlaCountdown } from '../components/tickets/SlaCountdown';
 import { TimelineView, CommentItem } from '../components/tickets/TimelineView';
@@ -27,10 +30,14 @@ import { HistoryView } from '../components/tickets/HistoryView';
 import { TicketTagManager } from '../components/tickets/TicketTagManager';
 import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
 import { OrganizationProductManager } from '../components/tickets/OrganizationProductManager';
+import { TicketRcaCapaManager } from '../components/tickets/TicketRcaCapaManager';
 import { AssignmentPopover } from '../components/tickets/AssignmentPopover';
 import { StatusPopover } from '../components/tickets/StatusPopover';
+import { PriorityPopover } from '../components/tickets/PriorityPopover';
+import { TierPopover } from '../components/tickets/TierPopover';
 import { TransferTierModal } from '../components/tickets/TransferTierModal';
 import { StatusTransitionModal } from '../components/tickets/StatusTransitionModal';
+import { SplitTicketModal } from '../components/tickets/SplitTicketModal';
 import { FormattedEmailContent } from '../components/common/FormattedEmailContent';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -54,6 +61,7 @@ export const TicketDetailPage: React.FC = () => {
   const [availableTransitions, setAvailableTransitions] = useState<any[]>([]);
   const [staffUsers, setStaffUsers] = useState<any[]>([]);
   const [pendingTier, setPendingTier] = useState<string | null>(null);
+  const [splitComment, setSplitComment] = useState<CommentItem | null>(null);
   const [pendingStatusTransition, setPendingStatusTransition] = useState<{
     toStatus: string;
     requiresComment?: boolean;
@@ -63,9 +71,19 @@ export const TicketDetailPage: React.FC = () => {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isActionSheetOpen, setIsActionSheetOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const validTabs = ['timeline', 'properties', 'history', 'diagnostics', 'media', 'approvals', 'merged'];
   const [activeTab, setActiveTab] = useState<
-    'timeline' | 'properties' | 'history' | 'diagnostics' | 'media' | 'approvals'
-  >('timeline');
+    'timeline' | 'properties' | 'history' | 'diagnostics' | 'media' | 'approvals' | 'merged'
+  >(tabParam && validTabs.includes(tabParam) ? (tabParam as any) : 'timeline');
+
+  useEffect(() => {
+    const currentTab = searchParams.get('tab');
+    if (currentTab && validTabs.includes(currentTab)) {
+      setActiveTab(currentTab as any);
+    }
+  }, [searchParams]);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -84,10 +102,23 @@ export const TicketDetailPage: React.FC = () => {
     setIsFullscreen((prev) => !prev);
   };
 
+  useEffect(() => {
+    if (activeTab === 'merged' && ticket) {
+      const hasMerged =
+        (ticket.linksTo || []).some((l: any) => l.type === 'MERGED_INTO') ||
+        (ticket.linksFrom || []).some((l: any) => l.type === 'MERGED_INTO');
+      if (!hasMerged) {
+        setActiveTab('timeline');
+      }
+    }
+  }, [ticket, activeTab]);
+
   const canChangePriority =
     !!user &&
     Boolean(
-      user.roles?.some((r: string) => ['L2_SUPPORT', 'L3_SUPPORT', 'PLATFORM_ADMIN'].includes(r)),
+      user.roles?.some((r: string) =>
+        ['L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN'].includes(r),
+      ),
     );
 
   useEffect(() => {
@@ -103,17 +134,28 @@ export const TicketDetailPage: React.FC = () => {
 
   // Real-time live comment and ticket update synchronization
   const mapComments = (list: any[]): CommentItem[] =>
-    (list || []).map((c: any) => ({
-      ...c,
-      isInternal: c.isInternal ?? (c.visibility === 'INTERNAL'),
-      attachments: c.mediaAssets
-        ? c.mediaAssets.map((att: any) => ({
-          id: att.id,
-          originalFilename: att.originalFilename,
-          mimeType: att.mimeType,
-        }))
-        : c.attachments || [],
-    }));
+    (list || [])
+      .filter(
+        (c: any) =>
+          c.systemLabel !== 'Merge Automation' &&
+          c.systemLabel !== 'Unmerge Action' &&
+          !c.body?.startsWith('Merged ') &&
+          !c.body?.startsWith('Merged into ') &&
+          !c.body?.startsWith('Unmerged ') &&
+          !c.body?.includes('into this ticket:') &&
+          !c.body?.includes('has been unmerged from this ticket.'),
+      )
+      .map((c: any) => ({
+        ...c,
+        isInternal: c.isInternal ?? (c.visibility === 'INTERNAL'),
+        attachments: c.mediaAssets
+          ? c.mediaAssets.map((att: any) => ({
+            id: att.id,
+            originalFilename: att.originalFilename,
+            mimeType: att.mimeType,
+          }))
+          : c.attachments || [],
+      }));
 
   useEffect(() => {
     if (!socket || !id) return;
@@ -279,6 +321,42 @@ export const TicketDetailPage: React.FC = () => {
     }
   };
 
+  const handleUnmergeTicket = async (primaryTicketId: string, secondaryTicketId: string) => {
+    try {
+      const updatedMaster: any = await TicketsApi.unmerge(primaryTicketId, secondaryTicketId);
+      toast.success('Ticket unmerged and restored to Open status.');
+      setTicket(updatedMaster);
+      if (id) loadTicketDetails(id);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to unmerge ticket');
+      throw err;
+    }
+  };
+
+  const handleConfirmSplit = async (data: {
+    commentId: string;
+    subject: string;
+    description?: string;
+    priority?: string;
+    category?: string;
+    tier?: string;
+    organization?: string;
+    product?: string;
+  }) => {
+    if (!ticket?.id) return;
+    try {
+      const newTicket: any = await TicketsApi.split(ticket.id, data);
+      toast.success(`Split ticket #${newTicket.number || ''} created successfully!`);
+      loadTicketDetails(ticket.id);
+      if (newTicket?.id) {
+        navigate(`/tickets/${newTicket.id}`);
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to split ticket');
+      throw err;
+    }
+  };
+
   const handleAssignUser = async (assigneeId: string) => {
     if (!id) return;
     try {
@@ -421,6 +499,23 @@ export const TicketDetailPage: React.FC = () => {
         </h4>
         <SlaCountdown clocks={ticket.slaClocks} ticketStatus={ticket.status} />
       </div>
+
+      {/* Staff-Only Root Cause Analysis (RCA) & CAPA Action Sections */}
+      <TicketRcaCapaManager
+        ticketId={ticket.id}
+        rootCause={ticket.rootCause}
+        capaNotes={ticket.capaNotes}
+        rcaUpdatedAt={ticket.rcaUpdatedAt}
+        capaUpdatedAt={ticket.capaUpdatedAt}
+        rcaUpdatedBy={ticket.rcaUpdatedBy}
+        capaUpdatedBy={ticket.capaUpdatedBy}
+        onUpdate={(updated) => {
+          setTicket((prev: any) => ({
+            ...prev,
+            ...updated,
+          }));
+        }}
+      />
     </div>
   );
 
@@ -430,7 +525,14 @@ export const TicketDetailPage: React.FC = () => {
       <div className="ticket-header-bar">
         <div className="ticket-header-left">
           <button
-            onClick={() => navigate('/inbox')}
+            onClick={() => {
+              if (id || ticket?.id) {
+                try {
+                  sessionStorage.setItem('last_selected_ticket_id', id || ticket.id);
+                } catch {}
+              }
+              navigate(`/inbox?ticketId=${id || ticket?.id}`);
+            }}
             className="ticket-header-back-btn"
             title="Back to Inbox"
           >
@@ -442,30 +544,12 @@ export const TicketDetailPage: React.FC = () => {
           <TierBadge tier={ticket.tier} />
 
           <div className="desktop-only-pill" style={{ gap: '6px' }}>
-            {canChangePriority ? (
-              <select
-                value={ticket.priority}
-                onChange={(e) => handlePriorityChange(e.target.value)}
-                className="pill-select"
-                style={{
-                  color:
-                    ticket.priority === 'CRITICAL' || ticket.priority === 'URGENT'
-                      ? 'var(--color-critical)'
-                      : ticket.priority === 'HIGH'
-                        ? '#f59e0b'
-                        : 'var(--text-primary)',
-                }}
-                title="Change Priority (L1 / L2 / Staff)"
-              >
-                <option value="LOW">Priority: LOW</option>
-                <option value="NORMAL">Priority: NORMAL</option>
-                <option value="HIGH">Priority: HIGH</option>
-                <option value="URGENT">Priority: URGENT</option>
-                <option value="CRITICAL">Priority: CRITICAL</option>
-              </select>
-            ) : (
-              <PriorityPill priority={ticket.priority} />
-            )}
+            <PriorityPopover
+              priority={ticket.priority}
+              onPriorityChange={handlePriorityChange}
+              disabled={!canChangePriority}
+              align="left"
+            />
             <TicketCategoryManager
               ticketId={ticket.id}
               category={ticket.category}
@@ -474,6 +558,7 @@ export const TicketDetailPage: React.FC = () => {
             <TicketTagManager
               ticketId={ticket.id}
               tags={ticket.tags}
+              maxVisible={3}
               onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
             />
             {(ticket.customFields?.organization || ticket.organization) && (
@@ -524,25 +609,12 @@ export const TicketDetailPage: React.FC = () => {
           </button>
 
           <div className="desktop-only-pill" style={{ gap: '6px' }}>
-            {/* Tier Escalation / Transfer */}
-            <select
-              value={ticket.tier}
-              onChange={(e) => handleTierEscalate(e.target.value)}
-              className="pill-select"
-              title="Transfer / Escalate Tier"
-            >
-              <option value={ticket.tier} disabled>
-                Tier: {ticket.tier}
-              </option>
-              {['L1', 'L2', 'L3', 'DEV', 'QA'].map((tierOption) => {
-                if (tierOption === ticket.tier) return null;
-                return (
-                  <option key={tierOption} value={tierOption}>
-                    Move to {tierOption}
-                  </option>
-                );
-              })}
-            </select>
+            {/* Tier Escalation / Transfer Popover */}
+            <TierPopover
+              tier={ticket.tier}
+              onTierSelect={handleTierEscalate}
+              align="right"
+            />
 
             {/* Zoho Desk Styled Assignment Popover (Teams & Agents) */}
             <AssignmentPopover
@@ -613,6 +685,80 @@ export const TicketDetailPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Merged Secondary Tickets Banner (When viewing a Master Ticket) */}
+          {((ticket.linksTo?.filter((l: any) => l.type === 'MERGED_INTO')) || []).length > 0 && (
+            <div
+              style={{
+                padding: '10px 16px',
+                backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                borderBottom: '1px solid rgba(37, 99, 235, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'var(--primary)',
+                flexShrink: 0,
+              }}
+            >
+              <GitMerge size={15} />
+              <span>
+                <strong>{ticket.linksTo.filter((l: any) => l.type === 'MERGED_INTO').length} Ticket(s) Merged</strong> into this ticket
+              </span>
+            </div>
+          )}
+
+          {/* Merged Into Master Ticket Banner (When viewing a Closed Secondary Ticket) */}
+          {ticket.linksFrom?.find((l: any) => l.type === 'MERGED_INTO') && (
+            <div
+              style={{
+                padding: '10px 16px',
+                backgroundColor: '#fffbeb',
+                borderBottom: '1px solid #fef3c7',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '12px',
+                color: '#92400e',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <GitMerge size={14} />
+                <span>
+                  This ticket was merged into Master Ticket{' '}
+                  <strong style={{ color: '#78350f' }}>
+                    #{ticket.linksFrom.find((l: any) => l.type === 'MERGED_INTO')?.target?.number}
+                  </strong>
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = ticket.linksFrom.find((l: any) => l.type === 'MERGED_INTO')?.target?.id;
+                    if (targetId) navigate(`/tickets/${targetId}`);
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '11px', padding: '2px 8px' }}
+                >
+                  View Master Ticket
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = ticket.linksFrom.find((l: any) => l.type === 'MERGED_INTO')?.target?.id;
+                    if (targetId) handleUnmergeTicket(targetId, ticket.id);
+                  }}
+                  className="btn btn-danger btn-sm"
+                  style={{ fontSize: '11px', padding: '2px 8px' }}
+                >
+                  Unmerge
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Workspace Tabs & Dynamic Responsive Content */}
           <div
             style={{
@@ -665,6 +811,17 @@ export const TicketDetailPage: React.FC = () => {
                 <Video size={14} /> Media ({mediaAssets.length})
               </button>
 
+              {(((ticket?.linksTo || []).some((l: any) => l.type === 'MERGED_INTO')) ||
+                ((ticket?.linksFrom || []).some((l: any) => l.type === 'MERGED_INTO'))) && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('merged')}
+                  className={`workspace-tab-item ${activeTab === 'merged' ? 'active' : ''}`}
+                >
+                  <GitMerge size={14} /> Merged ({((ticket.linksTo || []).filter((l: any) => l.type === 'MERGED_INTO')).length || 1})
+                </button>
+              )}
+
               {/* Symmetrical Right Control: Browser Fullscreen Toggle (Desktop only) */}
               <div className="desktop-only-tab-action" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
                 <button
@@ -716,6 +873,7 @@ export const TicketDetailPage: React.FC = () => {
                   >
                     <TimelineView
                       comments={comments}
+                      onSplitComment={(c) => setSplitComment(c)}
                       initialTicket={{
                         description: ticket.description,
                         requester: ticket.requester,
@@ -762,6 +920,18 @@ export const TicketDetailPage: React.FC = () => {
               {activeTab === 'media' && (
                 <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
                   <MediaPlayer media={mediaAssets} />
+                </div>
+              )}
+
+              {activeTab === 'merged' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                  <MergedTicketsView
+                    ticket={ticket}
+                    onUnmerge={handleUnmergeTicket}
+                    onRefresh={() => {
+                      if (id) loadTicketDetails(id);
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -817,47 +987,17 @@ export const TicketDetailPage: React.FC = () => {
           <div className="mobile-action-section">
             <span className="mobile-action-section-title">Priority & Tier</span>
             <div className="mobile-action-pills-row">
-              {canChangePriority ? (
-                <select
-                  value={ticket.priority}
-                  onChange={(e) => handlePriorityChange(e.target.value)}
-                  className="pill-select"
-                  style={{
-                    color:
-                      ticket.priority === 'CRITICAL' || ticket.priority === 'URGENT'
-                        ? 'var(--color-critical)'
-                        : ticket.priority === 'HIGH'
-                          ? '#f59e0b'
-                          : 'var(--text-primary)',
-                  }}
-                >
-                  <option value="LOW">Priority: LOW</option>
-                  <option value="NORMAL">Priority: NORMAL</option>
-                  <option value="HIGH">Priority: HIGH</option>
-                  <option value="URGENT">Priority: URGENT</option>
-                  <option value="CRITICAL">Priority: CRITICAL</option>
-                </select>
-              ) : (
-                <PriorityPill priority={ticket.priority} />
-              )}
-              <select
-                value={ticket.tier}
-                onChange={(e) => handleTierEscalate(e.target.value)}
-                className="pill-select"
-                title="Transfer / Escalate Tier"
-              >
-                <option value={ticket.tier} disabled>
-                  Tier: {ticket.tier}
-                </option>
-                {['L1', 'L2', 'L3', 'DEV', 'QA'].map((tierOption) => {
-                  if (tierOption === ticket.tier) return null;
-                  return (
-                    <option key={tierOption} value={tierOption}>
-                      Move to {tierOption}
-                    </option>
-                  );
-                })}
-              </select>
+              <PriorityPopover
+                priority={ticket.priority}
+                onPriorityChange={handlePriorityChange}
+                disabled={!canChangePriority}
+                align="left"
+              />
+              <TierPopover
+                tier={ticket.tier}
+                onTierSelect={handleTierEscalate}
+                align="left"
+              />
             </div>
           </div>
 
@@ -951,6 +1091,17 @@ export const TicketDetailPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Split as New Ticket Modal */}
+      {splitComment && ticket && (
+        <SplitTicketModal
+          isOpen={Boolean(splitComment)}
+          onClose={() => setSplitComment(null)}
+          parentTicket={ticket}
+          commentToSplit={splitComment}
+          onConfirmSplit={handleConfirmSplit}
+        />
+      )}
     </div>
   );
 };

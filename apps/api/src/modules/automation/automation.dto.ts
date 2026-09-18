@@ -82,7 +82,7 @@ export const AutomationActionSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('set_tier'),
-    tier: z.enum(['L1', 'L2', 'L3', 'DEV', 'QA']),
+    tier: z.enum(['L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA']),
   }),
   z.object({
     type: z.literal('set_category'),

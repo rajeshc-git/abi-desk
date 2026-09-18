@@ -83,7 +83,7 @@ export type UpdateWidgetConfigDto = z.infer<typeof UpdateWidgetConfigSchema>;
 // Teams & Queues
 // ---------------------------------------------------------------------------
 
-export const SupportTierEnum = z.enum(['L1', 'L2', 'L3', 'DEV', 'QA']);
+export const SupportTierEnum = z.enum(['L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA']);
 
 export const CreateTeamSchema = z.object({
   name: z.string().min(1).max(120),

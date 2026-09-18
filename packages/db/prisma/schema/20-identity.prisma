@@ -113,10 +113,12 @@ model User {
   roles       UserRole[]
   teamMembers TeamMember[]
 
-  ticketsRequested Ticket[]        @relation("TicketRequester")
-  ticketsAssigned  Ticket[]        @relation("TicketAssignee")
-  ticketComments   TicketComment[]
-  ticketWatchers   TicketWatcher[]
+  ticketsRequested   Ticket[]        @relation("TicketRequester")
+  ticketsAssigned    Ticket[]        @relation("TicketAssignee")
+  ticketsRcaUpdated  Ticket[]        @relation("TicketRcaUpdater")
+  ticketsCapaUpdated Ticket[]        @relation("TicketCapaUpdater")
+  ticketComments     TicketComment[]
+  ticketWatchers     TicketWatcher[]
 
   mediaAssets       MediaAsset[]
   approvalDecisions ApprovalDecision[]

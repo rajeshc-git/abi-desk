@@ -24,6 +24,7 @@ export const TEAM_IDS = {
   acmeTechnical: 'c3c3c3c3-0000-4000-8000-000000000002',
   acmeProduct: 'c3c3c3c3-0000-4000-8000-000000000003',
   acmeEngineering: 'c3c3c3c3-0000-4000-8000-000000000004',
+  acmeDevops: 'c3c3c3c3-0000-4000-8000-000000000006',
   acmeQa: 'c3c3c3c3-0000-4000-8000-000000000005',
   globexSupport: 'c3c3c3c3-0000-4000-8000-000000000010',
 } as const;
@@ -33,6 +34,7 @@ export const QUEUE_IDS = {
   acmeBilling: 'd4d4d4d4-0000-4000-8000-000000000002',
   acmeTechnical: 'd4d4d4d4-0000-4000-8000-000000000003',
   acmeEngineering: 'd4d4d4d4-0000-4000-8000-000000000004',
+  acmeDevops: 'd4d4d4d4-0000-4000-8000-000000000006',
   globexGeneral: 'd4d4d4d4-0000-4000-8000-000000000010',
 } as const;
 

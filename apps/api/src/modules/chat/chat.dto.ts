@@ -31,7 +31,7 @@ export class UpdateTypingDto extends createZodDto(UpdateTypingSchema) {}
 export const PromoteToTicketSchema = z.object({
   subject: z.string().min(1).max(300).optional(),
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL']).default('NORMAL'),
-  tier: z.enum(['L1', 'L2', 'L3', 'DEV', 'QA']).default('L1'),
+  tier: z.enum(['L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA']).default('L1'),
   category: z.string().max(100).optional(),
   brandId: z.string().uuid().optional(),
 });

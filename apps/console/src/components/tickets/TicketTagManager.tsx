@@ -20,6 +20,7 @@ interface TicketTagManagerProps {
   tags?: TicketTagWrapper[];
   onTagsChange?: (tags: TicketTagWrapper[]) => void;
   readonly?: boolean;
+  maxVisible?: number;
 }
 
 export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
@@ -27,10 +28,12 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
   tags = [],
   onTagsChange,
   readonly = false,
+  maxVisible = 2,
 }) => {
   const toast = useToast();
   const { setSelectedTag } = useSearch();
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [availableTags, setAvailableTags] = useState<TagItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -113,10 +116,13 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
     t.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
   );
 
+  const visibleTags = isExpanded ? tags : tags.slice(0, maxVisible);
+  const hiddenCount = tags.length - visibleTags.length;
+
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+    <div style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'nowrap', gap: '5px', flexShrink: 0 }}>
       {/* Existing Tags */}
-      {tags.map((tItem, idx) => {
+      {visibleTags.map((tItem, idx) => {
         const tag = tItem.tag;
         if (!tag) return null;
         const color = tag.color || '#3b82f6';
@@ -127,19 +133,20 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
             className="tag-pill"
             onClick={() => setSelectedTag({ name: tag.name, slug: tag.slug, color: tag.color })}
             style={{
-              fontSize: '12px',
+              fontSize: '11.5px',
               fontWeight: 600,
-              height: '32px',
+              height: '28px',
               boxSizing: 'border-box',
               backgroundColor: `${color}15`,
               color: color,
               border: `1px solid ${color}40`,
               borderRadius: '6px',
-              padding: '0 10px',
+              padding: '0 8px',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px',
+              gap: '5px',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
               transition: 'all 0.15s ease',
             }}
             title={`Click to filter by "${tag.name}"`}
@@ -168,12 +175,72 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
                 onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.7')}
                 title={`Remove ${tag.name}`}
               >
-                <X size={11} />
+                <X size={10} />
               </button>
             )}
           </span>
         );
       })}
+
+      {/* +N More Pill */}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="tag-pill tag-more-pill"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(true);
+          }}
+          style={{
+            height: '28px',
+            padding: '0 7px',
+            fontSize: '11px',
+            fontWeight: 600,
+            borderRadius: '6px',
+            border: '1px solid var(--border-medium, #e2e8f0)',
+            backgroundColor: 'var(--bg-subtle, #f1f5f9)',
+            color: 'var(--text-secondary, #475569)',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            whiteSpace: 'nowrap',
+            transition: 'all 0.15s ease',
+          }}
+          title={`Show ${hiddenCount} more tags`}
+        >
+          <span>+{hiddenCount} more</span>
+        </button>
+      )}
+
+      {/* If expanded and tags were hidden, allow collapsing back */}
+      {isExpanded && tags.length > maxVisible && (
+        <button
+          type="button"
+          className="tag-pill tag-more-pill"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(false);
+          }}
+          style={{
+            height: '28px',
+            padding: '0 6px',
+            fontSize: '11px',
+            fontWeight: 600,
+            borderRadius: '6px',
+            border: '1px dashed var(--border-medium, #e2e8f0)',
+            backgroundColor: 'transparent',
+            color: 'var(--text-muted, #94a3b8)',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            whiteSpace: 'nowrap',
+          }}
+          title="Collapse tags"
+        >
+          <span>Less</span>
+        </button>
+      )}
 
       {/* Add Tag Button & Dropdown */}
       {!readonly && (
@@ -188,12 +255,12 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '5px',
-              height: '32px',
+              gap: '4px',
+              height: '28px',
               boxSizing: 'border-box',
-              fontSize: '12px',
+              fontSize: '11.5px',
               fontWeight: 600,
-              padding: '0 10px',
+              padding: '0 8px',
               borderRadius: '6px',
               border: isOpen ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-medium, #e2e8f0)',
               backgroundColor: isOpen ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-surface, #ffffff)',
@@ -201,6 +268,7 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
               cursor: 'pointer',
               boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
               transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap',
             }}
             onMouseEnter={(e) => {
               if (!isOpen) {
@@ -215,7 +283,7 @@ export const TicketTagManager: React.FC<TicketTagManagerProps> = ({
               }
             }}
           >
-            <Plus size={13} style={{ color: 'var(--text-muted)' }} />
+            <Plus size={12} style={{ color: 'var(--text-muted)' }} />
             <span>Tag</span>
           </button>
 

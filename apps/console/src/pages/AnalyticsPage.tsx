@@ -51,7 +51,7 @@ export const AnalyticsPage: React.FC = () => {
     hasOwnView ||
     (isStaff &&
       user?.roles?.some((r) =>
-        ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'QA_TEAM'].includes(r),
+        ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'QA_TEAM'].includes(r),
       ));
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '14d' | '30d' | '90d'>('14d');
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');

@@ -256,7 +256,7 @@ PASS  runtime role cannot create objects
 
 ## 👥 Role-Based Access Control (RBAC)
 
-The system incorporates an exhaustive authorization matrix codified in [`@abi-desk/rbac`](./packages/rbac/src/roles.ts) with **63 permissions**, **8 roles**, and **284 grants**:
+The system incorporates an exhaustive authorization matrix codified in [`@abi-desk/rbac`](./packages/rbac/src/roles.ts) with **65 permissions**, **9 roles**, and **332 grants**:
 
 | Role | Domain / Purpose | Key Responsibilities |
 | :--- | :--- | :--- |
@@ -265,6 +265,7 @@ The system incorporates an exhaustive authorization matrix codified in [`@abi-de
 | **L2** | Technical Support Engineer | Advanced diagnosis, SLA escalations, cross-queue routing, diagnostic bundle inspection. |
 | **L3** | Product & Escalation Lead | Senior escalation point, emergency transitions, SLA policy reviews, approvals. |
 | **DEV** | Engineering & Development | Internal issue investigation, reproduction reviews, error log inspections, bug resolution notes. |
+| **DEVOPS_TEAM** | DevOps & Infrastructure | Infrastructure incidents, deployments, site reliability, server diagnostic reviews. |
 | **QA_TEAM** | Quality Assurance | Verification of bugfixes, resolution validation, test confirmations. |
 | **TENANT_ADMIN** | Organization Administrator | Team/Queue configuration, staff user management, brand styling, widget customization, SLA targets. |
 | **PLATFORM_ADMIN** | Multi-Tenant Platform Operator | Cross-tenant administration, system monitoring, tenant provisioning. |

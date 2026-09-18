@@ -34,7 +34,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   const [priority, setPriority] = useState<'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | 'CRITICAL'>(
     'NORMAL',
   );
-  const [tier, setTier] = useState<'L1' | 'L2' | 'L3' | 'DEV' | 'QA'>('L1');
+  const [tier, setTier] = useState<'L1' | 'L2' | 'L3' | 'DEV' | 'DEVOPS' | 'QA'>('L1');
   const [organization, setOrganization] = useState('');
   const [product, setProduct] = useState('');
   const [availableOrgs, setAvailableOrgs] = useState<any[]>([]);
@@ -318,6 +318,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
               <option value="L2">L2 Technical</option>
               <option value="L3">L3 Product</option>
               <option value="DEV">Dev Engineering</option>
+              <option value="DEVOPS">DevOps & Infra</option>
               <option value="QA">QA Verification</option>
             </select>
           </div>

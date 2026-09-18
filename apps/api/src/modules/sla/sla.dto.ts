@@ -42,6 +42,7 @@ export const RoleKeyEnum = z.enum([
   'L2_SUPPORT',
   'L3_SUPPORT',
   'DEV_TEAM',
+  'DEVOPS_TEAM',
   'QA_TEAM',
   'PLATFORM_ADMIN',
 ]);

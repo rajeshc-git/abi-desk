@@ -30,6 +30,8 @@ enum RoleKey {
   L3_SUPPORT
   /// Engineering team.
   DEV_TEAM
+  /// DevOps and Infrastructure engineering team.
+  DEVOPS_TEAM
   /// Not in the requirements' roles table, but the documented workflow has a QA
   /// stage (Development -> QA -> Release). Without this role that stage has no
   /// owner, so it is seeded as a first-class role.

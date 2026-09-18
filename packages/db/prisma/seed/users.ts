@@ -134,6 +134,16 @@ const USERS: SeedUser[] = [
     maxConcurrentTickets: 8,
   },
   {
+    email: 'marcus.vance@acme.example',
+    fullName: 'Marcus Vance',
+    jobTitle: 'DevOps & SRE Lead',
+    kind: 'STAFF',
+    tenantId: TENANT_IDS.acme,
+    roles: ['DEVOPS_TEAM'],
+    teams: [{ teamId: TEAM_IDS.acmeDevops, isLead: true }],
+    maxConcurrentTickets: 10,
+  },
+  {
     email: 'ben.okafor@acme.example',
     fullName: 'Ben Okafor',
     jobTitle: 'QA Engineer',
@@ -258,8 +268,8 @@ export async function seedUsers(prisma: PrismaClient): Promise<SeededUserSummary
     };
 
     const user = existing
-      ? await prisma.user.update({ where: { id: existing.id }, data })
-      : await prisma.user.create({ data });
+      ? await prisma.user.update({ where: { id: existing.id }, data: data as any })
+      : await prisma.user.create({ data: data as any });
 
     // --- Role assignments ------------------------------------------------
     for (const roleKey of seed.roles) {

@@ -293,7 +293,7 @@ export function emptyInitialDB(): RosterDB {
   const l1 = emptyTeamData('L1', null);
   return {
     products: [],
-    tiers: ['L1', 'L2', 'L3', 'DEV', 'QA'],
+    tiers: ['L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA'],
     holidays: loadInitialHolidays(),
     teams: [l1],
     activeTeamId: l1.id,
@@ -604,7 +604,7 @@ export const RosterPage: React.FC = () => {
 
       setDb((prevDb) => ({
         products,
-        tiers: ['L1', 'L2', 'L3', 'DEV', 'QA'],
+        tiers: ['L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA'],
         holidays: savedHolidays.length > 0 ? savedHolidays : prevDb.holidays,
         teams,
         activeTeamId: teams.some((t) => t.id === prevDb.activeTeamId) ? prevDb.activeTeamId : fallbackTeamId,

@@ -204,6 +204,14 @@ model Ticket {
 
   isSpam Boolean @default(false)
 
+  // -- RCA (Root Cause Analysis) & CAPA (Corrective and Preventive Actions) --
+  rootCause       String?   @db.Text
+  capaNotes       String?   @db.Text
+  rcaUpdatedAt    DateTime? @db.Timestamptz(6)
+  capaUpdatedAt   DateTime? @db.Timestamptz(6)
+  rcaUpdatedById  String?   @db.Uuid
+  capaUpdatedById String?   @db.Uuid
+
   /// Free-form fields configured per tenant.
   customFields Json @default("{}")
 
@@ -221,12 +229,14 @@ model Ticket {
   updatedAt DateTime  @updatedAt @db.Timestamptz(6)
   deletedAt DateTime? @db.Timestamptz(6)
 
-  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  brand     Brand   @relation(fields: [brandId], references: [id], onDelete: Restrict)
-  requester User    @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: Restrict)
-  assignee  User?   @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  queue     Queue?  @relation(fields: [queueId], references: [id], onDelete: SetNull)
-  team      Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand         Brand   @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  requester     User    @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  assignee      User?   @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  queue         Queue?  @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  team          Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  rcaUpdatedBy  User?   @relation("TicketRcaUpdater", fields: [rcaUpdatedById], references: [id], onDelete: SetNull)
+  capaUpdatedBy User?   @relation("TicketCapaUpdater", fields: [capaUpdatedById], references: [id], onDelete: SetNull)
 
   comments  TicketComment[]
   events    TicketEvent[]

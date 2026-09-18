@@ -219,6 +219,24 @@ const TRANSITIONS: TransitionSeed[] = [
     requiresComment: true,
     sortOrder: 20,
   },
+  {
+    fromStatus: 'IN_DEVELOPMENT',
+    toStatus: 'IN_DEVELOPMENT',
+    requiredPermission: 'ticket:escalate',
+    targetTier: 'DEVOPS',
+    label: 'Escalate to DevOps / Infra',
+    requiresComment: true,
+    sortOrder: 25,
+  },
+  {
+    fromStatus: 'OPEN',
+    toStatus: 'IN_DEVELOPMENT',
+    requiredPermission: 'ticket:escalate',
+    targetTier: 'DEVOPS',
+    label: 'Escalate to DevOps / Infra',
+    requiresComment: true,
+    sortOrder: 75,
+  },
 
   // ---- Development -> QA -> Release --------------------------------------
   {

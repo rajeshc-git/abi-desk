@@ -262,6 +262,7 @@ export const AdminPage: React.FC = () => {
         if (staffRoleFilter === 'L2' && tier !== 'L2' && !roleName.toLowerCase().includes('l2')) return false;
         if (staffRoleFilter === 'L3' && tier !== 'L3' && !roleName.toLowerCase().includes('l3')) return false;
         if (staffRoleFilter === 'DEV' && tier !== 'DEV' && !roleName.toLowerCase().includes('dev')) return false;
+        if (staffRoleFilter === 'DEVOPS' && tier !== 'DEVOPS' && !roleName.toLowerCase().includes('devops') && !roleName.toLowerCase().includes('infra')) return false;
         if (staffRoleFilter === 'QA' && tier !== 'QA' && !roleName.toLowerCase().includes('qa')) return false;
       }
 
@@ -3211,6 +3212,7 @@ export const AdminPage: React.FC = () => {
                   <option value="L2">L2 Support</option>
                   <option value="L3">L3 Support</option>
                   <option value="DEV">Dev Team</option>
+                  <option value="DEVOPS">DevOps / Infra</option>
                   <option value="QA">QA Team</option>
                 </select>
 
@@ -3261,7 +3263,8 @@ export const AdminPage: React.FC = () => {
                     if (tier === 'L1' || roleName.toLowerCase().includes('l1')) tierPillClass = 'tier-pill L1';
                     else if (tier === 'L2' || roleName.toLowerCase().includes('l2')) tierPillClass = 'tier-pill L2';
                     else if (tier === 'L3' || roleName.toLowerCase().includes('l3')) tierPillClass = 'tier-pill L3';
-                    else if (tier === 'DEV' || roleName.toLowerCase().includes('dev')) tierPillClass = 'tier-pill DEV';
+                    else if (tier === 'DEV' || (roleName.toLowerCase().includes('dev') && !roleName.toLowerCase().includes('devops'))) tierPillClass = 'tier-pill DEV';
+                    else if (tier === 'DEVOPS' || roleName.toLowerCase().includes('devops') || roleName.toLowerCase().includes('infra')) tierPillClass = 'tier-pill DEVOPS';
                     else if (tier === 'QA' || roleName.toLowerCase().includes('qa')) tierPillClass = 'tier-pill QA';
                     else if (roleName.toLowerCase().includes('admin')) {
                       tierPillClass = 'tier-pill';
@@ -4461,7 +4464,8 @@ export const AdminPage: React.FC = () => {
                         L2_SUPPORT: 3,
                         L3_SUPPORT: 4,
                         DEV_TEAM: 5,
-                        QA_TEAM: 6,
+                        DEVOPS_TEAM: 6,
+                        QA_TEAM: 7,
                       };
                       const orderA = ROLE_ORDER[a.key] || 99;
                       const orderB = ROLE_ORDER[b.key] || 99;
@@ -4640,7 +4644,8 @@ export const AdminPage: React.FC = () => {
                       L2_SUPPORT: 3,
                       L3_SUPPORT: 4,
                       DEV_TEAM: 5,
-                      QA_TEAM: 6,
+                      DEVOPS_TEAM: 6,
+                      QA_TEAM: 7,
                     };
                     const orderA = ROLE_ORDER[a.key] || 99;
                     const orderB = ROLE_ORDER[b.key] || 99;

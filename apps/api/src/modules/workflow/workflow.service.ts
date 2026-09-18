@@ -183,7 +183,7 @@ export class WorkflowService {
         principal.permissions.has('admin:workflow:manage') ||
         principal.permissions.has('ticket:update:own') ||
         principal.roles.some((r) =>
-          ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'QA_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'ADMIN'].includes(r),
+          ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'QA_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'ADMIN'].includes(r),
         );
 
       if (!transition) {
@@ -359,6 +359,7 @@ export class WorkflowService {
     if (targetTier === 'L2') targetStatus = 'ESCALATED_L2';
     else if (targetTier === 'L3') targetStatus = 'ESCALATED_L3';
     else if (targetTier === 'DEV') targetStatus = 'IN_DEVELOPMENT';
+    else if (targetTier === 'DEVOPS') targetStatus = 'IN_DEVELOPMENT';
     else if (targetTier === 'QA') targetStatus = 'IN_QA';
     else if (targetTier === 'L1') targetStatus = 'OPEN';
 

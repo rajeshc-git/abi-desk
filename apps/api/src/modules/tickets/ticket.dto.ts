@@ -32,7 +32,7 @@ export const ticketStatusValues = [
 export const ticketPriorityValues = ['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL'] as const;
 export const ticketTypeValues = ['QUESTION', 'INCIDENT', 'BUG', 'FEATURE_REQUEST', 'TASK'] as const;
 export const ticketChannelValues = ['WIDGET', 'PORTAL', 'EMAIL', 'API', 'CHAT', 'PHONE'] as const;
-export const supportTierValues = ['L1', 'L2', 'L3', 'DEV', 'QA'] as const;
+export const supportTierValues = ['L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA'] as const;
 export const commentVisibilityValues = ['PUBLIC', 'INTERNAL'] as const;
 
 const uuid = z.string().uuid();
@@ -72,6 +72,8 @@ export const updateTicketSchema = z
     subcategory: z.string().trim().max(120).nullable().optional(),
     organization: z.string().trim().max(160).nullable().optional(),
     product: z.string().trim().max(120).nullable().optional(),
+    rootCause: z.string().trim().max(50_000).nullable().optional(),
+    capaNotes: z.string().trim().max(50_000).nullable().optional(),
     customFields: z.record(z.unknown()).optional(),
   })
   // An empty PATCH is almost always a client bug; failing loudly beats a silent no-op
@@ -198,6 +200,38 @@ export const linkTicketSchema = z.object({
 });
 
 export class LinkTicketDto extends createZodDto(linkTicketSchema) {}
+
+export const mergeTicketsSchema = z.object({
+  primaryTicketId: uuid,
+  secondaryTicketIds: z.array(uuid).min(1, 'At least one secondary ticket is required for merging'),
+  note: z.string().trim().max(2000).optional(),
+});
+
+export class MergeTicketsDto extends createZodDto(mergeTicketsSchema) {}
+
+export const unmergeTicketSchema = z.object({
+  secondaryTicketId: uuid,
+  note: z.string().trim().max(2000).optional(),
+});
+
+export class UnmergeTicketDto extends createZodDto(unmergeTicketSchema) {}
+
+export const splitTicketSchema = z.object({
+  commentId: uuid,
+  subject: z.string().trim().min(3, 'Subject must be at least 3 characters').max(300),
+  description: z.string().trim().optional(),
+  priority: z.enum(ticketPriorityValues).optional(),
+  type: z.enum(ticketTypeValues).optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  subcategory: z.string().trim().max(120).nullable().optional(),
+  tier: z.enum(supportTierValues).optional(),
+  organization: z.string().trim().optional(),
+  product: z.string().trim().optional(),
+  teamId: uuid.nullable().optional(),
+  assigneeId: uuid.nullable().optional(),
+});
+
+export class SplitTicketDto extends createZodDto(splitTicketSchema) {}
 
 export const createTagSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(60),

@@ -16,6 +16,7 @@ import {
   Layers,
   ChevronDown,
   Calendar,
+  GitMerge,
 } from 'lucide-react';
 import { ApiClient } from '../../api/client';
 import { LoadingSpinner } from '../common/LoadingSpinner';
@@ -158,6 +159,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
           'CONFIRMATION_REQUESTED',
           'CUSTOMER_CONFIRMED',
           'CUSTOMER_REJECTED',
+          'MERGED',
         ].includes(type);
         if (!isWorkflow) return false;
       } else if (categoryFilter === 'FIELD_UPDATES') {
@@ -279,6 +281,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
     } else if (type === 'TAG_ADDED' || type === 'TAG_REMOVED') {
       headerTitle = `${actorName} modified ticket tags`;
       icon = <Tag size={13} style={{ color: '#6366f1' }} />;
+    } else if (type === 'MERGED') {
+      headerTitle = `${actorName} merged ticket(s)`;
+      icon = <GitMerge size={13} style={{ color: '#2563eb' }} />;
     } else if (isSystem || type === 'AUTOMATION_APPLIED') {
       headerTitle = ev.actorLabel || 'Notification Rule Applied';
       headerRoleBadge = 'System Automation';
@@ -293,6 +298,29 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
       diffRows.push({ field: 'Channel', directText: ev.metadata?.channel || 'WEB' });
       if (ev.metadata?.priority) {
         diffRows.push({ field: 'Initial Priority', directText: ev.metadata.priority });
+      }
+    } else if (type === 'MERGED') {
+      if (ev.metadata?.action === 'MERGED_INTO_PRIMARY') {
+        diffRows.push({
+          field: 'Merged into Master Ticket',
+          directText: `#${ev.metadata.primaryTicketNumber || ev.toValue}`,
+        });
+      } else {
+        diffRows.push({
+          field: 'Merged Secondary Tickets',
+          directText: ev.metadata?.secondaryTicketNumbers?.map((n: string) => `#${n}`).join(', ') || ev.toValue || 'Merged',
+        });
+      }
+      if (ev.metadata?.note) {
+        diffRows.push({ field: 'Merge Note', directText: ev.metadata.note });
+      }
+    } else if (type === 'LINKED' && ev.metadata?.action === 'UNMERGED_SECONDARY_TICKET') {
+      diffRows.push({
+        field: 'Unmerged Ticket',
+        directText: `#${ev.metadata.secondaryTicketNumber || ev.fromValue}`,
+      });
+      if (ev.metadata?.note) {
+        diffRows.push({ field: 'Unmerge Reason', directText: ev.metadata.note });
       }
     } else if (type === 'PRIORITY_CHANGED') {
       diffRows.push({

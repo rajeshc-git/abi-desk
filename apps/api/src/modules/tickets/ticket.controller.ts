@@ -25,8 +25,11 @@ import {
   LinkTicketDto,
   ListCommentsDto,
   ListTicketsDto,
+  MergeTicketsDto,
+  SplitTicketDto,
   TagTicketDto,
   TicketIdParamDto,
+  UnmergeTicketDto,
   UpdateTicketDto,
 } from './ticket.dto';
 import { TicketService } from './ticket.service';
@@ -293,5 +296,40 @@ export class TicketController {
     @Body() dto: LinkTicketDto,
   ) {
     return this.tickets.link(principal, params.id, dto.targetId, dto.type);
+  }
+
+  /** Merges secondary tickets into a master ticket (Zoho Desk / Zendesk model). */
+  @Post('merge')
+  @RequireAnyPermission('ticket:link', 'ticket:update:tenant', 'ticket:escalate')
+  @Audited({ action: 'ticket.merged', resourceType: 'ticket' })
+  @HttpCode(HttpStatus.OK)
+  merge(@CurrentUser() principal: AuthenticatedPrincipal, @Body() dto: MergeTicketsDto) {
+    return this.tickets.merge(principal, dto);
+  }
+
+  /** Unmerges a secondary ticket from a master ticket and restores it to OPEN. */
+  @Post(':id/unmerge')
+  @RequireAnyPermission('ticket:link', 'ticket:update:tenant', 'ticket:escalate')
+  @Audited({ action: 'ticket.unmerged', resourceType: 'ticket', idParam: 'id' })
+  @HttpCode(HttpStatus.OK)
+  unmerge(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param() params: TicketIdParamDto,
+    @Body() dto: UnmergeTicketDto,
+  ) {
+    return this.tickets.unmerge(principal, params.id, dto);
+  }
+
+  /** Splits a comment into a new standalone ticket (Zoho Desk model). */
+  @Post(':id/split')
+  @RequireAnyPermission('ticket:create', 'ticket:link', 'ticket:update:tenant')
+  @Audited({ action: 'ticket.split', resourceType: 'ticket', idParam: 'id' })
+  @HttpCode(HttpStatus.CREATED)
+  split(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param() params: TicketIdParamDto,
+    @Body() dto: SplitTicketDto,
+  ) {
+    return this.tickets.split(principal, params.id, dto);
   }
 }

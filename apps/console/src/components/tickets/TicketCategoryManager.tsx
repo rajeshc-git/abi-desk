@@ -122,43 +122,40 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
         display: 'inline-flex',
         alignItems: 'center',
         gap: '4px',
-        flexWrap: 'wrap',
+        flexShrink: 0,
       }}
     >
       {/* Assigned Category Badge */}
       {category ? (
         <span
           className="category-pill"
+          onClick={(e) => {
+            if (!readonly) {
+              e.stopPropagation();
+              setIsOpen((prev) => !prev);
+            }
+          }}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
-            height: '32px',
+            gap: '5px',
+            height: '28px',
             boxSizing: 'border-box',
             backgroundColor: `${categoryColor}14`,
             color: categoryColor,
             border: `1px solid ${categoryColor}35`,
             borderRadius: '6px',
-            padding: '0 10px',
-            fontSize: '12px',
+            padding: '0 8px',
+            fontSize: '11.5px',
             fontWeight: 600,
             whiteSpace: 'nowrap',
             transition: 'all 0.15s ease',
+            cursor: readonly ? 'default' : 'pointer',
           }}
+          title={readonly ? undefined : 'Click to change category'}
         >
-          <Folder size={13} />
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedCategory({ name: category, slug: category.toLowerCase().replace(/\s+/g, '-'), color: categoryColor });
-            }}
-            title="Click to filter by this category"
-            style={{ cursor: 'pointer', textDecoration: 'none' }}
-            onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-            onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-          >
-            {category}
-          </span>
+          <Folder size={12} />
+          <span>{category}</span>
           {!readonly && (
             <button
               type="button"
@@ -193,54 +190,43 @@ export const TicketCategoryManager: React.FC<TicketCategoryManagerProps> = ({
                 e.currentTarget.style.backgroundColor = 'transparent';
               }}
             >
-              <X size={11} />
+              <X size={10} />
             </button>
           )}
         </span>
-      ) : null}
-
-      {/* Change / Add Category Trigger */}
-      {!readonly && (
-        <button
-          type="button"
-          className="category-pill"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsOpen((prev) => !prev);
-          }}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '5px',
-            height: '32px',
-            boxSizing: 'border-box',
-            backgroundColor: isOpen ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-surface, #ffffff)',
-            color: isOpen ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #475569)',
-            border: isOpen ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-medium, #e2e8f0)',
-            borderRadius: '6px',
-            padding: '0 10px',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
-            transition: 'all 0.15s ease',
-          }}
-          onMouseEnter={(e) => {
-            if (!isOpen) {
-              e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
-              e.currentTarget.style.color = 'var(--text-primary, #0f172a)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isOpen) {
-              e.currentTarget.style.borderColor = 'var(--border-medium, #e2e8f0)';
-              e.currentTarget.style.color = 'var(--text-secondary, #475569)';
-            }
-          }}
-        >
-          <Folder size={13} style={{ color: 'var(--text-muted)' }} />
-          <span>{category ? 'Change' : '+ Category'}</span>
-        </button>
+      ) : (
+        /* If no category is assigned yet, show "+ Category" button */
+        !readonly && (
+          <button
+            type="button"
+            className="category-pill"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen((prev) => !prev);
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              height: '28px',
+              boxSizing: 'border-box',
+              backgroundColor: isOpen ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-surface, #ffffff)',
+              color: isOpen ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #475569)',
+              border: isOpen ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-medium, #e2e8f0)',
+              borderRadius: '6px',
+              padding: '0 8px',
+              fontSize: '11.5px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Folder size={12} style={{ color: 'var(--text-muted)' }} />
+            <span>Category</span>
+          </button>
+        )
       )}
 
       {/* Floating Category Picker Popover */}

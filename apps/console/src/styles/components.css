@@ -184,6 +184,7 @@
 .tier-pill.L2 { color: #6b21a8; border-color: #d8b4fe; background-color: #f3e8ff; }
 .tier-pill.L3 { color: #be185d; border-color: #fbcfe8; background-color: #fce7f3; }
 .tier-pill.DEV { color: #0e7490; border-color: #a5f3fc; background-color: #ecfeff; }
+.tier-pill.DEVOPS { color: #d97706; border-color: #fde68a; background-color: #fffbeb; }
 .tier-pill.QA { color: #047857; border-color: #a7f3d0; background-color: #ecfdf5; }
 
 /* Cards & Surface Panes */
@@ -517,4 +518,65 @@
   .composer-footer {
     padding: 6px 10px;
   }
+}
+
+/* ─── Scrollbar Utility ─── */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Inbox Status Segmented Filter Bar ─── */
+.inbox-status-tabs-container {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-surface-hover, #f1f5f9);
+  padding: 3px;
+  border-radius: var(--radius-lg, 8px);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  width: 100%;
+}
+
+.inbox-status-tabs-container::-webkit-scrollbar {
+  display: none;
+}
+
+.inbox-status-tab-btn {
+  flex: 1 1 0px;
+  min-width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 6px;
+  border: none;
+  background-color: transparent;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.inbox-status-tab-btn:hover {
+  color: var(--text-primary, #0f172a);
+  background-color: rgba(255, 255, 255, 0.65);
+}
+
+.inbox-status-tab-btn.active {
+  background-color: #ffffff;
+  color: var(--primary, #2563eb);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
 }

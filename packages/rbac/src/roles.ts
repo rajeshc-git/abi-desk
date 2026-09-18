@@ -47,12 +47,13 @@ export type RoleKey =
   | 'L2_SUPPORT'
   | 'L3_SUPPORT'
   | 'DEV_TEAM'
+  | 'DEVOPS_TEAM'
   | 'QA_TEAM'
   | 'PLATFORM_ADMIN';
 
 export type RoleScope = 'PLATFORM' | 'TENANT';
 
-export type SupportTier = 'L1' | 'L2' | 'L3' | 'DEV' | 'QA';
+export type SupportTier = 'L1' | 'L2' | 'L3' | 'DEV' | 'DEVOPS' | 'QA';
 
 export interface RoleGrant {
   permission: PermissionKey;
@@ -303,6 +304,27 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
     ],
   },
   {
+    key: 'DEVOPS_TEAM',
+    scope: 'TENANT',
+    name: 'DevOps / Infra Team',
+    description: 'Infrastructure and Site Reliability. Manages deployments, infrastructure incidents, and system diagnostics.',
+    rank: 38,
+    tier: 'DEVOPS',
+    isStaff: true,
+    grants: [
+      ...SUPPORT_BASELINE.map(allow),
+      allow('ticket:bulk_update'),
+      allow('ticket:merge'),
+      allow('ticket:spam'),
+      allow('ticket:transition:qa'),
+      allow('ticket:transition:release'),
+      allow('report:view:tenant'),
+      allow('kb:write'),
+      allow('integration:link'),
+      allow('integration:manage'),
+    ],
+  },
+  {
     key: 'QA_TEAM',
     scope: 'TENANT',
     name: 'QA Team',
@@ -362,7 +384,7 @@ export function getRoleDefinition(key: RoleKey): RoleDefinition | undefined {
 }
 
 /** Escalation order used by the tier ladder. */
-export const TIER_ORDER: readonly SupportTier[] = ['L1', 'L2', 'L3', 'DEV', 'QA'];
+export const TIER_ORDER: readonly SupportTier[] = ['L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA'];
 
 export function nextTier(tier: SupportTier): SupportTier | undefined {
   const index = TIER_ORDER.indexOf(tier);
