@@ -350,11 +350,36 @@ const HtmlEmailRenderer: React.FC<HtmlEmailRendererProps> = ({ rawHtml, classNam
     >
       {/* Primary Fresh Message — rendered with original email HTML/CSS intact */}
       {primaryHtml && (
-        <div
-          className="email-body-content"
-          dangerouslySetInnerHTML={{ __html: primaryHtml }}
-          style={{ overflowWrap: 'break-word', whiteSpace: 'normal' }}
-        />
+        <>
+          <style>{`
+            .email-body-content ol {
+              margin: 4px 0 6px 0;
+              padding-left: 20px;
+            }
+            .email-body-content ul {
+              margin: 4px 0 6px 0;
+              padding-left: 20px;
+            }
+            .email-body-content li {
+              margin-bottom: 2px;
+              padding-left: 3px;
+            }
+            .email-body-content h3 {
+              font-size: 14.5px;
+              font-weight: 700;
+              margin: 6px 0 2px 0;
+              color: var(--text-primary);
+            }
+            .email-body-content p {
+              margin: 2px 0;
+            }
+          `}</style>
+          <div
+            className="email-body-content"
+            dangerouslySetInnerHTML={{ __html: primaryHtml }}
+            style={{ overflowWrap: 'break-word', whiteSpace: 'normal' }}
+          />
+        </>
       )}
 
       {/* Quoted Trail (Gmail / Outlook style) */}

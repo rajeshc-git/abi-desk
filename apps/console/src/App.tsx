@@ -13,6 +13,7 @@ import { LiveChatPage } from './pages/LiveChatPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { AdminPage } from './pages/AdminPage';
 import { RosterPage } from './pages/RosterPage';
+import { DocumentsPage } from './pages/DocumentsPage';
 import { DbExplorerPage } from './pages/DbExplorerPage';
 
 import './styles/theme.css';
@@ -46,6 +47,7 @@ export const App: React.FC = () => {
                 <Route path="/chat" element={<LiveChatPage />} />
                 <Route path="/analytics" element={<AnalyticsPage />} />
                 <Route path="/roster" element={<RosterPage />} />
+                <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/admin" element={<AdminPage />} />
               </Route>
 

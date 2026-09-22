@@ -707,6 +707,33 @@ export const RosterPage: React.FC = () => {
     }
   };
 
+  const handleDeleteRoster = async (r: SavedRoster) => {
+    if (!activeTeam) return;
+    if (!window.confirm(`Are you sure you want to permanently delete saved roster "${r.title}"? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      if (r.id && !r.id.startsWith('temp-')) {
+        await ApiClient.delete(`/admin/roster/rosters/${r.id}`);
+      }
+
+      const nextTeams = db.teams.map((t) =>
+        t.id === activeTeam.id ? { ...t, rosters: t.rosters.filter((x) => x.id !== r.id) } : t,
+      );
+      persistDB({ ...db, teams: nextTeams });
+
+      if (currentRoster?.id === r.id) {
+        setCurrentRoster(null);
+      }
+
+      toast.success(`Roster "${r.title}" permanently deleted`);
+    } catch (err: any) {
+      console.error('Failed to delete roster:', err);
+      toast.error(err?.message || 'Failed to delete roster from database');
+    }
+  };
+
   // Duty drag & drop state
   const [draggedDutyMemberId, setDraggedDutyMemberId] = useState<string | null>(null);
   const [dutyDropHover, setDutyDropHover] = useState<{ id: string; slot: 'morning' | 'evening' } | null>(null);
@@ -4506,14 +4533,7 @@ export const RosterPage: React.FC = () => {
                     </button>
                     {canManage && (
                       <button
-                        onClick={() => {
-                          if (!window.confirm(`Delete saved roster ${r.title}?`)) return;
-                          const nextTeams = db.teams.map((t) =>
-                            t.id === activeTeam.id ? { ...t, rosters: t.rosters.filter((x) => x.id !== r.id) } : t,
-                          );
-                          persistDB({ ...db, teams: nextTeams });
-                          toast.success('Roster removed from history');
-                        }}
+                        onClick={() => handleDeleteRoster(r)}
                         className="btn btn-sm btn-danger"
                         title="Delete Roster"
                       >

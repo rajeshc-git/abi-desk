@@ -48,6 +48,8 @@ interface AuthContextType {
   hasRole: (role: string) => boolean;
   reloadBrands: () => Promise<void>;
   updatePersonalTheme: (color: string | null) => Promise<void>;
+  updateAvatar: (avatarUrl: string | null) => void;
+  reloadUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -90,16 +92,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(data.accessToken);
       if (data.user) {
         setUser((prev) => {
+          const validTenantName =
+            data.tenantName && data.tenantName !== 'Unknown Organization'
+              ? data.tenantName
+              : prev?.tenantName;
+
           const session: UserSession = {
             id: data.user.id,
             email: data.user.email,
             fullName: data.user.fullName,
+            avatarUrl: data.user.avatarUrl || data.avatarUrl || prev?.avatarUrl,
             kind: data.user.kind,
             roles: data.roles || data.user.roles || prev?.roles || [],
             tenantId: data.tenantId || prev?.tenantId || '',
-            tenantName: data.tenantName || prev?.tenantName,
+            tenantName: validTenantName,
             permissions: data.permissions || data.user.permissions || prev?.permissions || [],
-            preferences: data.user.preferences || prev?.preferences,
+            preferences:
+              data.user.preferences && Object.keys(data.user.preferences).length > 0
+                ? data.user.preferences
+                : prev?.preferences,
           };
           localStorage.setItem('abidesk_user', JSON.stringify(session));
           return session;
@@ -124,7 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ApiClient.setRefreshToken(urlRefresh);
 
           const res = await ApiClient.get<{
-            user: { id: string; email: string; fullName: string; kind: 'STAFF' | 'CUSTOMER' };
+            user: { id: string; email: string; fullName: string; avatarUrl?: string; kind: 'STAFF' | 'CUSTOMER' };
             roles: string[];
             tenantId: string;
             tenantName?: string;
@@ -135,6 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             id: res.user.id,
             email: res.user.email,
             fullName: res.user.fullName,
+            avatarUrl: res.user.avatarUrl,
             kind: res.user.kind,
             roles: res.roles,
             tenantId: res.tenantId,
@@ -172,6 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: string;
           email: string;
           fullName: string;
+          avatarUrl?: string;
           kind: 'STAFF' | 'CUSTOMER';
           preferences?: { themeColor?: string | null };
         };
@@ -186,6 +199,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const updated: UserSession = {
               ...prev,
               fullName: meRes.user.fullName,
+              avatarUrl: meRes.user.avatarUrl,
               permissions: meRes.permissions,
               preferences: meRes.user.preferences,
             };
@@ -274,6 +288,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             id: string;
             email: string;
             fullName: string;
+            avatarUrl?: string;
             kind: 'STAFF' | 'CUSTOMER';
             preferences?: { themeColor?: string | null };
           };
@@ -287,6 +302,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: meRes.user.id,
           email: meRes.user.email,
           fullName: meRes.user.fullName,
+          avatarUrl: meRes.user.avatarUrl || (res.user as any).avatarUrl,
           kind: meRes.user.kind,
           roles: meRes.roles,
           tenantId: meRes.tenantId,
@@ -305,6 +321,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: res.user.id,
           email: res.user.email,
           fullName: res.user.fullName,
+          avatarUrl: (res.user as any).avatarUrl,
           kind: res.user.kind,
           roles: res.roles,
           tenantId: res.tenantId,
@@ -480,6 +497,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateAvatar = (avatarUrl: string | null) => {
+    setUser((prev) => {
+      if (!prev) return null;
+      const updated: UserSession = {
+        ...prev,
+        avatarUrl: avatarUrl || undefined,
+      };
+      localStorage.setItem('abidesk_user', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const reloadUser = async () => {
+    try {
+      const meRes = await ApiClient.get<{
+        user: {
+          id: string;
+          email: string;
+          fullName: string;
+          avatarUrl?: string;
+          kind: 'STAFF' | 'CUSTOMER';
+          preferences?: { themeColor?: string | null };
+        };
+        roles: string[];
+        tenantId: string;
+        tenantName?: string;
+        permissions: string[];
+      }>('/auth/me');
+
+      setUser((prev) => {
+        if (!prev) return null;
+        const updated: UserSession = {
+          ...prev,
+          fullName: meRes.user.fullName,
+          avatarUrl: meRes.user.avatarUrl,
+          tenantName: meRes.tenantName || prev.tenantName,
+          permissions: meRes.permissions,
+          preferences: meRes.user.preferences,
+        };
+        localStorage.setItem('abidesk_user', JSON.stringify(updated));
+        return updated;
+      });
+    } catch (err) {
+      console.error('Failed to reload user:', err);
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -497,6 +561,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasRole,
         reloadBrands: loadTenantBrands,
         updatePersonalTheme,
+        updateAvatar,
+        reloadUser,
       }}
     >
       {children}

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { ApiClient } from '../../api/client';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { ActionNoteViewer } from '../common/ActionNoteBox';
 
 export interface HistoryActor {
   id?: string;
@@ -291,7 +292,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
     }
 
     // Build detailed field diffs
-    const diffRows: Array<{ field: string; from?: string | null; to?: string | null; directText?: string }> = [];
+    const diffRows: Array<{ field: string; from?: string | null; to?: string | null; directText?: string; isRichNote?: boolean }> = [];
 
     if (type === 'CREATED') {
       diffRows.push({ field: 'Ticket Number', directText: ev.toValue || ticket?.number || 'Generated' });
@@ -402,7 +403,10 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
         diffRows.push({ field: 'CC Recipients', directText: ev.metadata.cc.join(', ') });
       }
       if (ev.metadata.reason) {
-        diffRows.push({ field: 'Transition Reason', directText: ev.metadata.reason });
+        const fieldLabel = (type === 'TIER_CHANGED' || type === 'ESCALATED')
+          ? 'Transfer Reason'
+          : 'Transition Note';
+        diffRows.push({ field: fieldLabel, directText: ev.metadata.reason });
       }
       if (ev.metadata.productName) {
         diffRows.push({ field: 'Product Name', directText: ev.metadata.productName });
@@ -546,6 +550,20 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
                       {row.to}
                     </span>
                   </span>
+                ) : row.isRichNote || /<[a-z/]|&lt;[a-z/]/i.test(row.directText || '') ? (
+                  <ActionNoteViewer
+                    content={row.directText}
+                    style={{
+                      display: 'inline-block',
+                      fontSize: '12px',
+                      color: 'var(--text-primary, #0f172a)',
+                      backgroundColor: 'var(--bg-app, #f8fafc)',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      maxWidth: '100%',
+                    }}
+                  />
                 ) : (
                   <span
                     style={{

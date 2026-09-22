@@ -35,10 +35,17 @@ import {
   ShieldCheck,
   Layers,
   Activity,
+  Globe,
+  ExternalLink,
+  LayoutGrid,
+  List,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { Modal } from '../components/common/Modal';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { ActionNoteBox, ActionNoteViewer } from '../components/common/ActionNoteBox';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useSearch } from '../context/SearchContext';
@@ -70,6 +77,13 @@ export const AdminPage: React.FC = () => {
   const [orgContactEmail, setOrgContactEmail] = useState('');
   const [orgContactPhone, setOrgContactPhone] = useState('');
   const [isOrgSubmitting, setIsOrgSubmitting] = useState(false);
+  const [expandedOrgDomainIds, setExpandedOrgDomainIds] = useState<Set<string>>(new Set());
+  const [orgSearchText, setOrgSearchText] = useState('');
+  const [orgViewMode, setOrgViewMode] = useState<'list' | 'grid'>(() => {
+    return (localStorage.getItem('abidesk_org_view_mode') as 'list' | 'grid') || 'grid';
+  });
+  const [orgPage, setOrgPage] = useState(1);
+  const [orgPageSize, setOrgPageSize] = useState(10);
 
   // Tags State
   const [tagsList, setTagsList] = useState<any[]>([]);
@@ -83,6 +97,13 @@ export const AdminPage: React.FC = () => {
   const [tagProduct, setTagProduct] = useState('');
   const [availableProducts, setAvailableProducts] = useState<any[]>([]);
   const [isTagSubmitting, setIsTagSubmitting] = useState(false);
+  const [expandedTagDomainIds, setExpandedTagDomainIds] = useState<Set<string>>(new Set());
+  const [tagSearchText, setTagSearchText] = useState('');
+  const [tagViewMode, setTagViewMode] = useState<'list' | 'grid'>(() => {
+    return (localStorage.getItem('abidesk_tag_view_mode') as 'list' | 'grid') || 'grid';
+  });
+  const [tagPage, setTagPage] = useState(1);
+  const [tagPageSize, setTagPageSize] = useState(10);
 
   // Tag Modal Dropdown States
   const [isTagOrgOpen, setIsTagOrgOpen] = useState(false);
@@ -104,6 +125,13 @@ export const AdminPage: React.FC = () => {
   const [categoryKeywordList, setCategoryKeywordList] = useState<string[]>([]);
   const [categoryKeywordInput, setCategoryKeywordInput] = useState('');
   const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
+  const [expandedCategoryKeywordIds, setExpandedCategoryKeywordIds] = useState<Set<string>>(new Set());
+  const [catSearchText, setCatSearchText] = useState('');
+  const [catViewMode, setCatViewMode] = useState<'list' | 'grid'>(() => {
+    return (localStorage.getItem('abidesk_cat_view_mode') as 'list' | 'grid') || 'grid';
+  });
+  const [catPage, setCatPage] = useState(1);
+  const [catPageSize, setCatPageSize] = useState(10);
 
   const [brandsList, setBrandsList] = useState<any[]>([]);
   const [ssoProviders, setSsoProviders] = useState<any[]>([]);
@@ -157,40 +185,102 @@ export const AdminPage: React.FC = () => {
   }, [ssoProviders, debouncedSearchQuery]);
 
   const filteredOrganizations = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return organizationsList;
-    const q = debouncedSearchQuery.toLowerCase().trim();
+    const rawQ = (orgSearchText.trim() || debouncedSearchQuery.trim()).toLowerCase();
+    if (!rawQ) return organizationsList;
     return organizationsList.filter(
-      (o) =>
-        o.name?.toLowerCase().includes(q) ||
-        o.slug?.toLowerCase().includes(q) ||
-        (o.domains && o.domains.toLowerCase().includes(q)) ||
-        (o.website && o.website.toLowerCase().includes(q)) ||
-        (o.contactName && o.contactName.toLowerCase().includes(q)) ||
-        (o.contactEmail && o.contactEmail.toLowerCase().includes(q)),
+      (o: any) =>
+        o.name?.toLowerCase().includes(rawQ) ||
+        o.slug?.toLowerCase().includes(rawQ) ||
+        (o.domains && o.domains.toLowerCase().includes(rawQ)) ||
+        (o.description && o.description.toLowerCase().includes(rawQ)) ||
+        (o.website && o.website.toLowerCase().includes(rawQ)) ||
+        (o.contactName && o.contactName.toLowerCase().includes(rawQ)) ||
+        (o.contactEmail && o.contactEmail.toLowerCase().includes(rawQ)) ||
+        (o.contactPhone && o.contactPhone.toLowerCase().includes(rawQ)),
     );
-  }, [organizationsList, debouncedSearchQuery]);
+  }, [organizationsList, orgSearchText, debouncedSearchQuery]);
+
+  const totalOrgPages = Math.ceil(filteredOrganizations.length / orgPageSize) || 1;
+  const paginatedOrganizations = React.useMemo(() => {
+    const validPage = Math.min(Math.max(1, orgPage), totalOrgPages);
+    const startIndex = (validPage - 1) * orgPageSize;
+    return filteredOrganizations.slice(startIndex, startIndex + orgPageSize);
+  }, [filteredOrganizations, orgPage, orgPageSize, totalOrgPages]);
+
+  React.useEffect(() => {
+    if (orgPage > totalOrgPages) {
+      setOrgPage(Math.max(1, totalOrgPages));
+    }
+  }, [orgPage, totalOrgPages]);
+
+  const handleSetOrgViewMode = (mode: 'list' | 'grid') => {
+    setOrgViewMode(mode);
+    localStorage.setItem('abidesk_org_view_mode', mode);
+  };
+
 
   const filteredTags = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return tagsList;
-    const q = debouncedSearchQuery.toLowerCase().trim();
+    const rawQ = (tagSearchText.trim() || debouncedSearchQuery.trim()).toLowerCase();
+    if (!rawQ) return tagsList;
     return tagsList.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.slug.toLowerCase().includes(q) ||
-        (t.domains && t.domains.toLowerCase().includes(q)),
+      (t: any) =>
+        t.name?.toLowerCase().includes(rawQ) ||
+        t.slug?.toLowerCase().includes(rawQ) ||
+        (t.domains && t.domains.toLowerCase().includes(rawQ)) ||
+        (t.organization && t.organization.toLowerCase().includes(rawQ)) ||
+        (t.product && t.product.toLowerCase().includes(rawQ)),
     );
-  }, [tagsList, debouncedSearchQuery]);
+  }, [tagsList, tagSearchText, debouncedSearchQuery]);
+
+  const totalTagPages = Math.ceil(filteredTags.length / tagPageSize) || 1;
+  const paginatedTags = React.useMemo(() => {
+    const validPage = Math.min(Math.max(1, tagPage), totalTagPages);
+    const startIndex = (validPage - 1) * tagPageSize;
+    return filteredTags.slice(startIndex, startIndex + tagPageSize);
+  }, [filteredTags, tagPage, tagPageSize, totalTagPages]);
+
+  React.useEffect(() => {
+    if (tagPage > totalTagPages) {
+      setTagPage(Math.max(1, totalTagPages));
+    }
+  }, [tagPage, totalTagPages]);
+
+  const handleSetTagViewMode = (mode: 'list' | 'grid') => {
+    setTagViewMode(mode);
+    localStorage.setItem('abidesk_tag_view_mode', mode);
+  };
 
   const filteredCategories = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return categoriesList;
-    const q = debouncedSearchQuery.toLowerCase().trim();
+    const rawQ = (catSearchText.trim() || debouncedSearchQuery.trim()).toLowerCase();
+    if (!rawQ) return categoriesList;
     return categoriesList.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.slug.toLowerCase().includes(q) ||
-        (c.keywords && c.keywords.toLowerCase().includes(q)),
+      (c: any) =>
+        c.name?.toLowerCase().includes(rawQ) ||
+        c.slug?.toLowerCase().includes(rawQ) ||
+        (c.keywords && c.keywords.toLowerCase().includes(rawQ)) ||
+        (c.description && c.description.toLowerCase().includes(rawQ)),
     );
-  }, [categoriesList, debouncedSearchQuery]);
+  }, [categoriesList, catSearchText, debouncedSearchQuery]);
+
+  const totalCatPages = Math.ceil(filteredCategories.length / catPageSize) || 1;
+  const paginatedCategories = React.useMemo(() => {
+    const validPage = Math.min(Math.max(1, catPage), totalCatPages);
+    const startIndex = (validPage - 1) * catPageSize;
+    return filteredCategories.slice(startIndex, startIndex + catPageSize);
+  }, [filteredCategories, catPage, catPageSize, totalCatPages]);
+
+  React.useEffect(() => {
+    if (catPage > totalCatPages) {
+      setCatPage(Math.max(1, totalCatPages));
+    }
+  }, [catPage, totalCatPages]);
+
+  const handleSetCatViewMode = (mode: 'list' | 'grid') => {
+    setCatViewMode(mode);
+    localStorage.setItem('abidesk_cat_view_mode', mode);
+  };
+
+
 
   const filteredTeams = React.useMemo(() => {
     if (!debouncedSearchQuery.trim()) return teams;
@@ -532,14 +622,64 @@ export const AdminPage: React.FC = () => {
       .trim()
       .toLowerCase()
       .replace(/^https?:\/\//, '')
-      .replace(/\/.*$/, '');
+      .replace(/\/.*$/, '')
+      .replace(/^[<"']+|[>"',;]+$/g, '')
+      .trim();
+
+  const isValidEmailOrDomain = (str: string): boolean => {
+    if (!str) return false;
+    const clean = str.trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (emailRegex.test(clean)) return true;
+
+    const domainClean = clean.replace(/^@/, '');
+    const domainRegex =
+      /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
+    if (domainRegex.test(domainClean)) return true;
+
+    return false;
+  };
 
   // Organization Management Handlers
-  const addOrgDomainChip = (val: string) => {
-    val = sanitizeDomainChip(val);
-    if (val && !orgDomainList.includes(val)) {
-      setOrgDomainList((prev) => [...prev, val]);
+  const addOrgDomainChip = (val: string, showToast = true) => {
+    if (!val || !val.trim()) return;
+    const tokens = val
+      .split(/[\s,;\n\r\t]+/)
+      .map(sanitizeDomainChip)
+      .filter(Boolean);
+
+    if (tokens.length === 0) return;
+
+    const validTokens: string[] = [];
+    let invalidCount = 0;
+
+    for (const token of tokens) {
+      if (isValidEmailOrDomain(token)) {
+        validTokens.push(token);
+      } else {
+        invalidCount++;
+      }
     }
+
+    if (invalidCount > 0 && showToast) {
+      if (tokens.length === 1) {
+        toast.error(`"${tokens[0]}" is not a valid email or domain (e.g. user@domain.com or domain.com)`);
+      } else {
+        toast.warning(`Skipped ${invalidCount} invalid email/domain ${invalidCount === 1 ? 'entry' : 'entries'}`);
+      }
+    }
+
+    if (validTokens.length === 0) return;
+
+    setOrgDomainList((prev) => {
+      const combined = [...prev];
+      for (const t of validTokens) {
+        if (!combined.includes(t)) {
+          combined.push(t);
+        }
+      }
+      return combined;
+    });
   };
 
   const openCreateOrgModal = () => {
@@ -562,7 +702,7 @@ export const AdminPage: React.FC = () => {
       ? org.domains
           .split(/[\s,;]+/)
           .map(sanitizeDomainChip)
-          .filter(Boolean)
+          .filter(isValidEmailOrDomain)
       : [];
     setOrgDomainList(existing);
     setOrgDomainInput('');
@@ -583,9 +723,16 @@ export const AdminPage: React.FC = () => {
     setIsOrgSubmitting(true);
     try {
       const finalDomains = [...orgDomainList];
-      const pending = sanitizeDomainChip(orgDomainInput);
-      if (pending && !finalDomains.includes(pending)) {
-        finalDomains.push(pending);
+      if (orgDomainInput.trim()) {
+        const pendingTokens = orgDomainInput
+          .split(/[\s,;\n\r\t]+/)
+          .map(sanitizeDomainChip)
+          .filter(isValidEmailOrDomain);
+        for (const token of pendingTokens) {
+          if (!finalDomains.includes(token)) {
+            finalDomains.push(token);
+          }
+        }
         setOrgDomainList(finalDomains);
         setOrgDomainInput('');
       }
@@ -630,11 +777,45 @@ export const AdminPage: React.FC = () => {
     }
   };
 
-  const addTagDomainChip = (val: string) => {
-    val = sanitizeDomainChip(val);
-    if (val && !tagDomainList.includes(val)) {
-      setTagDomainList((prev) => [...prev, val]);
+  const addTagDomainChip = (val: string, showToast = true) => {
+    if (!val || !val.trim()) return;
+    const tokens = val
+      .split(/[\s,;\n\r\t]+/)
+      .map(sanitizeDomainChip)
+      .filter(Boolean);
+
+    if (tokens.length === 0) return;
+
+    const validTokens: string[] = [];
+    let invalidCount = 0;
+
+    for (const token of tokens) {
+      if (isValidEmailOrDomain(token)) {
+        validTokens.push(token);
+      } else {
+        invalidCount++;
+      }
     }
+
+    if (invalidCount > 0 && showToast) {
+      if (tokens.length === 1) {
+        toast.error(`"${tokens[0]}" is not a valid email or domain (e.g. user@domain.com or domain.com)`);
+      } else {
+        toast.warning(`Skipped ${invalidCount} invalid email/domain ${invalidCount === 1 ? 'entry' : 'entries'}`);
+      }
+    }
+
+    if (validTokens.length === 0) return;
+
+    setTagDomainList((prev) => {
+      const combined = [...prev];
+      for (const t of validTokens) {
+        if (!combined.includes(t)) {
+          combined.push(t);
+        }
+      }
+      return combined;
+    });
   };
 
   const openCreateTagModal = () => {
@@ -660,7 +841,7 @@ export const AdminPage: React.FC = () => {
       ? tag.domains
           .split(/[\s,;]+/)
           .map(sanitizeDomainChip)
-          .filter(Boolean)
+          .filter(isValidEmailOrDomain)
       : [];
     setTagDomainList(existing);
     setTagDomainInput('');
@@ -693,9 +874,16 @@ export const AdminPage: React.FC = () => {
     setIsTagSubmitting(true);
     try {
       const finalDomains = [...tagDomainList];
-      const pending = sanitizeDomainChip(tagDomainInput);
-      if (pending && !finalDomains.includes(pending)) {
-        finalDomains.push(pending);
+      if (tagDomainInput.trim()) {
+        const pendingTokens = tagDomainInput
+          .split(/[\s,;\n\r\t]+/)
+          .map(sanitizeDomainChip)
+          .filter(isValidEmailOrDomain);
+        for (const token of pendingTokens) {
+          if (!finalDomains.includes(token)) {
+            finalDomains.push(token);
+          }
+        }
         setTagDomainList(finalDomains);
         setTagDomainInput('');
       }
@@ -757,9 +945,9 @@ export const AdminPage: React.FC = () => {
 
     setCategoryKeywordList((prev) => {
       const combined = Array.from<string>(new Set([...prev, ...rawTokens]));
-      if (combined.length > 10) {
-        toast.info('Category limited to top 10 unique keywords');
-        return combined.slice(0, 10);
+      if (combined.length > 25) {
+        toast.info('Category limited to top 25 unique keywords');
+        return combined.slice(0, 25);
       }
       return combined;
     });
@@ -806,7 +994,7 @@ export const AdminPage: React.FC = () => {
       if (pending && pending.length >= 2 && !finalKeywords.includes(pending)) {
         finalKeywords.push(pending);
       }
-      finalKeywords = Array.from<string>(new Set(finalKeywords)).slice(0, 10);
+      finalKeywords = Array.from<string>(new Set(finalKeywords)).slice(0, 25);
       setCategoryKeywordList(finalKeywords);
       setCategoryKeywordInput('');
 
@@ -2151,6 +2339,7 @@ export const AdminPage: React.FC = () => {
           {activeTab === 'organizations' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div className="card">
+                {/* Header Row */}
                 <div
                   style={{
                     display: 'flex',
@@ -2159,6 +2348,8 @@ export const AdminPage: React.FC = () => {
                     marginBottom: '16px',
                     paddingBottom: '16px',
                     borderBottom: '1px solid var(--border-subtle)',
+                    flexWrap: 'wrap',
+                    gap: '12px',
                   }}
                 >
                   <div>
@@ -2174,6 +2365,144 @@ export const AdminPage: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Search, Filter & View Mode Controls Bar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                    marginBottom: '16px',
+                  }}
+                >
+                  {/* Search Bar */}
+                  <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: '420px' }}>
+                    <Search
+                      size={15}
+                      style={{
+                        position: 'absolute',
+                        left: '11px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search by name, domain, contact, notes..."
+                      value={orgSearchText}
+                      onChange={(e) => {
+                        setOrgSearchText(e.target.value);
+                        setOrgPage(1);
+                      }}
+                      className="form-control"
+                      style={{
+                        paddingLeft: '34px',
+                        paddingRight: orgSearchText ? '30px' : '12px',
+                        fontSize: '13px',
+                        height: '36px',
+                        borderRadius: 'var(--radius-md)',
+                      }}
+                    />
+                    {orgSearchText && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrgSearchText('');
+                          if (debouncedSearchQuery) setSearchQuery('');
+                          setOrgPage(1);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          padding: '3px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        title="Clear search"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Right: Results Count & View Mode Switcher */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>
+                      {filteredOrganizations.length} {filteredOrganizations.length === 1 ? 'organization' : 'organizations'}
+                    </span>
+
+                    {/* View Mode Toggle: List vs Grid */}
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: 'var(--bg-subtle, #f1f5f9)',
+                        padding: '3px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSetOrgViewMode('list')}
+                        title="List View"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: orgViewMode === 'list' ? 600 : 500,
+                          color: orgViewMode === 'list' ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #64748b)',
+                          backgroundColor: orgViewMode === 'list' ? 'var(--bg-surface, #ffffff)' : 'transparent',
+                          border: orgViewMode === 'list' ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
+                          borderRadius: '4px',
+                          boxShadow: orgViewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <List size={13} />
+                        List
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetOrgViewMode('grid')}
+                        title="Grid View"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: orgViewMode === 'grid' ? 600 : 500,
+                          color: orgViewMode === 'grid' ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #64748b)',
+                          backgroundColor: orgViewMode === 'grid' ? 'var(--bg-surface, #ffffff)' : 'transparent',
+                          border: orgViewMode === 'grid' ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
+                          borderRadius: '4px',
+                          boxShadow: orgViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <LayoutGrid size={13} />
+                        Grid
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Organizations Content */}
                 {filteredOrganizations.length === 0 ? (
                   <div
                     style={{
@@ -2186,20 +2515,40 @@ export const AdminPage: React.FC = () => {
                   >
                     <Building2 size={32} style={{ color: 'var(--text-muted)', marginBottom: '8px', opacity: 0.7 }} />
                     <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>
-                      {debouncedSearchQuery ? 'No organizations match your search' : 'No client organizations created yet'}
+                      {orgSearchText || debouncedSearchQuery
+                        ? 'No organizations match your search'
+                        : 'No client organizations created yet'}
                     </h4>
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
-                      {debouncedSearchQuery
-                        ? 'Try clearing your search query.'
+                      {orgSearchText || debouncedSearchQuery
+                        ? 'Try clearing your search query or refine terms.'
                         : 'Create your first client account / organization to organize tickets and configure domain routing.'}
                     </p>
-                    {!debouncedSearchQuery && (
-                      <button onClick={openCreateOrgModal} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    {orgSearchText || debouncedSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrgSearchText('');
+                          setSearchQuery('');
+                          setOrgPage(1);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <X size={14} /> Clear Search
+                      </button>
+                    ) : (
+                      <button
+                        onClick={openCreateOrgModal}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
                         <Plus size={14} /> Create First Organization
                       </button>
                     )}
                   </div>
-                ) : (
+                ) : orgViewMode === 'list' ? (
+                  /* ================= LIST VIEW ================= */
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                       <thead>
@@ -2219,64 +2568,107 @@ export const AdminPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredOrganizations.map((org: any) => {
+                        {paginatedOrganizations.map((org: any) => {
                           const domains = org.domains
                             ? org.domains
                                 .split(/[\s,;]+/)
                                 .map((d: string) => d.trim().replace(/^@/, ''))
                                 .filter(Boolean)
                             : [];
+                          const isExpanded = expandedOrgDomainIds.has(org.id);
+                          const displayedDomains = isExpanded ? domains : domains.slice(0, 5);
 
                           return (
                             <tr key={org.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                              <td style={{ padding: '12px 14px' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span
-                                      style={{
-                                        fontSize: '13px',
-                                        fontWeight: 700,
-                                        color: 'var(--text-primary)',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '5px',
-                                      }}
-                                    >
-                                      🏢 {org.name}
-                                    </span>
-                                    {org.website && (
-                                      <a
-                                        href={org.website.startsWith('http') ? org.website : `https://${org.website}`}
-                                        target="_blank"
-                                        rel="noreferrer"
+                              <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                  {/* Modern Organization Avatar Badge */}
+                                  <div
+                                    style={{
+                                      width: '32px',
+                                      height: '32px',
+                                      borderRadius: '8px',
+                                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                                      border: '1px solid rgba(37, 99, 235, 0.16)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      color: 'var(--primary, #2563eb)',
+                                      flexShrink: 0,
+                                      marginTop: '1px',
+                                    }}
+                                  >
+                                    <Building2 size={16} />
+                                  </div>
+
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, flex: 1 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span
                                         style={{
-                                          fontSize: '11px',
-                                          color: 'var(--primary)',
-                                          textDecoration: 'none',
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '2px',
+                                          fontSize: '13.5px',
+                                          fontWeight: 650,
+                                          color: 'var(--text-primary)',
+                                          lineHeight: '1.3',
                                         }}
                                       >
-                                        🌐 {org.website.replace(/^https?:\/\//, '')}
-                                      </a>
+                                        {org.name}
+                                      </span>
+                                    </div>
+                                    {org.description && (
+                                      <ActionNoteViewer
+                                        content={org.description}
+                                        style={{
+                                          maxWidth: '420px',
+                                          margin: '3px 0',
+                                        }}
+                                      />
+                                    )}
+                                    {org.website && (
+                                      <div style={{ marginTop: '3px' }}>
+                                        <a
+                                          href={org.website.startsWith('http') ? org.website : `https://${org.website}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          title={org.website}
+                                          style={{
+                                            fontSize: '11px',
+                                            color: 'var(--primary, #2563eb)',
+                                            textDecoration: 'none',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '3.5px',
+                                            maxWidth: '280px',
+                                            padding: '1.5px 7px',
+                                            backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                                            borderRadius: '4px',
+                                            border: '1px solid rgba(37, 99, 235, 0.12)',
+                                            transition: 'all 0.15s ease',
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.12)';
+                                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.3)';
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.05)';
+                                            e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.12)';
+                                          }}
+                                        >
+                                          <Globe size={11} style={{ flexShrink: 0, opacity: 0.8 }} />
+                                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {org.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                                          </span>
+                                          <ExternalLink size={9.5} style={{ flexShrink: 0, opacity: 0.6 }} />
+                                        </a>
+                                      </div>
                                     )}
                                   </div>
-                                  {org.description && (
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '360px' }}>
-                                      {org.description}
-                                    </span>
-                                  )}
-                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                                    slug: {org.slug}
-                                  </span>
                                 </div>
                               </td>
 
                               <td style={{ padding: '12px 14px' }}>
                                 {domains.length > 0 ? (
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                                    {domains.map((d: string, idx: number) => (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' }}>
+                                    {displayedDomains.map((d: string, idx: number) => (
                                       <span
                                         key={idx}
                                         style={{
@@ -2294,6 +2686,40 @@ export const AdminPage: React.FC = () => {
                                         {d.includes('@') ? d : `@${d}`}
                                       </span>
                                     ))}
+                                    {domains.length > 5 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setExpandedOrgDomainIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(org.id)) next.delete(org.id);
+                                            else next.add(org.id);
+                                            return next;
+                                          });
+                                        }}
+                                        style={{
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          backgroundColor: isExpanded ? 'rgba(2, 132, 199, 0.15)' : 'rgba(2, 132, 199, 0.08)',
+                                          color: '#0369a1',
+                                          border: '1px dashed rgba(2, 132, 199, 0.4)',
+                                          padding: '2px 7px',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          transition: 'all 0.15s ease',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor = 'rgba(2, 132, 199, 0.2)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor = isExpanded ? 'rgba(2, 132, 199, 0.15)' : 'rgba(2, 132, 199, 0.08)';
+                                        }}
+                                      >
+                                        {isExpanded ? 'Show less' : `+ ${domains.length - 5} more`}
+                                      </button>
+                                    )}
                                   </div>
                                 ) : (
                                   <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
@@ -2366,6 +2792,415 @@ export const AdminPage: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                ) : (
+                  /* ================= GRID VIEW ================= */
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))',
+                      gap: '16px',
+                    }}
+                  >
+                    {paginatedOrganizations.map((org: any) => {
+                      const domains = org.domains
+                        ? org.domains
+                            .split(/[\s,;]+/)
+                            .map((d: string) => d.trim().replace(/^@/, ''))
+                            .filter(Boolean)
+                        : [];
+                      const isExpanded = expandedOrgDomainIds.has(org.id);
+                      const displayedDomains = isExpanded ? domains : domains.slice(0, 4);
+
+                      return (
+                        <div
+                          key={org.id}
+                          style={{
+                            backgroundColor: 'var(--bg-surface, #ffffff)',
+                            borderRadius: 'var(--radius-md, 8px)',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            padding: '16px',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                            transition: 'all 0.2s ease',
+                            position: 'relative',
+                          }}
+                        >
+                          {/* Top Section */}
+                          <div>
+                            {/* Card Header */}
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                justifyContent: 'space-between',
+                                gap: '10px',
+                                marginBottom: '12px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                                <div
+                                  style={{
+                                    width: '36px',
+                                    height: '36px',
+                                    borderRadius: '8px',
+                                    backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                                    border: '1px solid rgba(37, 99, 235, 0.16)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'var(--primary, #2563eb)',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Building2 size={18} />
+                                </div>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <h4
+                                    style={{
+                                      fontSize: '14px',
+                                      fontWeight: 700,
+                                      margin: 0,
+                                      color: 'var(--text-primary)',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                    title={org.name}
+                                  >
+                                    {org.name}
+                                  </h4>
+                                  {org.website && (
+                                    <div style={{ marginTop: '2px' }}>
+                                      <a
+                                        href={org.website.startsWith('http') ? org.website : `https://${org.website}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        title={org.website}
+                                        style={{
+                                          fontSize: '11px',
+                                          color: 'var(--primary, #2563eb)',
+                                          textDecoration: 'none',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '3px',
+                                          maxWidth: '190px',
+                                        }}
+                                      >
+                                        <Globe size={11} style={{ flexShrink: 0, opacity: 0.8 }} />
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {org.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                                        </span>
+                                        <ExternalLink size={9.5} style={{ flexShrink: 0, opacity: 0.6 }} />
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                <button
+                                  onClick={() => openEditOrgModal(org)}
+                                  title="Edit Organization"
+                                  style={{
+                                    padding: '5px 7px',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'transparent',
+                                    cursor: 'pointer',
+                                    color: 'var(--text-secondary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Edit size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteOrganization(org.id, org.name)}
+                                  title="Delete Organization"
+                                  style={{
+                                    padding: '5px 7px',
+                                    border: '1px solid #fee2e2',
+                                    borderRadius: '4px',
+                                    backgroundColor: '#fff5f5',
+                                    cursor: 'pointer',
+                                    color: '#ef4444',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Description / Notes */}
+                            {org.description && (
+                              <div style={{ marginBottom: '12px' }}>
+                                <ActionNoteViewer content={org.description} style={{ fontSize: '11.5px' }} />
+                              </div>
+                            )}
+
+                            {/* Mapped Domains */}
+                            <div style={{ marginBottom: '14px' }}>
+                              <div
+                                style={{
+                                  fontSize: '10.5px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-secondary)',
+                                  marginBottom: '5px',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.04em',
+                                }}
+                              >
+                                Mapped Domains
+                              </div>
+                              {domains.length > 0 ? (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                                  {displayedDomains.map((d: string, idx: number) => (
+                                    <span
+                                      key={idx}
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                                        color: '#0284c7',
+                                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                                        padding: '1.5px 6px',
+                                        borderRadius: '4px',
+                                      }}
+                                    >
+                                      {d.includes('@') ? d : `@${d}`}
+                                    </span>
+                                  ))}
+                                  {domains.length > 4 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedOrgDomainIds((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(org.id)) next.delete(org.id);
+                                          else next.add(org.id);
+                                          return next;
+                                        });
+                                      }}
+                                      style={{
+                                        fontSize: '10.5px',
+                                        fontWeight: 700,
+                                        backgroundColor: isExpanded ? 'rgba(2, 132, 199, 0.15)' : 'rgba(2, 132, 199, 0.08)',
+                                        color: '#0369a1',
+                                        border: '1px dashed rgba(2, 132, 199, 0.4)',
+                                        padding: '1.5px 6px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {isExpanded ? 'Less' : `+${domains.length - 4}`}
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                  None configured
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Footer: Primary Contact */}
+                          <div
+                            style={{
+                              marginTop: 'auto',
+                              paddingTop: '10px',
+                              borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                              fontSize: '11.5px',
+                            }}
+                          >
+                            {org.contactName || org.contactEmail || org.contactPhone ? (
+                              <>
+                                {org.contactName && (
+                                  <div style={{ fontWeight: 650, color: 'var(--text-primary)' }}>
+                                    👤 {org.contactName}
+                                  </div>
+                                )}
+                                {org.contactEmail && (
+                                  <div
+                                    style={{
+                                      color: 'var(--text-secondary)',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                    title={org.contactEmail}
+                                  >
+                                    ✉️ {org.contactEmail}
+                                  </div>
+                                )}
+                                {org.contactPhone && (
+                                  <div style={{ color: 'var(--text-secondary)' }}>
+                                    📞 {org.contactPhone}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                No primary contact specified
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Smart Pagination Controls */}
+                {filteredOrganizations.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                      marginTop: '16px',
+                      paddingTop: '14px',
+                      borderTop: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    {/* Range & Per-page selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                        Showing <strong>{Math.min((orgPage - 1) * orgPageSize + 1, filteredOrganizations.length)}</strong>–
+                        <strong>{Math.min(orgPage * orgPageSize, filteredOrganizations.length)}</strong> of{' '}
+                        <strong>{filteredOrganizations.length}</strong>
+                      </span>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Per page:</span>
+                        <select
+                          value={orgPageSize}
+                          onChange={(e) => {
+                            setOrgPageSize(Number(e.target.value));
+                            setOrgPage(1);
+                          }}
+                          style={{
+                            fontSize: '12px',
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-subtle)',
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Page buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        type="button"
+                        disabled={orgPage <= 1}
+                        onClick={() => setOrgPage((p) => Math.max(p - 1, 1))}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: orgPage <= 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: orgPage <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: orgPage <= 1 ? 0.5 : 1,
+                        }}
+                      >
+                        <ChevronLeft size={14} /> Prev
+                      </button>
+
+                      {Array.from({ length: totalOrgPages }, (_, i) => i + 1)
+                        .filter((page) => {
+                          if (totalOrgPages <= 7) return true;
+                          if (page === 1 || page === totalOrgPages) return true;
+                          return Math.abs(page - orgPage) <= 1;
+                        })
+                        .reduce<(number | string)[]>((acc, page, idx, arr) => {
+                          if (idx > 0 && typeof arr[idx - 1] === 'number' && (page as number) - (arr[idx - 1] as number) > 1) {
+                            acc.push('...');
+                          }
+                          acc.push(page);
+                          return acc;
+                        }, [])
+                        .map((p, idx) => {
+                          if (typeof p === 'string') {
+                            return (
+                              <span key={`dots-${idx}`} style={{ padding: '0 4px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                ...
+                              </span>
+                            );
+                          }
+                          const isCurrent = p === orgPage;
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setOrgPage(p as number)}
+                              style={{
+                                minWidth: '28px',
+                                height: '28px',
+                                padding: '0 6px',
+                                fontSize: '12px',
+                                fontWeight: isCurrent ? 700 : 500,
+                                borderRadius: '4px',
+                                border: isCurrent ? '1px solid var(--primary, #2563eb)' : '1px solid var(--border-subtle)',
+                                backgroundColor: isCurrent ? 'var(--primary, #2563eb)' : 'var(--bg-surface)',
+                                color: isCurrent ? '#ffffff' : 'var(--text-primary)',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {p}
+                            </button>
+                          );
+                        })}
+
+                      <button
+                        type="button"
+                        disabled={orgPage >= totalOrgPages}
+                        onClick={() => setOrgPage((p) => Math.min(p + 1, totalOrgPages))}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: orgPage >= totalOrgPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: orgPage >= totalOrgPages ? 'not-allowed' : 'pointer',
+                          opacity: orgPage >= totalOrgPages ? 0.5 : 1,
+                        }}
+                      >
+                        Next <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -2374,6 +3209,7 @@ export const AdminPage: React.FC = () => {
           {activeTab === 'tags' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div className="card">
+                {/* Header Row */}
                 <div
                   style={{
                     display: 'flex',
@@ -2382,6 +3218,8 @@ export const AdminPage: React.FC = () => {
                     marginBottom: '16px',
                     paddingBottom: '16px',
                     borderBottom: '1px solid var(--border-subtle)',
+                    flexWrap: 'wrap',
+                    gap: '12px',
                   }}
                 >
                   <div>
@@ -2397,6 +3235,144 @@ export const AdminPage: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Search, Filter & View Mode Controls Bar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                    marginBottom: '16px',
+                  }}
+                >
+                  {/* Search Bar */}
+                  <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: '420px' }}>
+                    <Search
+                      size={15}
+                      style={{
+                        position: 'absolute',
+                        left: '11px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search tags by name, domains, organization, product..."
+                      value={tagSearchText}
+                      onChange={(e) => {
+                        setTagSearchText(e.target.value);
+                        setTagPage(1);
+                      }}
+                      className="form-control"
+                      style={{
+                        paddingLeft: '34px',
+                        paddingRight: tagSearchText ? '30px' : '12px',
+                        fontSize: '13px',
+                        height: '36px',
+                        borderRadius: 'var(--radius-md)',
+                      }}
+                    />
+                    {tagSearchText && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTagSearchText('');
+                          if (debouncedSearchQuery) setSearchQuery('');
+                          setTagPage(1);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          padding: '3px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        title="Clear search"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Right: Results Count & View Mode Switcher */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>
+                      {filteredTags.length} {filteredTags.length === 1 ? 'tag' : 'tags'}
+                    </span>
+
+                    {/* View Mode Toggle: List vs Grid */}
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: 'var(--bg-subtle, #f1f5f9)',
+                        padding: '3px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSetTagViewMode('list')}
+                        title="List View"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: tagViewMode === 'list' ? 600 : 500,
+                          color: tagViewMode === 'list' ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #64748b)',
+                          backgroundColor: tagViewMode === 'list' ? 'var(--bg-surface, #ffffff)' : 'transparent',
+                          border: tagViewMode === 'list' ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
+                          borderRadius: '4px',
+                          boxShadow: tagViewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <List size={13} />
+                        List
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetTagViewMode('grid')}
+                        title="Grid View"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: tagViewMode === 'grid' ? 600 : 500,
+                          color: tagViewMode === 'grid' ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #64748b)',
+                          backgroundColor: tagViewMode === 'grid' ? 'var(--bg-surface, #ffffff)' : 'transparent',
+                          border: tagViewMode === 'grid' ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
+                          borderRadius: '4px',
+                          boxShadow: tagViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <LayoutGrid size={13} />
+                        Grid
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tags Content */}
                 {filteredTags.length === 0 ? (
                   <div
                     style={{
@@ -2409,20 +3385,40 @@ export const AdminPage: React.FC = () => {
                   >
                     <TagIcon size={32} style={{ color: 'var(--text-muted)', marginBottom: '8px', opacity: 0.7 }} />
                     <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>
-                      {debouncedSearchQuery ? 'No tags match your search' : 'No tags created yet'}
+                      {tagSearchText || debouncedSearchQuery
+                        ? 'No tags match your search'
+                        : 'No tags created yet'}
                     </h4>
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
-                      {debouncedSearchQuery
-                        ? 'Try clearing your search query.'
+                      {tagSearchText || debouncedSearchQuery
+                        ? 'Try clearing your search query or refine terms.'
                         : 'Create your first tag to organize tickets and set up auto-tagging rules based on sender email domains.'}
                     </p>
-                    {!debouncedSearchQuery && (
-                      <button onClick={openCreateTagModal} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    {tagSearchText || debouncedSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTagSearchText('');
+                          setSearchQuery('');
+                          setTagPage(1);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <X size={14} /> Clear Search
+                      </button>
+                    ) : (
+                      <button
+                        onClick={openCreateTagModal}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
                         <Plus size={14} /> Create First Tag
                       </button>
                     )}
                   </div>
-                ) : (
+                ) : tagViewMode === 'list' ? (
+                  /* ================= LIST VIEW ================= */
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                       <thead>
@@ -2445,13 +3441,15 @@ export const AdminPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredTags.map((tag: any) => {
+                        {paginatedTags.map((tag: any) => {
                           const domains = tag.domains
                             ? tag.domains
                                 .split(/[\s,;]+/)
                                 .map((d: string) => d.trim().replace(/^@/, ''))
                                 .filter(Boolean)
                             : [];
+                          const isExpanded = expandedTagDomainIds.has(tag.id);
+                          const displayedDomains = isExpanded ? domains : domains.slice(0, 5);
 
                           return (
                             <tr key={tag.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
@@ -2481,16 +3479,13 @@ export const AdminPage: React.FC = () => {
                                     />
                                     {tag.name}
                                   </span>
-                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                                    slug: {tag.slug}
-                                  </span>
                                 </div>
                               </td>
 
                               <td style={{ padding: '12px 14px' }}>
                                 {domains.length > 0 ? (
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                    {domains.map((d: string, idx: number) => (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                                    {displayedDomains.map((d: string, idx: number) => (
                                       <span
                                         key={idx}
                                         style={{
@@ -2508,6 +3503,40 @@ export const AdminPage: React.FC = () => {
                                         {d.includes('@') ? d : `@${d}`}
                                       </span>
                                     ))}
+                                    {domains.length > 5 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setExpandedTagDomainIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(tag.id)) next.delete(tag.id);
+                                            else next.add(tag.id);
+                                            return next;
+                                          });
+                                        }}
+                                        style={{
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          backgroundColor: isExpanded ? 'rgba(29, 78, 216, 0.15)' : 'rgba(29, 78, 216, 0.08)',
+                                          color: '#1d4ed8',
+                                          border: '1px dashed rgba(29, 78, 216, 0.4)',
+                                          padding: '2px 7px',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          transition: 'all 0.15s ease',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor = 'rgba(29, 78, 216, 0.2)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor = isExpanded ? 'rgba(29, 78, 216, 0.15)' : 'rgba(29, 78, 216, 0.08)';
+                                        }}
+                                      >
+                                        {isExpanded ? 'Show less' : `+ ${domains.length - 5} more`}
+                                      </button>
+                                    )}
                                   </div>
                                 ) : (
                                   <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
@@ -2609,6 +3638,395 @@ export const AdminPage: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                ) : (
+                  /* ================= GRID VIEW ================= */
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))',
+                      gap: '16px',
+                    }}
+                  >
+                    {paginatedTags.map((tag: any) => {
+                      const domains = tag.domains
+                        ? tag.domains
+                            .split(/[\s,;]+/)
+                            .map((d: string) => d.trim().replace(/^@/, ''))
+                            .filter(Boolean)
+                        : [];
+                      const isExpanded = expandedTagDomainIds.has(tag.id);
+                      const displayedDomains = isExpanded ? domains : domains.slice(0, 4);
+                      const tagCol = tag.color || '#3b82f6';
+
+                      return (
+                        <div
+                          key={tag.id}
+                          style={{
+                            backgroundColor: 'var(--bg-surface, #ffffff)',
+                            borderRadius: 'var(--radius-md, 8px)',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            padding: '16px',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          {/* Top Section */}
+                          <div>
+                            {/* Card Header: Tag Preview Badge & Actions */}
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                                marginBottom: '12px',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  backgroundColor: `${tagCol}15`,
+                                  color: tagCol,
+                                  border: `1px solid ${tagCol}40`,
+                                  borderRadius: '6px',
+                                  padding: '4px 10px',
+                                  fontSize: '13px',
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  minWidth: 0,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: tagCol,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {tag.name}
+                                </span>
+                              </span>
+
+                              {/* Action Buttons */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                <button
+                                  onClick={() => openEditTagModal(tag)}
+                                  title="Edit Tag"
+                                  style={{
+                                    padding: '5px 7px',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'transparent',
+                                    cursor: 'pointer',
+                                    color: 'var(--text-secondary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Edit size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteTag(tag.id, tag.name)}
+                                  title="Delete Tag"
+                                  style={{
+                                    padding: '5px 7px',
+                                    border: '1px solid #fee2e2',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'transparent',
+                                    cursor: 'pointer',
+                                    color: '#dc2626',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Mapped Organization & Product */}
+                            {(tag.organization || tag.product) && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                                {tag.organization && (
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                                      color: '#0284c7',
+                                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                                      borderRadius: '4px',
+                                      padding: '2px 7px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                    }}
+                                    title={`Auto-maps organization: ${tag.organization}`}
+                                  >
+                                    🏢 {tag.organization}
+                                  </span>
+                                )}
+                                {tag.product && (
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                                      color: '#9333ea',
+                                      border: '1px solid rgba(168, 85, 247, 0.3)',
+                                      borderRadius: '4px',
+                                      padding: '2px 7px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                    }}
+                                    title={`Auto-maps product: ${tag.product}`}
+                                  >
+                                    📦 {tag.product}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Auto-Tag Sender Domains */}
+                            <div style={{ marginBottom: '12px' }}>
+                              <div
+                                style={{
+                                  fontSize: '10.5px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-secondary)',
+                                  marginBottom: '5px',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.04em',
+                                }}
+                              >
+                                Auto-Tag Domains
+                              </div>
+                              {domains.length > 0 ? (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                                  {displayedDomains.map((d: string, idx: number) => (
+                                    <span
+                                      key={idx}
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        backgroundColor: '#eff6ff',
+                                        color: '#1d4ed8',
+                                        border: '1px solid #bfdbfe',
+                                        padding: '1.5px 6px',
+                                        borderRadius: '4px',
+                                      }}
+                                    >
+                                      {d.includes('@') ? d : `@${d}`}
+                                    </span>
+                                  ))}
+                                  {domains.length > 4 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedTagDomainIds((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(tag.id)) next.delete(tag.id);
+                                          else next.add(tag.id);
+                                          return next;
+                                        });
+                                      }}
+                                      style={{
+                                        fontSize: '10.5px',
+                                        fontWeight: 700,
+                                        backgroundColor: isExpanded ? 'rgba(29, 78, 216, 0.15)' : 'rgba(29, 78, 216, 0.08)',
+                                        color: '#1d4ed8',
+                                        border: '1px dashed rgba(29, 78, 216, 0.4)',
+                                        padding: '1.5px 6px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {isExpanded ? 'Less' : `+${domains.length - 4}`}
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                  None (Manual tagging only)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Footer: Usage Count */}
+                          <div
+                            style={{
+                              marginTop: 'auto',
+                              paddingTop: '10px',
+                              borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              fontSize: '11.5px',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            <span>Usage:</span>
+                            <span style={{ fontWeight: 650, color: 'var(--text-primary)' }}>
+                              {tag.usageCount || 0} tickets
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Smart Pagination Controls */}
+                {filteredTags.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                      marginTop: '16px',
+                      paddingTop: '14px',
+                      borderTop: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    {/* Range & Per-page selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                        Showing <strong>{Math.min((tagPage - 1) * tagPageSize + 1, filteredTags.length)}</strong>–
+                        <strong>{Math.min(tagPage * tagPageSize, filteredTags.length)}</strong> of{' '}
+                        <strong>{filteredTags.length}</strong>
+                      </span>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Per page:</span>
+                        <select
+                          value={tagPageSize}
+                          onChange={(e) => {
+                            setTagPageSize(Number(e.target.value));
+                            setTagPage(1);
+                          }}
+                          style={{
+                            fontSize: '12px',
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-subtle)',
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Page buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        type="button"
+                        disabled={tagPage <= 1}
+                        onClick={() => setTagPage((p) => Math.max(p - 1, 1))}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: tagPage <= 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: tagPage <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: tagPage <= 1 ? 0.5 : 1,
+                        }}
+                      >
+                        <ChevronLeft size={14} /> Prev
+                      </button>
+
+                      {Array.from({ length: totalTagPages }, (_, i) => i + 1)
+                        .filter((page) => {
+                          if (totalTagPages <= 7) return true;
+                          if (page === 1 || page === totalTagPages) return true;
+                          return Math.abs(page - tagPage) <= 1;
+                        })
+                        .reduce<(number | string)[]>((acc, page, idx, arr) => {
+                          if (idx > 0 && typeof arr[idx - 1] === 'number' && (page as number) - (arr[idx - 1] as number) > 1) {
+                            acc.push('...');
+                          }
+                          acc.push(page);
+                          return acc;
+                        }, [])
+                        .map((p, idx) => {
+                          if (typeof p === 'string') {
+                            return (
+                              <span key={`dots-${idx}`} style={{ padding: '0 4px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                ...
+                              </span>
+                            );
+                          }
+                          const isCurrent = p === tagPage;
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setTagPage(p as number)}
+                              style={{
+                                minWidth: '28px',
+                                height: '28px',
+                                padding: '0 6px',
+                                fontSize: '12px',
+                                fontWeight: isCurrent ? 700 : 500,
+                                borderRadius: '4px',
+                                border: isCurrent ? '1px solid var(--primary, #2563eb)' : '1px solid var(--border-subtle)',
+                                backgroundColor: isCurrent ? 'var(--primary, #2563eb)' : 'var(--bg-surface)',
+                                color: isCurrent ? '#ffffff' : 'var(--text-primary)',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {p}
+                            </button>
+                          );
+                        })}
+
+                      <button
+                        type="button"
+                        disabled={tagPage >= totalTagPages}
+                        onClick={() => setTagPage((p) => Math.min(p + 1, totalTagPages))}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: tagPage >= totalTagPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: tagPage >= totalTagPages ? 'not-allowed' : 'pointer',
+                          opacity: tagPage >= totalTagPages ? 0.5 : 1,
+                        }}
+                      >
+                        Next <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -2617,6 +4035,7 @@ export const AdminPage: React.FC = () => {
           {activeTab === 'categories' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div className="card">
+                {/* Header Row */}
                 <div
                   style={{
                     display: 'flex',
@@ -2625,6 +4044,8 @@ export const AdminPage: React.FC = () => {
                     marginBottom: '16px',
                     paddingBottom: '16px',
                     borderBottom: '1px solid var(--border-subtle)',
+                    flexWrap: 'wrap',
+                    gap: '12px',
                   }}
                 >
                   <div>
@@ -2632,7 +4053,7 @@ export const AdminPage: React.FC = () => {
                       Ticket Categories & Keyword Auto-Matching
                     </h3>
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', margin: 0 }}>
-                      Categorize support tickets and define up to 10 keywords per category to automatically classify inbound customer messages.
+                      Categorize support tickets and define up to 25 keywords per category to automatically classify inbound customer messages.
                     </p>
                   </div>
                   <button onClick={openCreateCategoryModal} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2640,6 +4061,144 @@ export const AdminPage: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Search, Filter & View Mode Controls Bar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                    marginBottom: '16px',
+                  }}
+                >
+                  {/* Search Bar */}
+                  <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: '420px' }}>
+                    <Search
+                      size={15}
+                      style={{
+                        position: 'absolute',
+                        left: '11px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: 'var(--text-muted)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search categories by name, keywords, description..."
+                      value={catSearchText}
+                      onChange={(e) => {
+                        setCatSearchText(e.target.value);
+                        setCatPage(1);
+                      }}
+                      className="form-control"
+                      style={{
+                        paddingLeft: '34px',
+                        paddingRight: catSearchText ? '30px' : '12px',
+                        fontSize: '13px',
+                        height: '36px',
+                        borderRadius: 'var(--radius-md)',
+                      }}
+                    />
+                    {catSearchText && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCatSearchText('');
+                          if (debouncedSearchQuery) setSearchQuery('');
+                          setCatPage(1);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          padding: '3px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        title="Clear search"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Right: Results Count & View Mode Switcher */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>
+                      {filteredCategories.length} {filteredCategories.length === 1 ? 'category' : 'categories'}
+                    </span>
+
+                    {/* View Mode Toggle: List vs Grid */}
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: 'var(--bg-subtle, #f1f5f9)',
+                        padding: '3px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSetCatViewMode('list')}
+                        title="List View"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: catViewMode === 'list' ? 600 : 500,
+                          color: catViewMode === 'list' ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #64748b)',
+                          backgroundColor: catViewMode === 'list' ? 'var(--bg-surface, #ffffff)' : 'transparent',
+                          border: catViewMode === 'list' ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
+                          borderRadius: '4px',
+                          boxShadow: catViewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <List size={13} />
+                        List
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetCatViewMode('grid')}
+                        title="Grid View"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: catViewMode === 'grid' ? 600 : 500,
+                          color: catViewMode === 'grid' ? 'var(--primary, #2563eb)' : 'var(--text-secondary, #64748b)',
+                          backgroundColor: catViewMode === 'grid' ? 'var(--bg-surface, #ffffff)' : 'transparent',
+                          border: catViewMode === 'grid' ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
+                          borderRadius: '4px',
+                          boxShadow: catViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <LayoutGrid size={13} />
+                        Grid
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Categories Content */}
                 {filteredCategories.length === 0 ? (
                   <div
                     style={{
@@ -2652,20 +4211,40 @@ export const AdminPage: React.FC = () => {
                   >
                     <Folder size={32} style={{ color: 'var(--text-muted)', marginBottom: '8px', opacity: 0.7 }} />
                     <h4 style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 4px' }}>
-                      {debouncedSearchQuery ? 'No categories match your search' : 'No categories created yet'}
+                      {catSearchText || debouncedSearchQuery
+                        ? 'No categories match your search'
+                        : 'No categories created yet'}
                     </h4>
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px' }}>
-                      {debouncedSearchQuery
-                        ? 'Try clearing your search query.'
+                      {catSearchText || debouncedSearchQuery
+                        ? 'Try clearing your search query or refine terms.'
                         : 'Create your first category and add keywords like "billing, payment, refund" to classify incoming tickets.'}
                     </p>
-                    {!debouncedSearchQuery && (
-                      <button onClick={openCreateCategoryModal} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    {catSearchText || debouncedSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCatSearchText('');
+                          setSearchQuery('');
+                          setCatPage(1);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <X size={14} /> Clear Search
+                      </button>
+                    ) : (
+                      <button
+                        onClick={openCreateCategoryModal}
+                        className="btn btn-primary"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
                         <Plus size={14} /> Create First Category
                       </button>
                     )}
                   </div>
-                ) : (
+                ) : catViewMode === 'list' ? (
+                  /* ================= LIST VIEW ================= */
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                       <thead>
@@ -2674,7 +4253,7 @@ export const AdminPage: React.FC = () => {
                             CATEGORY & PREVIEW
                           </th>
                           <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                            KEYWORD RULES (MAX 10)
+                            KEYWORD RULES (MAX 25)
                           </th>
                           <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                             USAGE
@@ -2685,7 +4264,7 @@ export const AdminPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredCategories.map((cat: any) => {
+                        {paginatedCategories.map((cat: any) => {
                           const keywords = cat.keywords
                             ? Array.from<string>(
                                 new Set(
@@ -2694,9 +4273,11 @@ export const AdminPage: React.FC = () => {
                                     .map((k: string) => k.trim())
                                     .filter((k: string) => k.length >= 2),
                                 ),
-                              ).slice(0, 10)
+                              ).slice(0, 25)
                             : [];
 
+                          const isExpanded = expandedCategoryKeywordIds.has(cat.id);
+                          const displayedKeywords = isExpanded ? keywords : keywords.slice(0, 10);
                           const catColor = cat.color || '#6366f1';
 
                           return (
@@ -2730,16 +4311,13 @@ export const AdminPage: React.FC = () => {
                                     />
                                     {cat.name}
                                   </span>
-                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                                    slug: {cat.slug}
-                                  </span>
                                 </div>
                               </td>
 
                               <td style={{ padding: '12px 14px' }}>
                                 {keywords.length > 0 ? (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
-                                    {keywords.map((k: string, idx: number) => (
+                                    {displayedKeywords.map((k: string, idx: number) => (
                                       <span
                                         key={idx}
                                         style={{
@@ -2757,8 +4335,42 @@ export const AdminPage: React.FC = () => {
                                         {k}
                                       </span>
                                     ))}
+                                    {keywords.length > 10 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setExpandedCategoryKeywordIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(cat.id)) next.delete(cat.id);
+                                            else next.add(cat.id);
+                                            return next;
+                                          });
+                                        }}
+                                        style={{
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          backgroundColor: isExpanded ? 'rgba(124, 58, 237, 0.15)' : 'rgba(124, 58, 237, 0.08)',
+                                          color: '#7c3aed',
+                                          border: '1px dashed rgba(124, 58, 237, 0.4)',
+                                          padding: '2px 7px',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          transition: 'all 0.15s ease',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor = 'rgba(124, 58, 237, 0.2)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor = isExpanded ? 'rgba(124, 58, 237, 0.15)' : 'rgba(124, 58, 237, 0.08)';
+                                        }}
+                                      >
+                                        {isExpanded ? 'Show less' : `+${keywords.length - 10} more`}
+                                      </button>
+                                    )}
                                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                      ({keywords.length}/10)
+                                      ({keywords.length}/25)
                                     </span>
                                   </div>
                                 ) : (
@@ -2812,6 +4424,362 @@ export const AdminPage: React.FC = () => {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                ) : (
+                  /* ================= GRID VIEW ================= */
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))',
+                      gap: '16px',
+                    }}
+                  >
+                    {paginatedCategories.map((cat: any) => {
+                      const keywords = cat.keywords
+                        ? Array.from<string>(
+                            new Set(
+                              cat.keywords
+                                .split(/[,;\n]+/)
+                                .map((k: string) => k.trim())
+                                .filter((k: string) => k.length >= 2),
+                            ),
+                          ).slice(0, 25)
+                        : [];
+
+                      const isExpanded = expandedCategoryKeywordIds.has(cat.id);
+                      const displayedKeywords = isExpanded ? keywords : keywords.slice(0, 8);
+                      const catColor = cat.color || '#6366f1';
+
+                      return (
+                        <div
+                          key={cat.id}
+                          style={{
+                            backgroundColor: 'var(--bg-surface, #ffffff)',
+                            borderRadius: 'var(--radius-md, 8px)',
+                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            padding: '16px',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          {/* Top Section */}
+                          <div>
+                            {/* Card Header: Category Badge & Actions */}
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                                marginBottom: '12px',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  backgroundColor: `${catColor}15`,
+                                  color: catColor,
+                                  border: `1px solid ${catColor}40`,
+                                  borderRadius: '6px',
+                                  padding: '4px 10px',
+                                  fontSize: '13px',
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  minWidth: 0,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    backgroundColor: catColor,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {cat.name}
+                                </span>
+                              </span>
+
+                              {/* Action Buttons */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                <button
+                                  onClick={() => openEditCategoryModal(cat)}
+                                  title="Edit Category"
+                                  style={{
+                                    padding: '5px 7px',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'transparent',
+                                    cursor: 'pointer',
+                                    color: 'var(--text-secondary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Edit size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                                  title="Delete Category"
+                                  style={{
+                                    padding: '5px 7px',
+                                    border: '1px solid #fee2e2',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'transparent',
+                                    cursor: 'pointer',
+                                    color: '#dc2626',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Keyword Rules */}
+                            <div style={{ marginBottom: '12px' }}>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  fontSize: '10.5px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-secondary)',
+                                  marginBottom: '5px',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.04em',
+                                }}
+                              >
+                                <span>Keyword Rules</span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                  ({keywords.length}/25)
+                                </span>
+                              </div>
+                              {keywords.length > 0 ? (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                                  {displayedKeywords.map((k: string, idx: number) => (
+                                    <span
+                                      key={idx}
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        backgroundColor: '#f5f3ff',
+                                        color: '#7c3aed',
+                                        border: '1px solid #ddd6fe',
+                                        padding: '1.5px 6px',
+                                        borderRadius: '4px',
+                                      }}
+                                    >
+                                      {k}
+                                    </span>
+                                  ))}
+                                  {keywords.length > 8 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedCategoryKeywordIds((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(cat.id)) next.delete(cat.id);
+                                          else next.add(cat.id);
+                                          return next;
+                                        });
+                                      }}
+                                      style={{
+                                        fontSize: '10.5px',
+                                        fontWeight: 700,
+                                        backgroundColor: isExpanded ? 'rgba(124, 58, 237, 0.15)' : 'rgba(124, 58, 237, 0.08)',
+                                        color: '#7c3aed',
+                                        border: '1px dashed rgba(124, 58, 237, 0.4)',
+                                        padding: '1.5px 6px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {isExpanded ? 'Less' : `+${keywords.length - 8}`}
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                  None (Manual assignment only)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Footer: Usage Count */}
+                          <div
+                            style={{
+                              marginTop: 'auto',
+                              paddingTop: '10px',
+                              borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              fontSize: '11.5px',
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            <span>Usage:</span>
+                            <span style={{ fontWeight: 650, color: 'var(--text-primary)' }}>
+                              {cat.usageCount || 0} tickets
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Smart Pagination Controls */}
+                {filteredCategories.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                      marginTop: '16px',
+                      paddingTop: '14px',
+                      borderTop: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    {/* Range & Per-page selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                        Showing <strong>{Math.min((catPage - 1) * catPageSize + 1, filteredCategories.length)}</strong>–
+                        <strong>{Math.min(catPage * catPageSize, filteredCategories.length)}</strong> of{' '}
+                        <strong>{filteredCategories.length}</strong>
+                      </span>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Per page:</span>
+                        <select
+                          value={catPageSize}
+                          onChange={(e) => {
+                            setCatPageSize(Number(e.target.value));
+                            setCatPage(1);
+                          }}
+                          style={{
+                            fontSize: '12px',
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-subtle)',
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Page buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        type="button"
+                        disabled={catPage <= 1}
+                        onClick={() => setCatPage((p) => Math.max(p - 1, 1))}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: catPage <= 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: catPage <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: catPage <= 1 ? 0.5 : 1,
+                        }}
+                      >
+                        <ChevronLeft size={14} /> Prev
+                      </button>
+
+                      {Array.from({ length: totalCatPages }, (_, i) => i + 1)
+                        .filter((page) => {
+                          if (totalCatPages <= 7) return true;
+                          if (page === 1 || page === totalCatPages) return true;
+                          return Math.abs(page - catPage) <= 1;
+                        })
+                        .reduce<(number | string)[]>((acc, page, idx, arr) => {
+                          if (idx > 0 && typeof arr[idx - 1] === 'number' && (page as number) - (arr[idx - 1] as number) > 1) {
+                            acc.push('...');
+                          }
+                          acc.push(page);
+                          return acc;
+                        }, [])
+                        .map((p, idx) => {
+                          if (typeof p === 'string') {
+                            return (
+                              <span key={`dots-${idx}`} style={{ padding: '0 4px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                                ...
+                              </span>
+                            );
+                          }
+                          const isCurrent = p === catPage;
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setCatPage(p as number)}
+                              style={{
+                                minWidth: '28px',
+                                height: '28px',
+                                padding: '0 6px',
+                                fontSize: '12px',
+                                fontWeight: isCurrent ? 700 : 500,
+                                borderRadius: '4px',
+                                border: isCurrent ? '1px solid var(--primary, #2563eb)' : '1px solid var(--border-subtle)',
+                                backgroundColor: isCurrent ? 'var(--primary, #2563eb)' : 'var(--bg-surface)',
+                                color: isCurrent ? '#ffffff' : 'var(--text-primary)',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {p}
+                            </button>
+                          );
+                        })}
+
+                      <button
+                        type="button"
+                        disabled={catPage >= totalCatPages}
+                        onClick={() => setCatPage((p) => Math.min(p + 1, totalCatPages))}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: catPage >= totalCatPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: catPage >= totalCatPages ? 'not-allowed' : 'pointer',
+                          opacity: catPage >= totalCatPages ? 0.5 : 1,
+                        }}
+                      >
+                        Next <ChevronRight size={14} />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -5401,7 +7369,23 @@ export const AdminPage: React.FC = () => {
                 id="org-domains-input"
                 type="text"
                 value={orgDomainInput}
-                onChange={(e) => setOrgDomainInput(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val.includes(',') || val.includes(';') || val.includes('\n')) {
+                    addOrgDomainChip(val);
+                    setOrgDomainInput('');
+                  } else {
+                    setOrgDomainInput(val);
+                  }
+                }}
+                onPaste={(e) => {
+                  const pasteData = e.clipboardData.getData('text');
+                  if (pasteData) {
+                    e.preventDefault();
+                    addOrgDomainChip(pasteData);
+                    setOrgDomainInput('');
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ',') {
                     e.preventDefault();
@@ -5410,13 +7394,15 @@ export const AdminPage: React.FC = () => {
                   }
                 }}
                 onBlur={() => {
-                  addOrgDomainChip(orgDomainInput);
-                  setOrgDomainInput('');
+                  if (orgDomainInput.trim()) {
+                    addOrgDomainChip(orgDomainInput);
+                    setOrgDomainInput('');
+                  }
                 }}
                 placeholder={
                   orgDomainList.length === 0
-                    ? 'e.g. apollohospitals.com, apollo.org (Press Enter or comma to add)'
-                    : 'Add more domain...'
+                    ? 'e.g. apollohospitals.com, support@company.com (Press Enter, comma, or paste bulk)'
+                    : 'Add or paste more domains/emails...'
                 }
                 style={{
                   flex: 1,
@@ -5431,7 +7417,7 @@ export const AdminPage: React.FC = () => {
               />
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
-              Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add multiple domains. Incoming tickets from customers with these email domains will automatically link to this Organization.
+              Press <strong>Enter</strong>, <strong>Comma (,)</strong>, or <strong>Paste bulk emails/domains</strong> (separated by comma, space, or newlines) to add. Incoming tickets from customers with these email domains will automatically link to this Organization.
             </p>
           </div>
 
@@ -5518,22 +7504,15 @@ export const AdminPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="form-label" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>
+            <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
               Account Notes / SLA Details <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
             </label>
-            <textarea
-              placeholder="e.g. Premium Tier-1 client with 2-hour priority SLA response window."
+            <ActionNoteBox
               value={orgDescription}
-              onChange={(e) => setOrgDescription(e.target.value)}
-              rows={2}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '13px',
-                resize: 'vertical',
-              }}
+              onChange={setOrgDescription}
+              placeholder="e.g. • Tier-1 enterprise account\n• 2-hour priority SLA response window\n• Designated TAM: John Doe"
+              minRows={4}
+              accentColor="#0284c7"
             />
           </div>
 
@@ -5694,7 +7673,23 @@ export const AdminPage: React.FC = () => {
                 id="tag-domains-input"
                 type="text"
                 value={tagDomainInput}
-                onChange={(e) => setTagDomainInput(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val.includes(',') || val.includes(';') || val.includes('\n')) {
+                    addTagDomainChip(val);
+                    setTagDomainInput('');
+                  } else {
+                    setTagDomainInput(val);
+                  }
+                }}
+                onPaste={(e) => {
+                  const pasteData = e.clipboardData.getData('text');
+                  if (pasteData) {
+                    e.preventDefault();
+                    addTagDomainChip(pasteData);
+                    setTagDomainInput('');
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ',') {
                     e.preventDefault();
@@ -5703,13 +7698,15 @@ export const AdminPage: React.FC = () => {
                   }
                 }}
                 onBlur={() => {
-                  addTagDomainChip(tagDomainInput);
-                  setTagDomainInput('');
+                  if (tagDomainInput.trim()) {
+                    addTagDomainChip(tagDomainInput);
+                    setTagDomainInput('');
+                  }
                 }}
                 placeholder={
                   tagDomainList.length === 0
-                    ? 'e.g. user@gmail.com, company.com (Press Enter or comma to add)'
-                    : 'Add more email or domain...'
+                    ? 'e.g. user@gmail.com, company.com (Press Enter, comma, or paste bulk)'
+                    : 'Add or paste more emails or domains...'
                 }
                 style={{
                   flex: 1,
@@ -5724,7 +7721,7 @@ export const AdminPage: React.FC = () => {
               />
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
-              Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add multiple emails or domains. Any incoming ticket submitted by customers matching these exact emails or email domains will automatically have this tag attached.
+              Press <strong>Enter</strong>, <strong>Comma (,)</strong>, or <strong>Paste bulk emails/domains</strong> to add multiple emails or domains. Any incoming ticket submitted by customers matching these exact emails or email domains will automatically have this tag attached.
             </p>
           </div>
 
@@ -6464,10 +8461,10 @@ export const AdminPage: React.FC = () => {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label className="form-label" style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>
-                Keyword Matching Rules (Max 10) <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+                Keyword Matching Rules (Max 25) <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
               </label>
-              <span style={{ fontSize: '11px', color: categoryKeywordList.length >= 10 ? '#ef4444' : 'var(--text-muted)', fontWeight: 600 }}>
-                {categoryKeywordList.length} / 10 keywords
+              <span style={{ fontSize: '11px', color: categoryKeywordList.length >= 25 ? '#ef4444' : 'var(--text-muted)', fontWeight: 600 }}>
+                {categoryKeywordList.length} / 25 keywords
               </span>
             </div>
             <div
@@ -6541,7 +8538,7 @@ export const AdminPage: React.FC = () => {
                 id="category-keywords-input"
                 type="text"
                 value={categoryKeywordInput}
-                disabled={categoryKeywordList.length >= 10}
+                disabled={categoryKeywordList.length >= 25}
                 onChange={(e) => setCategoryKeywordInput(e.target.value)}
                 onPaste={(e) => {
                   const pasteData = e.clipboardData.getData('text');
@@ -6563,8 +8560,8 @@ export const AdminPage: React.FC = () => {
                   setCategoryKeywordInput('');
                 }}
                 placeholder={
-                  categoryKeywordList.length >= 10
-                    ? 'Maximum 10 keywords reached'
+                  categoryKeywordList.length >= 25
+                    ? 'Maximum 25 keywords reached'
                     : categoryKeywordList.length === 0
                     ? 'e.g. refund, payment, invoice (Press Enter, comma, or paste)'
                     : 'Add more keyword...'
@@ -6581,7 +8578,7 @@ export const AdminPage: React.FC = () => {
                 }}
               />
             </div>
-            {categoryKeywordList.length > 10 && (
+            {categoryKeywordList.length > 25 && (
               <div
                 style={{
                   marginTop: '6px',
@@ -6596,10 +8593,10 @@ export const AdminPage: React.FC = () => {
                   color: '#b91c1c',
                 }}
               >
-                <span>⚠️ Category currently has {categoryKeywordList.length} keywords. Max allowed is 10.</span>
+                <span>⚠️ Category currently has {categoryKeywordList.length} keywords. Max allowed is 25.</span>
                 <button
                   type="button"
-                  onClick={() => setCategoryKeywordList((prev) => prev.slice(0, 10))}
+                  onClick={() => setCategoryKeywordList((prev) => prev.slice(0, 25))}
                   style={{
                     backgroundColor: '#ef4444',
                     color: '#fff',
@@ -6611,12 +8608,12 @@ export const AdminPage: React.FC = () => {
                     cursor: 'pointer',
                   }}
                 >
-                  Trim to Top 10
+                  Trim to Top 25
                 </button>
               </div>
             )}
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
-              Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add up to 10 keywords. Any incoming email or ticket matching these keywords in the subject, message body, or metadata will be automatically classified into this category.
+              Press <strong>Enter</strong> or <strong>Comma (,)</strong> to add up to 25 keywords. Any incoming email or ticket matching these keywords in the subject, message body, or metadata will be automatically classified into this category.
             </p>
           </div>
 
@@ -6630,7 +8627,7 @@ export const AdminPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={isCategorySubmitting || categoryKeywordList.length > 10}
+              disabled={isCategorySubmitting || categoryKeywordList.length > 25}
               className="btn btn-primary btn-sm"
             >
               {isCategorySubmitting ? 'Saving...' : editingCategory ? 'Save Changes' : 'Create Category'}

@@ -41,6 +41,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useSearch } from '../context/SearchContext';
 import { FormattedEmailContent } from '../components/common/FormattedEmailContent';
+import { ActionNoteViewer } from '../components/common/ActionNoteBox';
 import { useSocket } from '../context/SocketContext';
 
 // Gmail-style visual attachment preview card
@@ -358,7 +359,7 @@ export const InboxPage: React.FC = () => {
   const [expandedCommentIds, setExpandedCommentIds] = useState<Set<string>>(new Set());
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState<boolean>(true);
   const [expandedMergedTicketIds, setExpandedMergedTicketIds] = useState<Set<string>>(new Set());
-  const [mergedTicketDetails, setMergedTicketDetails] = useState<Record<string, { ticket: any; comments: any[]; isLoading: boolean }>>({});
+  const [mergedTicketDetails, setMergedTicketDetails] = useState<Record<string, { ticket: any; comments: any[]; mergeNote?: string | null; mergedBy?: string | null; isLoading: boolean }>>({});
   const [previewLightbox, setPreviewLightbox] = useState<{ media: any; url: string } | null>(null);
   const [pendingStatusTransition, setPendingStatusTransition] = useState<{
     toStatus: string;
@@ -1388,16 +1389,40 @@ export const InboxPage: React.FC = () => {
                             [secId]: { ticket: null, comments: [], isLoading: true },
                           }));
                           try {
-                            const [fullSecTicket, commentsRes] = await Promise.all([
+                            const [fullSecTicket, commentsRes, eventsRes] = await Promise.all([
                               TicketsApi.getById(secId),
                               ApiClient.get<any>(`/tickets/${secId}/comments?pageSize=100`),
+                              ApiClient.get<any>(`/tickets/${secId}/timeline`).catch(() => ({ events: [] })),
                             ]);
                             const rawComments = Array.isArray(commentsRes) ? commentsRes : commentsRes?.comments || [];
+                            let mergeEvent = (eventsRes?.events || []).find((e: any) => e.type === 'MERGED' || e.rawType === 'MERGED');
+                            let mergeNote = mergeEvent?.metadata?.note || null;
+                            let mergedBy = mergeEvent?.actor?.fullName || mergeEvent?.actor?.displayName || mergeEvent?.actorLabel || mergeEvent?.actorName || null;
+
+                            // Fallback: if note wasn't on secondary ticket event, check primary ticket timeline
+                            if (!mergeNote && selectedTicket?.id) {
+                              try {
+                                const primaryTimeline = await ApiClient.get<any>(`/tickets/${selectedTicket.id}/timeline`).catch(() => ({ events: [] }));
+                                const primaryMergeEvent = (primaryTimeline?.events || []).find((e: any) =>
+                                  (e.type === 'MERGED' || e.rawType === 'MERGED') &&
+                                  (e.metadata?.secondaryTicketIds?.includes(secId) || e.metadata?.secondaryTicketNumbers?.includes(fullSecTicket?.number))
+                                );
+                                if (primaryMergeEvent) {
+                                  mergeNote = primaryMergeEvent?.metadata?.note || null;
+                                  mergedBy = primaryMergeEvent?.actor?.fullName || primaryMergeEvent?.actor?.displayName || primaryMergeEvent?.actorLabel || primaryMergeEvent?.actorName || mergedBy;
+                                }
+                              } catch {
+                                // ignore
+                              }
+                            }
+
                             setMergedTicketDetails((prev) => ({
                               ...prev,
                               [secId]: {
                                 ticket: fullSecTicket,
                                 comments: filterConversationComments(rawComments),
+                                mergeNote,
+                                mergedBy,
                                 isLoading: false,
                               },
                             }));
@@ -1531,6 +1556,51 @@ export const InboxPage: React.FC = () => {
                                 <LoadingSpinner size={16} text="Loading merged ticket message..." />
                               ) : (
                                 <>
+                                  {/* Merged Ticket Merge Note Banner */}
+                                  {details?.mergeNote && (
+                                    <div
+                                      style={{
+                                        padding: '10px 12px',
+                                        backgroundColor: '#f5f3ff',
+                                        border: '1px solid #ddd6fe',
+                                        borderRadius: '6px',
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: '10px',
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          width: '22px',
+                                          height: '22px',
+                                          borderRadius: '4px',
+                                          backgroundColor: '#ede9fe',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          color: '#7c3aed',
+                                          flexShrink: 0,
+                                          marginTop: '1px',
+                                        }}
+                                      >
+                                        <GitMerge size={12} />
+                                      </div>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                          <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                            Merge Note
+                                          </span>
+                                          {details.mergedBy && (
+                                            <span style={{ fontSize: '10.5px', color: '#8b5cf6', fontWeight: 500 }}>
+                                              • by {details.mergedBy}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <ActionNoteViewer content={details.mergeNote} style={{ color: '#4c1d95', fontSize: '12px', lineHeight: '1.45' }} />
+                                      </div>
+                                    </div>
+                                  )}
+
                                   {/* Merged Ticket Initial Request Box */}
                                   <div
                                     style={{

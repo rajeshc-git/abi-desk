@@ -5,6 +5,7 @@ import { ApiClient } from '../../api/client';
 import { TicketsApi } from '../../api/tickets';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { FormattedEmailContent } from '../common/FormattedEmailContent';
+import { ActionNoteViewer } from '../common/ActionNoteBox';
 
 interface MergedTicketsViewProps {
   ticket: any;
@@ -19,7 +20,7 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
 }) => {
   // Collapsed IDs set: empty by default so ALL merged tickets are EXPANDED by default
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
-  const [ticketDetails, setTicketDetails] = useState<Record<string, { ticket: any; comments: any[]; isLoading: boolean }>>({});
+  const [ticketDetails, setTicketDetails] = useState<Record<string, { ticket: any; comments: any[]; mergeNote?: string | null; mergedBy?: string | null; isLoading: boolean }>>({});
   const [unmergingId, setUnmergingId] = useState<string | null>(null);
 
   const mergedLinks = (ticket.linksTo || []).filter((l: any) => l.type === 'MERGED_INTO');
@@ -35,9 +36,10 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
     });
 
     try {
-      const [fullSecTicket, commentsRes] = await Promise.all([
+      const [fullSecTicket, commentsRes, eventsRes] = await Promise.all([
         TicketsApi.getById(secondaryTicketId),
         ApiClient.get<any>(`/tickets/${secondaryTicketId}/comments?pageSize=100`),
+        ApiClient.get<any>(`/tickets/${secondaryTicketId}/timeline`).catch(() => ({ events: [] })),
       ]);
 
       const rawComments = Array.isArray(commentsRes) ? commentsRes : commentsRes?.comments || [];
@@ -52,11 +54,34 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
           !c.body?.includes('has been unmerged from this ticket.')
       );
 
+      let mergeEvent = (eventsRes?.events || []).find((e: any) => e.type === 'MERGED' || e.rawType === 'MERGED');
+      let mergeNote = mergeEvent?.metadata?.note || null;
+      let mergedBy = mergeEvent?.actor?.fullName || mergeEvent?.actor?.displayName || mergeEvent?.actorLabel || mergeEvent?.actorName || null;
+
+      // Fallback: if note wasn't on secondary ticket event, check primary ticket timeline
+      if (!mergeNote && ticket?.id) {
+        try {
+          const primaryTimeline = await ApiClient.get<any>(`/tickets/${ticket.id}/timeline`).catch(() => ({ events: [] }));
+          const primaryMergeEvent = (primaryTimeline?.events || []).find((e: any) =>
+            (e.type === 'MERGED' || e.rawType === 'MERGED') &&
+            (e.metadata?.secondaryTicketIds?.includes(secondaryTicketId) || e.metadata?.secondaryTicketNumbers?.includes(fullSecTicket?.number))
+          );
+          if (primaryMergeEvent) {
+            mergeNote = primaryMergeEvent?.metadata?.note || null;
+            mergedBy = primaryMergeEvent?.actor?.fullName || primaryMergeEvent?.actor?.displayName || primaryMergeEvent?.actorLabel || primaryMergeEvent?.actorName || mergedBy;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       setTicketDetails((prev) => ({
         ...prev,
         [secondaryTicketId]: {
           ticket: fullSecTicket,
           comments: cleanComments,
+          mergeNote,
+          mergedBy,
           isLoading: false,
         },
       }));
@@ -66,7 +91,7 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
         [secondaryTicketId]: { ticket: null, comments: [], isLoading: false },
       }));
     }
-  }, []);
+  }, [ticket?.id]);
 
   // Auto-fetch conversation and details for all merged tickets so they display expanded immediately
   useEffect(() => {
@@ -276,6 +301,52 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
                       <LoadingSpinner size={20} text="Loading merged ticket conversation..." />
                     ) : (
                       <div className="ticket-timeline" style={{ padding: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        {/* Dedicated Merge Note Callout Banner */}
+                        {details?.mergeNote && (
+                          <div
+                            style={{
+                              padding: '12px 16px',
+                              backgroundColor: '#f5f3ff',
+                              border: '1px solid #ddd6fe',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: '12px',
+                              boxShadow: '0 1px 2px rgba(109, 40, 217, 0.05)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '6px',
+                                backgroundColor: '#ede9fe',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#7c3aed',
+                                flexShrink: 0,
+                                marginTop: '1px',
+                              }}
+                            >
+                              <GitMerge size={15} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                  Merge Note
+                                </span>
+                                {details.mergedBy && (
+                                  <span style={{ fontSize: '11px', color: '#8b5cf6', fontWeight: 500 }}>
+                                    • by {details.mergedBy}
+                                  </span>
+                                )}
+                              </div>
+                              <ActionNoteViewer content={details.mergeNote} style={{ color: '#4c1d95', fontSize: '13px', lineHeight: '1.5' }} />
+                            </div>
+                          </div>
+                        )}
+
                         {/* Initial Request Timeline Item */}
                         <div className="timeline-item">
                           <div

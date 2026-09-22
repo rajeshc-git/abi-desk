@@ -19,6 +19,7 @@ import {
   Webhook,
   X,
   RotateCcw,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ZohoDeskLogo } from '../common/ZohoDeskLogo';
@@ -28,6 +29,7 @@ import { THEME_PRESETS, applyPrimaryTheme } from '../../styles/theme-utils';
 import { ApiKeysSettings } from '../settings/ApiKeysSettings';
 import { WebhooksSettings } from '../settings/WebhooksSettings';
 import { ComplianceSettings } from '../settings/ComplianceSettings';
+import { ProfileModal } from './ProfileModal';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -214,6 +216,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
       permissions: ['admin:team:manage', 'report:view:tenant', 'ticket:read:tenant'],
     },
     {
+      title: 'Documents',
+      path: '/documents',
+      icon: FileSpreadsheet,
+      roles: ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN'],
+      permissions: ['admin:brand:manage', 'report:view:tenant'],
+    },
+    {
       title: 'Setup',
       path: '/admin',
       icon: Settings,
@@ -276,7 +285,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
           style={{ cursor: 'pointer' }}
           title="View Profile"
         >
-          {user?.fullName ? user.fullName.slice(0, 2).toUpperCase() : 'AD'}
+          {user?.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt={user.fullName || 'User'}
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : null}
+          {!user?.avatarUrl && (
+            user?.fullName ? user.fullName.slice(0, 2).toUpperCase() : 'AD'
+          )}
         </div>
         <div
           className="user-info"
@@ -657,187 +677,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         </div>
       </Modal>
 
-      <Modal
+      <ProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
-        title="My Profile"
-        maxWidth="450px"
-      >
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            padding: '16px 0',
-            gap: '20px',
-          }}
-        >
-          <div
-            style={{
-              width: '80px',
-              height: '80px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, var(--primary) 0%, #1e3a8a 100%)',
-              color: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '28px',
-              fontWeight: 700,
-              boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
-            }}
-          >
-            {user?.fullName ? user.fullName.slice(0, 2).toUpperCase() : 'AD'}
-          </div>
-
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Full Name
-              </span>
-              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                {user?.fullName || 'Support Agent'}
-              </span>
-            </div>
-
-            <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Email Address
-              </span>
-              <span
-                style={{ fontSize: '14px', color: 'var(--text-primary)', fontFamily: 'monospace' }}
-              >
-                {user?.email || 'N/A'}
-              </span>
-            </div>
-
-            <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Organization Name
-              </span>
-              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                {user?.tenantName || 'My Organization'}
-              </span>
-            </div>
-
-            <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Tenant ID
-              </span>
-              <span
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--text-muted)',
-                  fontFamily: 'monospace',
-                  wordBreak: 'break-all',
-                }}
-              >
-                {user?.tenantId || 'N/A'}
-              </span>
-            </div>
-
-            <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                }}
-              >
-                User Type
-              </span>
-              <span
-                style={{
-                  display: 'inline-block',
-                  marginTop: '4px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  padding: '3px 8px',
-                  borderRadius: '12px',
-                  backgroundColor:
-                    user?.kind === 'STAFF' ? 'var(--primary-subtle)' : 'var(--border-subtle)',
-                  color: user?.kind === 'STAFF' ? 'var(--primary)' : 'var(--text-secondary)',
-                }}
-              >
-                {user?.kind || 'STAFF'}
-              </span>
-            </div>
-
-            <div>
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  marginBottom: '6px',
-                }}
-              >
-                Assigned Roles
-              </span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {user?.roles && user.roles.length > 0 ? (
-                  user.roles.map((r: string) => (
-                    <span
-                      key={r}
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        padding: '3px 8px',
-                        borderRadius: '4px',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                        border: '1px solid var(--border-subtle)',
-                        color: 'var(--text-primary)',
-                      }}
-                    >
-                      {r.replace(/_/g, ' ')}
-                    </span>
-                  ))
-                ) : (
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    None assigned
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </Modal>
+      />
 
       <Modal
         isOpen={isLogoutModalOpen}

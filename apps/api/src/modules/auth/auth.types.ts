@@ -47,6 +47,7 @@ export interface AuthenticatedPrincipal {
   familyId: string;
   email: string;
   fullName: string;
+  avatarUrl?: string | null;
   kind: 'STAFF' | 'CUSTOMER' | 'SYSTEM';
   roles: RoleKey[];
   /** Effective permission keys after tenant overrides. */

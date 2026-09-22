@@ -736,6 +736,7 @@ export class WorkflowService {
         toValue: transition.toStatus,
         metadata: {
           label: transition.label,
+          ...(input.comment ? { reason: input.comment } : {}),
           ...(tierChanged ? { fromTier: ticket.tier, toTier: newTier } : {}),
           ...(input.approvalRequestId ? { approvalRequestId: input.approvalRequestId } : {}),
         },

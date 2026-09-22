@@ -157,3 +157,12 @@ export const updatePreferencesSchema = z.object({
 
 export class UpdatePreferencesDto extends createZodDto(updatePreferencesSchema) {}
 
+export const updateAvatarSchema = z.object({
+  avatarDataUrl: z
+    .string()
+    .min(10, 'Avatar data is required')
+    .max(10 * 1024 * 1024, 'Avatar image is too large'),
+});
+
+export class UpdateAvatarDto extends createZodDto(updateAvatarSchema) {}
+

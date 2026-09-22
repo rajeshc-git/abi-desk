@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Res,
 } from '@nestjs/common';
 import { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -29,6 +30,7 @@ import {
   ResetPasswordDto,
   SendWidgetOtpDto,
   SessionIdParamDto,
+  UpdateAvatarDto,
   UpdatePreferencesDto,
   VerifyRegisterOtpDto,
   VerifyWidgetOtpDto,
@@ -402,6 +404,7 @@ export class AuthController {
         id: principal.userId,
         email: principal.email,
         fullName: principal.fullName,
+        avatarUrl: principal.avatarUrl ?? null,
         kind: principal.kind,
         preferences,
       },
@@ -422,6 +425,47 @@ export class AuthController {
     @Body() dto: UpdatePreferencesDto,
   ) {
     return this.auth.updateUserPreferences(principal.userId, dto);
+  }
+
+  /** Uploads and updates personal profile avatar photo (PUT). */
+  @Put('me/avatar')
+  async updateAvatarPut(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: UpdateAvatarDto,
+  ) {
+    return this.auth.uploadAvatar(principal.userId, principal.tenantId, dto.avatarDataUrl);
+  }
+
+  /** Uploads and updates personal profile avatar photo (PATCH). */
+  @Patch('me/avatar')
+  async updateAvatarPatch(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: UpdateAvatarDto,
+  ) {
+    return this.auth.uploadAvatar(principal.userId, principal.tenantId, dto.avatarDataUrl);
+  }
+
+  /** Removes personal profile avatar photo. */
+  @Delete('me/avatar')
+  async deleteAvatar(@CurrentUser() principal: AuthenticatedPrincipal) {
+    return this.auth.deleteAvatar(principal.userId, principal.tenantId);
+  }
+
+  /** Streams public/cached user avatar photo. */
+  @Public()
+  @SkipCsrf()
+  @Get('avatar/:userId')
+  async getAvatar(@Param('userId') userId: string, @Res() reply: FastifyReply) {
+    const result = await this.auth.getAvatar(userId);
+    if (!result) {
+      reply.status(HttpStatus.NOT_FOUND).send('Avatar not found');
+      return;
+    }
+
+    reply
+      .header('Content-Type', result.mimeType)
+      .header('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800')
+      .send(result.buffer);
   }
 
   /** Devices with a live session, so a user can spot one they do not recognise. */
@@ -465,6 +509,7 @@ export class AuthController {
         id: result.principal.userId,
         email: result.principal.email,
         fullName: result.principal.fullName,
+        avatarUrl: result.principal.avatarUrl ?? null,
         kind: result.principal.kind,
         preferences,
       },

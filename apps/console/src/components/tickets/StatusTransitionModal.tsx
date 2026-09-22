@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, X, Lock, CheckCircle2 } from 'lucide-react';
 import { getStatusMeta } from './StatusPopover';
+import { ActionNoteBox } from '../common/ActionNoteBox';
 
 interface StatusTransitionModalProps {
   isOpen: boolean;
@@ -65,9 +66,9 @@ export const StatusTransitionModal: React.FC<StatusTransitionModalProps> = ({
       <div
         style={{
           width: '100%',
-          maxWidth: '480px',
+          maxWidth: '520px',
           backgroundColor: 'var(--bg-surface, #ffffff)',
-          borderRadius: '12px',
+          borderRadius: '14px',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1)',
           border: '1px solid var(--border-medium, #e2e8f0)',
           overflow: 'hidden',
@@ -163,7 +164,7 @@ export const StatusTransitionModal: React.FC<StatusTransitionModalProps> = ({
                 marginBottom: '6px',
               }}
             >
-              Transition Note / Rationale {requiresComment ? <span style={{ color: '#ef4444' }}>*</span> : <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>}
+              Transition Note / Action Rationale {requiresComment ? <span style={{ color: '#ef4444' }}>*</span> : <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>}
             </label>
             <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: 'var(--text-muted, #64748b)', lineHeight: 1.4 }}>
               {toStatus === 'PENDING_CUSTOMER'
@@ -172,28 +173,16 @@ export const StatusTransitionModal: React.FC<StatusTransitionModalProps> = ({
                 ? 'Specify the reason this ticket is put on hold (e.g., waiting for third-party vendor).'
                 : toStatus === 'CANCELLED'
                 ? 'Provide the reason for cancelling this ticket.'
-                : `Add a note explaining why this ticket is moving to ${toMeta.label}.`}
+                : `Add a hand-off note or action rationale for moving to ${toMeta.label}.`}
             </p>
-            <textarea
+            <ActionNoteBox
               required={requiresComment}
               value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder={`Enter note for transitioning to ${toMeta.label}...`}
-              rows={4}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-medium, #cbd5e1)',
-                backgroundColor: 'var(--bg-surface, #ffffff)',
-                color: 'var(--text-primary, #0f172a)',
-                fontSize: '13px',
-                lineHeight: 1.4,
-                resize: 'vertical',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
+              onChange={setComment}
+              placeholder={`Write transition note, bullet points, or next steps for ${toMeta.label}...`}
+              minRows={5}
               autoFocus
+              accentColor={toMeta.color || '#f59e0b'}
             />
           </div>
 

@@ -27,7 +27,7 @@ interface ChatConversation {
   lastMessageAt?: string;
   messageCount: number;
   participants: Array<{
-    user: { id: string; fullName: string };
+    user: { id: string; fullName: string; avatarUrl?: string };
     role: string;
     userId: string;
     lastReadAt?: string;
@@ -39,7 +39,7 @@ interface ChatMessage {
   id: string;
   body: string;
   kind: string;
-  sender?: { id: string; fullName: string; kind?: string };
+  sender?: { id: string; fullName: string; avatarUrl?: string; kind?: string };
   createdAt: string;
 }
 
@@ -67,7 +67,19 @@ const getInitials = (name?: string) => {
   return 'U';
 };
 
-const renderAvatarContent = (name?: string, size: number = 16) => {
+const renderAvatarContent = (name?: string, size: number = 16, avatarUrl?: string) => {
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name || 'User'}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }}
+        onError={(e) => {
+          (e.target as HTMLElement).style.display = 'none';
+        }}
+      />
+    );
+  }
   if (!name) return <User size={size} />;
   const cleanName = name.toLowerCase();
   const isGeneric =
@@ -341,9 +353,10 @@ export const LiveChatPage: React.FC = () => {
                       className="livechat-conv-avatar"
                       style={{
                         background: avatarBg,
+                        overflow: 'hidden',
                       }}
                     >
-                      {renderAvatarContent(senderName, 16)}
+                      {renderAvatarContent(senderName, 16, c.participants.find((p) => p.role === 'CUSTOMER')?.user?.avatarUrl)}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
@@ -398,12 +411,14 @@ export const LiveChatPage: React.FC = () => {
                         activeConv.subject,
                       false,
                     ),
+                    overflow: 'hidden',
                   }}
                 >
                   {renderAvatarContent(
                     activeConv.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
                       activeConv.subject,
                     18,
+                    activeConv.participants.find((p) => p.role === 'CUSTOMER')?.user?.avatarUrl,
                   )}
                 </div>
                 <div className="livechat-header-info">
@@ -488,9 +503,10 @@ export const LiveChatPage: React.FC = () => {
                           background: avatarBg,
                           color: isAgent ? 'var(--text-inverse)' : 'var(--primary)',
                           border: isAgent ? 'none' : '1px solid var(--primary-border)',
+                          overflow: 'hidden',
                         }}
                       >
-                        {renderAvatarContent(senderName, 14)}
+                        {renderAvatarContent(senderName, 14, m.sender?.avatarUrl)}
                       </div>
 
                       <div className="livechat-bubble-content">

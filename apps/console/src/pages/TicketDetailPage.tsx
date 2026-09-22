@@ -15,6 +15,8 @@ import {
   Grid,
   X,
   GitMerge,
+  Globe,
+  Lock,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { TicketsApi } from '../api/tickets';
@@ -77,6 +79,9 @@ export const TicketDetailPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'timeline' | 'properties' | 'history' | 'diagnostics' | 'media' | 'approvals' | 'merged'
   >(tabParam && validTabs.includes(tabParam) ? (tabParam as any) : 'timeline');
+
+  const [isReplyOpen, setIsReplyOpen] = useState(false);
+  const [replyMode, setReplyMode] = useState<'public' | 'internal'>('public');
 
   useEffect(() => {
     const currentTab = searchParams.get('tab');
@@ -861,37 +866,115 @@ export const TicketDetailPage: React.FC = () => {
             {/* Active Tab Content: Dynamic Responsive View */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
               {activeTab === 'timeline' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-                  {/* Scrollable Conversation Stream */}
+                <div className="ticket-conversation-split-layout">
+                  {/* Left Pane: Scrollable Conversation Stream (100% full width when reading, 50% split when composing) */}
                   <div
                     ref={timelineScrollRef}
-                    style={{
-                      flex: 1,
-                      overflowY: 'auto',
-                      padding: '8px 0',
-                    }}
+                    className={`ticket-conversation-stream-pane ${isReplyOpen ? 'is-split' : 'is-full'}`}
+                    style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
                   >
-                    <TimelineView
-                      comments={comments}
-                      onSplitComment={(c) => setSplitComment(c)}
-                      initialTicket={{
-                        description: ticket.description,
-                        requester: ticket.requester,
-                        createdAt: ticket.createdAt,
-                        channel: ticket.channel,
-                        mediaAssets: ticket.mediaAssets || [],
-                      }}
-                    />
+                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                      <TimelineView
+                        comments={comments}
+                        onSplitComment={(c) => setSplitComment(c)}
+                        initialTicket={{
+                          description: ticket.description,
+                          requester: ticket.requester,
+                          createdAt: ticket.createdAt,
+                          channel: ticket.channel,
+                          mediaAssets: ticket.mediaAssets || [],
+                        }}
+                      />
+                    </div>
+
+                    {/* Bottom Action Bar when Reply is Closed (100% reading mode) */}
+                    {!isReplyOpen && (
+                      <div
+                        style={{
+                          padding: '12px 20px',
+                          backgroundColor: 'var(--bg-surface, #ffffff)',
+                          borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReplyMode('public');
+                              setIsReplyOpen(true);
+                            }}
+                            className="btn btn-primary"
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 18px',
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Globe size={14} />
+                            <span>Reply to Customer</span>
+                          </button>
+
+                          {canWriteInternal && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReplyMode('internal');
+                                setIsReplyOpen(true);
+                              }}
+                              className="btn btn-secondary"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '8px 16px',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                                color: '#b45309',
+                                border: '1px solid rgba(245, 158, 11, 0.3)',
+                              }}
+                            >
+                              <Lock size={14} />
+                              <span>Add Internal Note</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
+                          Click Reply to open side-by-side composer
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Docked Reply Composer at the bottom — Minified on Mobile, Full on Desktop */}
-                  <div className="ticket-docked-composer">
-                    <ReplyComposer
-                      onSend={handleSendComment}
-                      isSending={isSending}
-                      canWriteInternal={canWriteInternal}
-                    />
-                  </div>
+                  {/* Right 50% Pane: Dedicated Spacious Reply Composer (Only when open) */}
+                  {isReplyOpen && (
+                    <div className="ticket-conversation-composer-pane">
+                      <ReplyComposer
+                        onSend={async (b, i, a, c) => {
+                          await handleSendComment(b, i, a, c);
+                          setIsReplyOpen(false);
+                        }}
+                        isSending={isSending}
+                        canWriteInternal={canWriteInternal}
+                        ticket={ticket}
+                        initialIsInternal={replyMode === 'internal'}
+                        onClose={() => setIsReplyOpen(false)}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 

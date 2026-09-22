@@ -18,7 +18,7 @@
 -- before first release is standard practice (Prisma calls it baselining) and is safe
 -- precisely because there is no deployed data to preserve.
 --
--- Generated 2026-09-11T12:28:29.257Z
+-- Generated 2026-09-22T06:12:47.479Z
 -- =========================================================================
 
 -- =========================================================================
@@ -175,7 +175,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA IF NOT EXISTS "public";
 
 -- CreateEnum
-CREATE TYPE "SupportTier" AS ENUM ('L1', 'L2', 'L3', 'DEV', 'QA');
+CREATE TYPE "SupportTier" AS ENUM ('L1', 'L2', 'L3', 'DEV', 'DEVOPS', 'QA');
 
 -- CreateEnum
 CREATE TYPE "ActorType" AS ENUM ('USER', 'API_KEY', 'AUTOMATION', 'AI', 'SYSTEM', 'INTEGRATION');
@@ -232,7 +232,7 @@ CREATE TYPE "SsoProtocol" AS ENUM ('OIDC', 'SAML');
 CREATE TYPE "QueueRoutingStrategy" AS ENUM ('MANUAL', 'ROUND_ROBIN', 'LEAST_LOADED');
 
 -- CreateEnum
-CREATE TYPE "RoleKey" AS ENUM ('GUEST_CUSTOMER', 'TENANT_ADMIN', 'L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'QA_TEAM', 'PLATFORM_ADMIN');
+CREATE TYPE "RoleKey" AS ENUM ('GUEST_CUSTOMER', 'TENANT_ADMIN', 'L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'QA_TEAM', 'PLATFORM_ADMIN');
 
 -- CreateEnum
 CREATE TYPE "RoleScope" AS ENUM ('PLATFORM', 'TENANT');
@@ -994,6 +994,12 @@ CREATE TABLE "ticket" (
     "confirmedAt" TIMESTAMPTZ(6),
     "dueAt" TIMESTAMPTZ(6),
     "isSpam" BOOLEAN NOT NULL DEFAULT false,
+    "rootCause" TEXT,
+    "capaNotes" TEXT,
+    "rcaUpdatedAt" TIMESTAMPTZ(6),
+    "capaUpdatedAt" TIMESTAMPTZ(6),
+    "rcaUpdatedById" UUID,
+    "capaUpdatedById" UUID,
     "customFields" JSONB NOT NULL DEFAULT '{}',
     "searchVector" tsvector,
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1059,7 +1065,7 @@ CREATE TABLE "tag" (
     "slug" VARCHAR(60) NOT NULL,
     "color" VARCHAR(9) NOT NULL DEFAULT '#64748B',
     "usageCount" INTEGER NOT NULL DEFAULT 0,
-    "domains" VARCHAR(500),
+    "domains" TEXT,
     "organization" VARCHAR(120),
     "product" VARCHAR(120),
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1128,7 +1134,7 @@ CREATE TABLE "organization" (
     "tenantId" UUID NOT NULL,
     "name" VARCHAR(120) NOT NULL,
     "slug" VARCHAR(120) NOT NULL,
-    "domains" VARCHAR(500),
+    "domains" TEXT,
     "description" TEXT,
     "website" VARCHAR(255),
     "contactName" VARCHAR(120),
@@ -2106,6 +2112,12 @@ ALTER TABLE "ticket" ADD CONSTRAINT "ticket_queueId_fkey" FOREIGN KEY ("queueId"
 
 -- AddForeignKey
 ALTER TABLE "ticket" ADD CONSTRAINT "ticket_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "team"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ticket" ADD CONSTRAINT "ticket_rcaUpdatedById_fkey" FOREIGN KEY ("rcaUpdatedById") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ticket" ADD CONSTRAINT "ticket_capaUpdatedById_fkey" FOREIGN KEY ("capaUpdatedById") REFERENCES "user"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ticket_comment" ADD CONSTRAINT "ticket_comment_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;

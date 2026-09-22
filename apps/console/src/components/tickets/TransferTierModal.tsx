@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldAlert, ArrowRight, X, Lock } from 'lucide-react';
 import { TierBadge } from '../common/Badge';
+import { ActionNoteBox } from '../common/ActionNoteBox';
 
 interface TransferTierModalProps {
   isOpen: boolean;
@@ -33,7 +34,7 @@ export const TransferTierModal: React.FC<TransferTierModalProps> = ({
       setReason('');
       onClose();
     } catch {
-      // Error handled by parent toast
+      // Error handled by parent
     } finally {
       setIsSubmitting(false);
     }
@@ -60,9 +61,9 @@ export const TransferTierModal: React.FC<TransferTierModalProps> = ({
       <div
         style={{
           width: '100%',
-          maxWidth: '480px',
+          maxWidth: '520px',
           backgroundColor: 'var(--bg-surface, #ffffff)',
-          borderRadius: '12px',
+          borderRadius: '14px',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1)',
           border: '1px solid var(--border-medium, #e2e8f0)',
           overflow: 'hidden',
@@ -83,11 +84,11 @@ export const TransferTierModal: React.FC<TransferTierModalProps> = ({
         >
           <div>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
-              Transfer Ticket #{ticketNumber}
+              Transfer Support Tier — #{ticketNumber}
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
               <TierBadge tier={fromTier} />
-              <ArrowRight size={14} color="var(--text-muted, #94a3b8)" />
+              <ArrowRight size={13} color="var(--text-muted, #94a3b8)" />
               <TierBadge tier={toTier} />
             </div>
           </div>
@@ -100,7 +101,8 @@ export const TransferTierModal: React.FC<TransferTierModalProps> = ({
               color: 'var(--text-muted, #94a3b8)',
               cursor: 'pointer',
               padding: '4px',
-              borderRadius: '4px',
+              display: 'flex',
+              borderRadius: '6px',
             }}
           >
             <X size={18} />
@@ -121,26 +123,14 @@ export const TransferTierModal: React.FC<TransferTierModalProps> = ({
             >
               Transfer Reason & Hand-off Note <span style={{ color: '#ef4444' }}>*</span>
             </label>
-            <textarea
+            <ActionNoteBox
               autoFocus
-              rows={4}
+              minRows={5}
               required
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder={`Explain why this ticket is being moved to tier ${toTier} (e.g. Reproduction confirmed, escalating for backend logs...)`}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                fontSize: '13px',
-                borderRadius: '8px',
-                border: '1px solid var(--border-medium, #cbd5e1)',
-                backgroundColor: 'var(--bg-input, #ffffff)',
-                color: 'var(--text-primary, #0f172a)',
-                outline: 'none',
-                resize: 'vertical',
-                lineHeight: '1.5',
-                fontFamily: 'inherit',
-              }}
+              onChange={setReason}
+              placeholder={`Explain why this ticket is being moved to tier ${toTier} (e.g. • Reproduction steps confirmed\n• Escalating for backend server logs)...`}
+              accentColor="#3b82f6"
             />
           </div>
 

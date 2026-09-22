@@ -236,7 +236,7 @@ export class SplitTicketDto extends createZodDto(splitTicketSchema) {}
 export const createTagSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(60),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
-  domains: z.string().trim().max(500).optional(),
+  domains: z.string().trim().max(50000).optional(),
   organization: z.string().trim().max(120).nullable().optional(),
   product: z.string().trim().max(120).nullable().optional(),
 });
@@ -244,7 +244,7 @@ export const createTagSchema = z.object({
 export const updateTagSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
-  domains: z.string().trim().max(500).nullable().optional(),
+  domains: z.string().trim().max(50000).nullable().optional(),
   organization: z.string().trim().max(120).nullable().optional(),
   product: z.string().trim().max(120).nullable().optional(),
 });
@@ -259,20 +259,20 @@ export const normalizeCategoryKeywords = (raw?: string | null): string | null | 
     .split(/[,;\n]+/)
     .map((k) => k.trim().toLowerCase())
     .filter((k) => k.length >= 2);
-  const unique = Array.from(new Set(tokens)).slice(0, 10);
+  const unique = Array.from(new Set(tokens)).slice(0, 25);
   return unique.length > 0 ? unique.join(', ') : null;
 };
 
 export const createCategorySchema = z.object({
   name: z.string().trim().min(1, 'Category name is required').max(120),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
-  keywords: z.string().trim().max(1000).optional().transform(normalizeCategoryKeywords),
+  keywords: z.string().trim().max(2000).optional().transform(normalizeCategoryKeywords),
 });
 
 export const updateCategorySchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   color: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/, 'Invalid hex color').optional(),
-  keywords: z.string().trim().max(1000).nullable().optional().transform(normalizeCategoryKeywords),
+  keywords: z.string().trim().max(2000).nullable().optional().transform(normalizeCategoryKeywords),
 });
 
 export class CreateCategoryDto extends createZodDto(createCategorySchema) {}
@@ -280,7 +280,7 @@ export class UpdateCategoryDto extends createZodDto(updateCategorySchema) {}
 
 export const createOrganizationSchema = z.object({
   name: z.string().trim().min(1, 'Organization name is required').max(120),
-  domains: z.string().trim().max(500).nullable().optional(),
+  domains: z.string().trim().max(50000).nullable().optional(),
   description: z.string().trim().max(2000).nullable().optional(),
   website: z.string().trim().max(255).nullable().optional(),
   contactName: z.string().trim().max(120).nullable().optional(),
@@ -290,7 +290,7 @@ export const createOrganizationSchema = z.object({
 
 export const updateOrganizationSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
-  domains: z.string().trim().max(500).nullable().optional(),
+  domains: z.string().trim().max(50000).nullable().optional(),
   description: z.string().trim().max(2000).nullable().optional(),
   website: z.string().trim().max(255).nullable().optional(),
   contactName: z.string().trim().max(120).nullable().optional(),

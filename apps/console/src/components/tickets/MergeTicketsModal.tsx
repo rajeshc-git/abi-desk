@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GitMerge, X, Check, AlertCircle } from 'lucide-react';
 import { StatusBadge, PriorityPill, TierBadge } from '../common/Badge';
+import { ActionNoteBox } from '../common/ActionNoteBox';
 
 export interface MergeTicketsModalProps {
   isOpen: boolean;
@@ -300,17 +301,15 @@ export const MergeTicketsModal: React.FC<MergeTicketsModalProps> = ({
 
             {/* Merge Note / Reason */}
             <div className="form-group">
-              <label className="form-label" htmlFor="mergeNote">
-                Internal Merge Note (Optional):
+              <label className="form-label" htmlFor="mergeNote" style={{ marginBottom: '6px', display: 'block', fontWeight: 600 }}>
+                Internal Merge Note <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
               </label>
-              <textarea
-                id="mergeNote"
+              <ActionNoteBox
                 value={mergeNote}
-                onChange={(e) => setMergeNote(e.target.value)}
-                placeholder="e.g. Merging duplicate user inquiries regarding same issue..."
-                className="form-control"
-                rows={2}
-                style={{ resize: 'none', fontSize: '12px' }}
+                onChange={setMergeNote}
+                placeholder="e.g. • Merging duplicate user inquiries\n• Retaining primary issue context..."
+                minRows={3}
+                accentColor="#6366f1"
               />
             </div>
           </div>

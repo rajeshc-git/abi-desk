@@ -19,6 +19,7 @@ import {
   widgetOtpEmail,
 } from '../../infra/mail/mail.templates';
 import { RedisService } from '../../infra/redis/redis.service';
+import { StorageService } from '../../infra/storage/storage.service';
 import { TenantContextService } from '../../infra/tenancy/tenant-context.service';
 import {
   type TenantTransaction,
@@ -43,6 +44,7 @@ const USER_SELECT = {
   tenantId: true,
   email: true,
   fullName: true,
+  avatarUrl: true,
   kind: true,
   status: true,
   passwordHash: true,
@@ -68,6 +70,7 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly config: AppConfig,
     private readonly redis: RedisService,
+    private readonly storage: StorageService,
     @Inject(PINO_LOGGER) rootLogger: Logger,
   ) {
     this.logger = rootLogger.child({ context: 'AuthService' });
@@ -1835,6 +1838,7 @@ export class AuthService {
       familyId: extra.familyId,
       email: user.email,
       fullName: user.fullName,
+      avatarUrl: (user as any).avatarUrl ?? null,
       kind: user.kind,
       roles: extra.roles,
       permissions: new Set(extra.permissions),
@@ -2014,47 +2018,185 @@ export class AuthService {
 
   async getTenantName(tenantId: string | null | undefined): Promise<string> {
     if (!tenantId) return 'Platform Administration';
-    const tenant = await this.prisma.client.tenant.findUnique({
-      where: { id: tenantId },
-      select: { name: true },
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      const tenant = await this.prisma.client.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true },
+      });
+      return tenant?.name ?? 'Unknown Organization';
     });
-    return tenant?.name ?? 'Unknown Organization';
   }
 
   async getUserPreferences(userId: string): Promise<{ themeColor?: string | null }> {
-    const user = await this.prisma.client.user.findUnique({
-      where: { id: userId },
-      select: { externalMetadata: true },
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      const user = await this.prisma.client.user.findUnique({
+        where: { id: userId },
+        select: { externalMetadata: true },
+      });
+      const metadata = (user?.externalMetadata as Record<string, any>) || {};
+      return metadata.preferences || {};
     });
-    const metadata = (user?.externalMetadata as Record<string, any>) || {};
-    return metadata.preferences || {};
   }
 
   async updateUserPreferences(
     userId: string,
     dto: { themeColor?: string | null },
   ): Promise<{ preferences: { themeColor?: string | null } }> {
-    const user = await this.prisma.client.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { externalMetadata: true },
-    });
+    return this.contexts.runWithBypass('authentication', { userId }, async () => {
+      const user = await this.prisma.client.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { externalMetadata: true },
+      });
 
-    const currentMetadata = (user.externalMetadata as Record<string, any>) || {};
-    const updatedPreferences = {
-      ...(currentMetadata.preferences || {}),
-      themeColor: dto.themeColor !== undefined ? dto.themeColor : (currentMetadata.preferences?.themeColor ?? null),
-    };
+      const currentMetadata = (user.externalMetadata as Record<string, any>) || {};
+      const updatedPreferences = {
+        ...(currentMetadata.preferences || {}),
+        themeColor: dto.themeColor !== undefined ? dto.themeColor : (currentMetadata.preferences?.themeColor ?? null),
+      };
 
-    await this.prisma.client.user.update({
-      where: { id: userId },
-      data: {
-        externalMetadata: {
-          ...currentMetadata,
-          preferences: updatedPreferences,
+      await this.prisma.client.user.update({
+        where: { id: userId },
+        data: {
+          externalMetadata: {
+            ...currentMetadata,
+            preferences: updatedPreferences,
+          },
         },
-      },
+      });
+
+      return { preferences: updatedPreferences };
+    });
+  }
+
+  /** Uploads a cropped user avatar photo to MinIO and caches it in Redis. */
+  async uploadAvatar(
+    userId: string,
+    tenantId: string | null,
+    avatarDataUrl: string,
+  ): Promise<{ avatarUrl: string }> {
+    const match = avatarDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      throw AppException.badRequest('Invalid image format. Expected a base64 data URL.');
+    }
+
+    const mimeType = match[1]!.toLowerCase();
+    const base64Data = match[2]!;
+
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedMimeTypes.includes(mimeType)) {
+      throw AppException.badRequest('Unsupported image format. Use JPEG, PNG, or WebP.');
+    }
+
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (buffer.length > 5 * 1024 * 1024) {
+      throw AppException.badRequest('Image size exceeds 5MB limit.');
+    }
+
+    const storageKey = `avatars/${tenantId || 'global'}/${userId}.jpg`;
+
+    // 1. Upload to MinIO object storage
+    await this.storage.putObjectBuffer(storageKey, buffer, mimeType);
+
+    // 2. Cache in Redis with 7 days TTL
+    try {
+      await this.redis.client.set(
+        `cache:user:avatar:${userId}`,
+        JSON.stringify({ mimeType, data: base64Data }),
+        'EX',
+        7 * 86400,
+      );
+    } catch (err) {
+      this.logger.warn({ err, userId }, 'Failed to cache avatar in Redis');
+    }
+
+    // 3. Update database record
+    const avatarUrl = `/api/v1/auth/avatar/${userId}?v=${Date.now()}`;
+    await this.contexts.runWithBypass('authentication', { userId }, async () => {
+      await this.prisma.client.user.update({
+        where: { id: userId },
+        data: { avatarUrl },
+      });
     });
 
-    return { preferences: updatedPreferences };
+    return { avatarUrl };
+  }
+
+  /** Deletes user avatar photo from MinIO, Redis cache, and Database. */
+  async deleteAvatar(userId: string, tenantId: string | null): Promise<{ avatarUrl: null }> {
+    const storageKey = `avatars/${tenantId || 'global'}/${userId}.jpg`;
+
+    try {
+      await this.storage.delete(storageKey);
+    } catch (err) {
+      this.logger.warn({ err, userId }, 'Failed to delete avatar from MinIO');
+    }
+
+    try {
+      await this.redis.client.del(`cache:user:avatar:${userId}`);
+    } catch (err) {
+      this.logger.warn({ err, userId }, 'Failed to delete avatar from Redis cache');
+    }
+
+    await this.contexts.runWithBypass('authentication', { userId }, async () => {
+      await this.prisma.client.user.update({
+        where: { id: userId },
+        data: { avatarUrl: null },
+      });
+    });
+
+    return { avatarUrl: null };
+  }
+
+  /** Retrieves user avatar photo from Redis cache or MinIO storage. */
+  async getAvatar(userId: string): Promise<{ mimeType: string; buffer: Buffer } | null> {
+    // 1. Try Redis cache
+    try {
+      const cached = await this.redis.client.get(`cache:user:avatar:${userId}`);
+      if (cached) {
+        const parsed = JSON.parse(cached) as { mimeType: string; data: string };
+        return {
+          mimeType: parsed.mimeType,
+          buffer: Buffer.from(parsed.data, 'base64'),
+        };
+      }
+    } catch (err) {
+      this.logger.warn({ err, userId }, 'Failed reading avatar from Redis cache');
+    }
+
+    // 2. Query user to get tenantId and verify avatar existence
+    const user = await this.contexts.runWithBypass('authentication', {}, async () => {
+      return this.prisma.client.user.findUnique({
+        where: { id: userId },
+        select: { tenantId: true, avatarUrl: true },
+      });
+    });
+
+    if (!user || !user.avatarUrl) {
+      return null;
+    }
+
+    const storageKey = `avatars/${user.tenantId || 'global'}/${userId}.jpg`;
+
+    try {
+      const buffer = await this.storage.getObjectBuffer(storageKey);
+      const mimeType = 'image/jpeg';
+
+      // Warm Redis cache
+      try {
+        await this.redis.client.set(
+          `cache:user:avatar:${userId}`,
+          JSON.stringify({ mimeType, data: buffer.toString('base64') }),
+          'EX',
+          7 * 86400,
+        );
+      } catch {
+        // ignore cache write error
+      }
+
+      return { mimeType, buffer };
+    } catch (err) {
+      this.logger.warn({ err, userId }, 'Avatar object not found in MinIO');
+      return null;
+    }
   }
 }
