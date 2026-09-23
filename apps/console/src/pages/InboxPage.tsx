@@ -2017,7 +2017,15 @@ export const InboxPage: React.FC = () => {
                       const isExpanded = expandedCommentIds.has(comment.id);
                       const commentMedia = selectedMedia.filter((m: any) => m.commentId === comment.id);
                       const isInternal = comment.visibility === 'INTERNAL';
-                      const isStaff = comment.author?.kind === 'STAFF';
+                      const isCustomer =
+                        comment.author?.kind === 'CUSTOMER' ||
+                        comment.author?.kind === 'GUEST' ||
+                        Boolean(
+                          selectedTicket?.requester?.email &&
+                            comment.author?.email &&
+                            comment.author.email.toLowerCase() === selectedTicket.requester.email.toLowerCase(),
+                        );
+                      const isStaff = !isCustomer;
                       const authorName = comment.author?.fullName || comment.author?.email || (isStaff ? 'Staff Agent' : 'Customer');
                       const rawText = comment.body || '';
                       const plainSnippet = getCleanSnippet(rawText);
@@ -2076,6 +2084,7 @@ export const InboxPage: React.FC = () => {
                                   fontSize: '11px',
                                   fontWeight: 700,
                                   flexShrink: 0,
+                                  border: isInternal ? '1px solid #f59e0b' : isStaff ? '1px solid #10b981' : '1px solid #38bdf8',
                                 }}
                               >
                                 {getInitials(authorName)}
@@ -2102,6 +2111,7 @@ export const InboxPage: React.FC = () => {
                                 </span>
                               ) : isStaff ? (
                                 <span
+                                  className="thread-reply-badge"
                                   style={{
                                     fontSize: '10px',
                                     color: '#15803d',
@@ -2113,7 +2123,8 @@ export const InboxPage: React.FC = () => {
                                     flexShrink: 0,
                                   }}
                                 >
-                                  Staff Reply
+                                  <span className="reply-badge-full">Public Reply</span>
+                                  <span className="reply-badge-short">Reply</span>
                                 </span>
                               ) : (
                                 <span

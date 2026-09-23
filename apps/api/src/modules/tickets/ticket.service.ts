@@ -822,7 +822,7 @@ export class TicketService {
           visibility: true,
           bodyFormat: true,
           createdAt: true,
-          author: { select: { id: true, fullName: true, email: true } },
+          author: { select: { id: true, fullName: true, email: true, kind: true } },
         },
       });
 
@@ -977,7 +977,7 @@ export class TicketService {
           systemLabel: true,
           editedAt: true,
           createdAt: true,
-          author: { select: { id: true, fullName: true, email: true } },
+          author: { select: { id: true, fullName: true, email: true, kind: true } },
           mediaAssets: {
             select: { id: true, originalFilename: true, mimeType: true },
           },
