@@ -1542,15 +1542,112 @@ export class WidgetUI {
     return div.innerHTML;
   }
 
-  private formatCommentBody(body: string): string {
-    if (!body) return '';
+  private isHtmlContent(text: string): boolean {
+    if (!text || typeof text !== 'string') return false;
+    const htmlTagRegex = /<\/?(?:div|p|span|br|table|tbody|thead|tfoot|tr|td|th|ul|ol|li|strong|b|em|i|u|s|strike|a|blockquote|h[1-6]|pre|code|hr|img|font|center|small|big)[\s>/]/i;
+    return htmlTagRegex.test(text);
+  }
 
-    // Detect chat transcript comments and render as beautiful bubbles
-    if (body.includes('### Chat Transcript') || body.includes('Chat Transcript (')) {
-      return this.formatChatTranscript(body);
+  private sanitizeAndFormatHtml(rawHtml: string): string {
+    if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
+      return this.escapeHtml(rawHtml.replace(/<[^>]*>/g, '')).replace(/\n/g, '<br>');
     }
 
-    // First, escape HTML to prevent XSS
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(rawHtml, 'text/html');
+
+      // 1. Remove dangerous executable/structural elements
+      const dangerousTags = doc.querySelectorAll(
+        'script, style, link, meta, title, head, iframe, object, embed, form, input, textarea, select, button, applet, base',
+      );
+      dangerousTags.forEach((el) => el.remove());
+
+      // 2. Remove HTML comments
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
+      const comments: Comment[] = [];
+      while (walker.nextNode()) {
+        comments.push(walker.currentNode as Comment);
+      }
+      comments.forEach((c) => c.remove());
+
+      // 3. Clean and sanitize all elements and attributes
+      const allElements = doc.body.querySelectorAll('*');
+      allElements.forEach((el) => {
+        // Strip all on* event handler attributes
+        const attrNames = Array.from(el.attributes).map((a) => a.name);
+        for (const attrName of attrNames) {
+          if (attrName.toLowerCase().startsWith('on')) {
+            el.removeAttribute(attrName);
+          }
+        }
+
+        // Sanitize <a> tags
+        if (el.tagName.toLowerCase() === 'a') {
+          const href = el.getAttribute('href') || '';
+          if (
+            href.toLowerCase().startsWith('javascript:') ||
+            href.toLowerCase().startsWith('vbscript:') ||
+            (href.toLowerCase().startsWith('data:') && !href.toLowerCase().startsWith('data:image/'))
+          ) {
+            el.removeAttribute('href');
+          } else {
+            el.setAttribute('target', '_blank');
+            el.setAttribute('rel', 'noopener noreferrer');
+            (el as HTMLElement).style.color = 'var(--abi-primary, #3b82f6)';
+            (el as HTMLElement).style.wordBreak = 'break-word';
+          }
+        }
+
+        // Constrain <img> tags
+        if (el.tagName.toLowerCase() === 'img') {
+          const src = el.getAttribute('src') || '';
+          if (
+            src.toLowerCase().startsWith('javascript:') ||
+            src.toLowerCase().startsWith('vbscript:')
+          ) {
+            el.removeAttribute('src');
+          }
+          (el as HTMLElement).style.maxWidth = '100%';
+          (el as HTMLElement).style.height = 'auto';
+          (el as HTMLElement).style.borderRadius = '4px';
+          (el as HTMLElement).style.margin = '4px 0';
+        }
+
+        // Constrain <table> elements
+        if (el.tagName.toLowerCase() === 'table') {
+          (el as HTMLElement).style.maxWidth = '100%';
+          (el as HTMLElement).style.borderCollapse = 'collapse';
+          (el as HTMLElement).style.fontSize = '12px';
+        }
+
+        // Style quoted email sections nicely
+        if (
+          el.classList.contains('gmail_quote') ||
+          el.classList.contains('gmail_attr') ||
+          el.getAttribute('id') === 'gmail_quote' ||
+          el.tagName.toLowerCase() === 'blockquote'
+        ) {
+          (el as HTMLElement).style.borderLeft = '2px solid var(--abi-border, #cbd5e1)';
+          (el as HTMLElement).style.paddingLeft = '8px';
+          (el as HTMLElement).style.marginLeft = '4px';
+          (el as HTMLElement).style.marginRight = '0';
+          (el as HTMLElement).style.opacity = '0.85';
+          (el as HTMLElement).style.fontSize = '11.5px';
+        }
+      });
+
+      const cleanedHtml = doc.body.innerHTML.trim();
+      return (
+        cleanedHtml ||
+        '<span style="font-style: italic; color: var(--abi-text-muted);">No content provided.</span>'
+      );
+    } catch {
+      return this.escapeHtml(rawHtml.replace(/<[^>]*>/g, '')).replace(/\n/g, '<br>');
+    }
+  }
+
+  private formatMarkdownText(body: string): string {
     let html = this.escapeHtml(body);
 
     // Parse code blocks: ```\n(content)\n```
@@ -1594,6 +1691,23 @@ export class WidgetUI {
     });
 
     return processedParts.join('');
+  }
+
+  private formatCommentBody(body: string): string {
+    if (!body) return '';
+
+    // Detect chat transcript comments and render as beautiful bubbles
+    if (body.includes('### Chat Transcript') || body.includes('Chat Transcript (')) {
+      return this.formatChatTranscript(body);
+    }
+
+    // Detect if content is raw HTML (e.g. from incoming Email tickets)
+    if (this.isHtmlContent(body)) {
+      return this.sanitizeAndFormatHtml(body);
+    }
+
+    // Standard markdown / plain text formatter
+    return this.formatMarkdownText(body);
   }
 
   /**
