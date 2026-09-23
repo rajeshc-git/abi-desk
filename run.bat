@@ -17,6 +17,16 @@ if not exist node_modules (
     echo.
 )
 
+:: Build workspace packages if not already built
+if not exist packages\widget\dist (
+    echo [Building workspace packages and generating Prisma client...]
+    call pnpm db:generate
+    call pnpm --filter @abi-desk/rbac build
+    call pnpm --filter @abi-desk/db build
+    call pnpm --filter @abi-desk/widget build
+    echo.
+)
+
 echo [1/2] Starting Docker containers (including BACKEND API,Worker,DB,etc)...
 docker compose up -d --build
 

@@ -19,6 +19,16 @@ if [ ! -d node_modules ]; then
     echo ""
 fi
 
+# Build workspace packages if not already built
+if [ ! -d packages/widget/dist ]; then
+    echo "[Building workspace packages and generating Prisma client...]"
+    pnpm db:generate
+    pnpm --filter @abi-desk/rbac build
+    pnpm --filter @abi-desk/db build
+    pnpm --filter @abi-desk/widget build
+    echo ""
+fi
+
 echo "[1/2] Starting Docker containers (including BACKEND API,Worker,DB,etc...)"
 docker compose up -d --build
 
