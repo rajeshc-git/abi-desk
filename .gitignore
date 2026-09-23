@@ -19,9 +19,10 @@ packages/db/generated/
 packages/db/prisma/baseline/02-schema.sql
 
 # Environment - never commit real secrets
-.env
+# .env (allowed as per user preference)
 .env.*
 !.env.example
+!.env
 
 # Test artifacts
 coverage/
