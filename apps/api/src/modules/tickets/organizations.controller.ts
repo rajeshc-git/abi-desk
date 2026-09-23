@@ -15,7 +15,12 @@ import {
   RequireAnyPermission,
 } from '../../common/auth/auth.decorators';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
-import { CreateOrganizationDto, UpdateOrganizationDto } from './ticket.dto';
+import {
+  CreateOrganizationDto,
+  UpdateOrganizationDto,
+  BulkImportOrganizationsDto,
+  BulkDeleteOrganizationsDto,
+} from './ticket.dto';
 import { TicketService } from './ticket.service';
 
 @Controller({ path: 'organizations', version: '1' })
@@ -37,6 +42,28 @@ export class OrganizationsController {
     @Body() dto: CreateOrganizationDto,
   ) {
     return this.tickets.createOrganization(principal, dto);
+  }
+
+  @Post('bulk-import')
+  @RequireAnyPermission('ticket:tag', 'brand:update:tenant', 'admin:brand:manage', 'ticket:update:tenant')
+  @Audited({ action: 'organization.bulk_imported', resourceType: 'organization' })
+  @HttpCode(HttpStatus.OK)
+  bulkImport(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: BulkImportOrganizationsDto,
+  ) {
+    return this.tickets.bulkImportOrganizations(principal, dto.organizations);
+  }
+
+  @Post('bulk-delete')
+  @RequireAnyPermission('ticket:tag', 'brand:update:tenant', 'admin:brand:manage', 'ticket:update:tenant')
+  @Audited({ action: 'organization.bulk_deleted', resourceType: 'organization' })
+  @HttpCode(HttpStatus.OK)
+  bulkDelete(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: BulkDeleteOrganizationsDto,
+  ) {
+    return this.tickets.bulkDeleteOrganizations(principal, dto.ids);
   }
 
   @Patch(':id')
@@ -61,3 +88,4 @@ export class OrganizationsController {
     await this.tickets.deleteOrganization(principal, id);
   }
 }
+

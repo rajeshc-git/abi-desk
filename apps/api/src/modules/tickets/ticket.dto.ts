@@ -286,6 +286,7 @@ export const createOrganizationSchema = z.object({
   contactName: z.string().trim().max(120).nullable().optional(),
   contactEmail: z.string().trim().max(255).nullable().optional(),
   contactPhone: z.string().trim().max(50).nullable().optional(),
+  product: z.string().trim().max(120).nullable().optional(),
 });
 
 export const updateOrganizationSchema = z.object({
@@ -296,10 +297,22 @@ export const updateOrganizationSchema = z.object({
   contactName: z.string().trim().max(120).nullable().optional(),
   contactEmail: z.string().trim().max(255).nullable().optional(),
   contactPhone: z.string().trim().max(50).nullable().optional(),
+  product: z.string().trim().max(120).nullable().optional(),
 });
 
 export class CreateOrganizationDto extends createZodDto(createOrganizationSchema) {}
 export class UpdateOrganizationDto extends createZodDto(updateOrganizationSchema) {}
+
+export const bulkImportOrganizationsSchema = z.object({
+  organizations: z.array(createOrganizationSchema).min(1).max(5000),
+});
+export class BulkImportOrganizationsDto extends createZodDto(bulkImportOrganizationsSchema) {}
+
+export const bulkDeleteOrganizationsSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(5000),
+});
+export class BulkDeleteOrganizationsDto extends createZodDto(bulkDeleteOrganizationsSchema) {}
+
 
 
 

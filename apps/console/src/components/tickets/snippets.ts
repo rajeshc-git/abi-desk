@@ -10,9 +10,17 @@ export interface SnippetTemplate {
 
 export interface TicketSnippetContext {
   id?: string;
+  number?: string | number;
   ticketNumber?: string | number;
+  ticketNumberFormatted?: string;
+  key?: string;
+  displayId?: string;
   subject?: string;
   requester?: {
+    fullName?: string;
+    email?: string;
+  };
+  customer?: {
     fullName?: string;
     email?: string;
   };
@@ -22,6 +30,8 @@ export interface TicketSnippetContext {
   };
   status?: string;
   priority?: string;
+  customFields?: Record<string, any>;
+  [key: string]: any;
 }
 
 export const DEFAULT_SNIPPETS: SnippetTemplate[] = [
@@ -209,9 +219,6 @@ export function getAllSnippets(): SnippetTemplate[] {
   return [...DEFAULT_SNIPPETS, ...custom];
 }
 
-/**
- * Replaces placeholders inside the snippet template body with active ticket and agent data.
- */
 export function resolveSnippetPlaceholders(
   templateBody: string,
   ticket?: TicketSnippetContext,
@@ -219,12 +226,23 @@ export function resolveSnippetPlaceholders(
 ): string {
   let text = templateBody;
 
-  // Ticket ID / Reference Number
-  const ticketRef = ticket?.ticketNumber
-    ? `#${ticket.ticketNumber}`
-    : ticket?.id
-      ? `#${ticket.id.slice(0, 8).toUpperCase()}`
-      : '#TICKET';
+  // Ticket ID / Reference Number (e.g. #ABI-6319 or #6319)
+  const rawNum =
+    ticket?.number ??
+    ticket?.ticketNumber ??
+    ticket?.ticketNumberFormatted ??
+    ticket?.key ??
+    ticket?.displayId;
+
+  let ticketRef: string;
+  if (rawNum !== undefined && rawNum !== null && String(rawNum).trim() !== '') {
+    const s = String(rawNum).trim();
+    ticketRef = s.startsWith('#') ? s : `#${s}`;
+  } else if (ticket?.id) {
+    ticketRef = `#${ticket.id.slice(0, 8).toUpperCase()}`;
+  } else {
+    ticketRef = '#TICKET';
+  }
 
   // Ticket Subject
   const subject = ticket?.subject || 'Reported Request';
@@ -232,16 +250,29 @@ export function resolveSnippetPlaceholders(
   // Contact / Requester Name
   const contactName =
     ticket?.requester?.fullName ||
+    ticket?.customer?.fullName ||
     (ticket?.requester?.email ? ticket.requester.email.split('@')[0] : 'Team');
 
   // Agent Name
-  const agentName = currentUserName || 'Eeshwar R S';
+  const agentName = currentUserName || 'Service Desk';
 
-  // Zoho Desk & Standard syntax replacements
-  text = text.replace(/\$\{Cases\.Request Id\}/g, ticketRef);
-  text = text.replace(/\$\{Cases\.Subject\}/g, subject);
-  text = text.replace(/\$\{Cases\.Contact Name\}/g, contactName);
-  text = text.replace(/\$\{Agent\.Name\}/g, agentName);
+  // Zoho Desk & Standard syntax replacements (case-insensitive & whitespace tolerant)
+  text = text.replace(
+    /\$\{(?:Cases\.(?:Request\s*Id|Ticket\s*(?:ID|Id|Number))|Ticket\.(?:Id|Number|Key)|ticket\.(?:id|number)|ticketNumber|ticketId)\}/gi,
+    ticketRef,
+  );
+  text = text.replace(
+    /\$\{(?:Cases\.Subject|Ticket\.Subject|ticket\.subject|subject)\}/gi,
+    subject,
+  );
+  text = text.replace(
+    /\$\{(?:Cases\.Contact\s*Name|Ticket\.Contact\s*Name|ticket\.contactName|contactName|customerName)\}/gi,
+    contactName,
+  );
+  text = text.replace(
+    /\$\{(?:Agent\.Name|agent\.name|agentName)\}/gi,
+    agentName,
+  );
 
   // Fallback for hardcoded agent name in user template text if needed
   if (currentUserName && currentUserName !== 'Eeshwar R S') {

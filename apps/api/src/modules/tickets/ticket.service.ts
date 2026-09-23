@@ -1744,6 +1744,7 @@ export class TicketService {
         contactName: dto.contactName !== undefined ? dto.contactName : undefined,
         contactEmail: dto.contactEmail !== undefined ? dto.contactEmail : undefined,
         contactPhone: dto.contactPhone !== undefined ? dto.contactPhone : undefined,
+        product: dto.product !== undefined ? dto.product : undefined,
       },
       create: {
         tenantId,
@@ -1755,6 +1756,7 @@ export class TicketService {
         contactName: dto.contactName ?? null,
         contactEmail: dto.contactEmail || null,
         contactPhone: dto.contactPhone ?? null,
+        product: dto.product ?? null,
       },
     });
   }
@@ -1779,6 +1781,7 @@ export class TicketService {
         contactName: dto.contactName !== undefined ? dto.contactName : undefined,
         contactEmail: dto.contactEmail !== undefined ? (dto.contactEmail || null) : undefined,
         contactPhone: dto.contactPhone !== undefined ? dto.contactPhone : undefined,
+        product: dto.product !== undefined ? dto.product : undefined,
       },
     });
   }
@@ -1793,6 +1796,86 @@ export class TicketService {
     await orgDelegate.delete({
       where: { id: existing.id },
     });
+  }
+
+  /** Bulk imports / upserts multiple organizations for the tenant. */
+  async bulkImportOrganizations(principal: AuthenticatedPrincipal, items: CreateOrganizationDto[]) {
+    const tenantId = this.requireTenant(principal);
+    const orgDelegate = (this.prisma.client as any).organization;
+    let created = 0;
+    let updated = 0;
+
+    for (const dto of items) {
+      if (!dto.name || !dto.name.trim()) continue;
+      const slug = slugify(dto.name);
+
+      const existing = await orgDelegate.findUnique({
+        where: { tenantId_slug: { tenantId, slug } },
+      });
+
+      if (existing) {
+        // Merge domains
+        const existingDomains = (existing.domains || '')
+          .split(/[\s,;]+/)
+          .map((d: string) => d.trim().toLowerCase().replace(/^@/, ''))
+          .filter(Boolean);
+        const incomingDomains = (dto.domains || '')
+          .split(/[\s,;]+/)
+          .map((d: string) => d.trim().toLowerCase().replace(/^@/, ''))
+          .filter(Boolean);
+
+        for (const d of incomingDomains) {
+          if (!existingDomains.includes(d)) {
+            existingDomains.push(d);
+          }
+        }
+
+        await orgDelegate.update({
+          where: { id: existing.id },
+          data: {
+            domains: existingDomains.join(', ') || null,
+            website: dto.website !== undefined && dto.website !== null && dto.website !== '' ? dto.website : existing.website,
+            description: dto.description !== undefined && dto.description !== null && dto.description !== '' ? dto.description : existing.description,
+            contactName: dto.contactName !== undefined && dto.contactName !== null && dto.contactName !== '' ? dto.contactName : existing.contactName,
+            contactEmail: dto.contactEmail !== undefined && dto.contactEmail !== null && dto.contactEmail !== '' ? (dto.contactEmail || null) : existing.contactEmail,
+            contactPhone: dto.contactPhone !== undefined && dto.contactPhone !== null && dto.contactPhone !== '' ? dto.contactPhone : existing.contactPhone,
+            product: dto.product !== undefined && dto.product !== null && dto.product !== '' ? dto.product : existing.product,
+          },
+        });
+        updated++;
+      } else {
+        await orgDelegate.create({
+          data: {
+            tenantId,
+            name: dto.name.trim(),
+            slug,
+            domains: dto.domains ?? null,
+            description: dto.description ?? null,
+            website: dto.website ?? null,
+            contactName: dto.contactName ?? null,
+            contactEmail: dto.contactEmail || null,
+            contactPhone: dto.contactPhone ?? null,
+            product: dto.product ?? null,
+          },
+        });
+        created++;
+      }
+    }
+
+    return { total: items.length, created, updated };
+  }
+
+  /** Bulk deletes organizations by ids. */
+  async bulkDeleteOrganizations(principal: AuthenticatedPrincipal, ids: string[]) {
+    const tenantId = this.requireTenant(principal);
+    const orgDelegate = (this.prisma.client as any).organization;
+    const res = await orgDelegate.deleteMany({
+      where: {
+        id: { in: ids },
+        tenantId,
+      },
+    });
+    return { count: res.count };
   }
 
   /** Automatically matches ticket subject, description, and custom fields against category keyword rules. */

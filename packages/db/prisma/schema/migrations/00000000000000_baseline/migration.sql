@@ -18,7 +18,7 @@
 -- before first release is standard practice (Prisma calls it baselining) and is safe
 -- precisely because there is no deployed data to preserve.
 --
--- Generated 2026-09-22T06:12:47.479Z
+-- Generated 2026-09-23T08:34:40.513Z
 -- =========================================================================
 
 -- =========================================================================
@@ -1140,6 +1140,7 @@ CREATE TABLE "organization" (
     "contactName" VARCHAR(120),
     "contactEmail" VARCHAR(255),
     "contactPhone" VARCHAR(50),
+    "product" VARCHAR(120),
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ(6) NOT NULL,
 

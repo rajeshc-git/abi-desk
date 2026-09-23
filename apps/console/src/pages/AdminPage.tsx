@@ -41,6 +41,13 @@ import {
   List,
   ChevronLeft,
   ChevronRight,
+  Download,
+  Upload,
+  FileSpreadsheet,
+  CheckSquare,
+  Square,
+  FileUp,
+  Filter,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { Modal } from '../components/common/Modal';
@@ -76,6 +83,11 @@ export const AdminPage: React.FC = () => {
   const [orgContactName, setOrgContactName] = useState('');
   const [orgContactEmail, setOrgContactEmail] = useState('');
   const [orgContactPhone, setOrgContactPhone] = useState('');
+  const [orgProduct, setOrgProduct] = useState('');
+  const [isOrgProductOpen, setIsOrgProductOpen] = useState(false);
+  const [orgProductSearch, setOrgProductSearch] = useState('');
+  const orgProductDropdownRef = useRef<HTMLDivElement>(null);
+  const orgProductSearchRef = useRef<HTMLInputElement>(null);
   const [isOrgSubmitting, setIsOrgSubmitting] = useState(false);
   const [expandedOrgDomainIds, setExpandedOrgDomainIds] = useState<Set<string>>(new Set());
   const [orgSearchText, setOrgSearchText] = useState('');
@@ -84,6 +96,14 @@ export const AdminPage: React.FC = () => {
   });
   const [orgPage, setOrgPage] = useState(1);
   const [orgPageSize, setOrgPageSize] = useState(10);
+  const [selectedOrgIds, setSelectedOrgIds] = useState<Set<string>>(new Set());
+  const [isOrgImportModalOpen, setIsOrgImportModalOpen] = useState(false);
+  const [isOrgBulkDeleting, setIsOrgBulkDeleting] = useState(false);
+  const [selectedOrgProductFilter, setSelectedOrgProductFilter] = useState<string>('ALL');
+  const [orgImportFile, setOrgImportFile] = useState<File | null>(null);
+  const [orgImportPreview, setOrgImportPreview] = useState<any[]>([]);
+  const [orgImportSearchText, setOrgImportSearchText] = useState('');
+  const [isOrgImporting, setIsOrgImporting] = useState(false);
 
   // Tags State
   const [tagsList, setTagsList] = useState<any[]>([]);
@@ -94,7 +114,7 @@ export const AdminPage: React.FC = () => {
   const [tagDomainList, setTagDomainList] = useState<string[]>([]);
   const [tagDomainInput, setTagDomainInput] = useState('');
   const [tagOrganization, setTagOrganization] = useState('');
-  const [tagProduct, setTagProduct] = useState('');
+  const [tagProducts, setTagProducts] = useState<string[]>([]);
   const [availableProducts, setAvailableProducts] = useState<any[]>([]);
   const [isTagSubmitting, setIsTagSubmitting] = useState(false);
   const [expandedTagDomainIds, setExpandedTagDomainIds] = useState<Set<string>>(new Set());
@@ -184,11 +204,111 @@ export const AdminPage: React.FC = () => {
     );
   }, [ssoProviders, debouncedSearchQuery]);
 
+  // Helper to generate consistent badges & colors for ANY product name (dynamic or future)
+  const getProductBadgeStyle = (product: string | null | undefined) => {
+    if (!product || !product.trim()) return null;
+    const clean = product.trim();
+    const lower = clean.toLowerCase();
+    if (lower === 'claimbook') {
+      return { bg: 'rgba(37, 99, 235, 0.12)', color: '#2563eb', border: 'rgba(37, 99, 235, 0.3)', icon: '🛡️' };
+    }
+    if (lower === 'lims') {
+      return { bg: 'rgba(5, 150, 105, 0.12)', color: '#059669', border: 'rgba(5, 150, 105, 0.3)', icon: '🧪' };
+    }
+    if (lower === 'his') {
+      return { bg: 'rgba(217, 119, 6, 0.12)', color: '#d97706', border: 'rgba(217, 119, 6, 0.3)', icon: '🏥' };
+    }
+    if (lower.includes('pharmacy') || lower.includes('rx')) {
+      return { bg: 'rgba(124, 58, 237, 0.12)', color: '#7c3aed', border: 'rgba(124, 58, 237, 0.3)', icon: '💊' };
+    }
+    if (lower.includes('emr') || lower.includes('ehr')) {
+      return { bg: 'rgba(8, 145, 178, 0.12)', color: '#0891b2', border: 'rgba(8, 145, 178, 0.3)', icon: '📋' };
+    }
+    if (lower.includes('lab') || lower.includes('diag')) {
+      return { bg: 'rgba(13, 148, 136, 0.12)', color: '#0d9488', border: 'rgba(13, 148, 136, 0.3)', icon: '🔬' };
+    }
+    if (lower.includes('bill') || lower.includes('pay') || lower.includes('finance')) {
+      return { bg: 'rgba(22, 163, 74, 0.12)', color: '#16a34a', border: 'rgba(22, 163, 74, 0.3)', icon: '💳' };
+    }
+    // Deterministic color generation for any dynamic custom product
+    let hash = 0;
+    for (let i = 0; i < clean.length; i++) hash = clean.charCodeAt(i) + ((hash << 5) - hash);
+    const hue = Math.abs(hash % 360);
+    return {
+      bg: `hsla(${hue}, 70%, 50%, 0.12)`,
+      color: `hsl(${hue}, 75%, 42%)`,
+      border: `hsla(${hue}, 70%, 50%, 0.3)`,
+      icon: '📦',
+    };
+  };
+
+  // Dynamically extract all distinct products from organizationsList and availableProducts master list
+  const dynamicOrgProductTabs = React.useMemo(() => {
+    const productCounts: Record<string, number> = {};
+    let unassignedCount = 0;
+
+    for (const org of organizationsList) {
+      if (org.product && org.product.trim()) {
+        const prod = org.product.trim();
+        productCounts[prod] = (productCounts[prod] || 0) + 1;
+      } else {
+        unassignedCount++;
+      }
+    }
+
+    const tabs: Array<{ id: string; label: string; count: number; color: string; icon?: string }> = [
+      { id: 'ALL', label: 'All Products', count: organizationsList.length, color: 'var(--primary, #2563eb)', icon: '🏢' },
+    ];
+
+    // Only add distinct products that have at least 1 organization assigned (count > 0)
+    const sortedProductNames = Object.keys(productCounts)
+      .filter((pName) => productCounts[pName] > 0)
+      .sort((a, b) => {
+        if (productCounts[b] !== productCounts[a]) {
+          return productCounts[b] - productCounts[a];
+        }
+        return a.localeCompare(b);
+      });
+
+    for (const prodName of sortedProductNames) {
+      const style = getProductBadgeStyle(prodName);
+      tabs.push({
+        id: prodName,
+        label: prodName,
+        count: productCounts[prodName],
+        color: style?.color || 'var(--primary, #2563eb)',
+        icon: style?.icon || '📦',
+      });
+    }
+
+    if (unassignedCount > 0) {
+      tabs.push({
+        id: '__UNASSIGNED__',
+        label: 'Unassigned',
+        count: unassignedCount,
+        color: 'var(--text-muted, #64748b)',
+        icon: '⚪',
+      });
+    }
+
+    return tabs;
+  }, [organizationsList]);
+
   const filteredOrganizations = React.useMemo(() => {
     const rawQ = (orgSearchText.trim() || debouncedSearchQuery.trim()).toLowerCase();
-    if (!rawQ) return organizationsList;
-    return organizationsList.filter(
-      (o: any) =>
+    return organizationsList.filter((o: any) => {
+      // Dynamic Product Filter
+      if (selectedOrgProductFilter !== 'ALL') {
+        if (selectedOrgProductFilter === '__UNASSIGNED__') {
+          if (o.product && o.product.trim()) return false;
+        } else {
+          if (o.product?.trim() !== selectedOrgProductFilter) return false;
+        }
+      }
+
+      // Search Query
+      if (!rawQ) return true;
+      return (
         o.name?.toLowerCase().includes(rawQ) ||
         o.slug?.toLowerCase().includes(rawQ) ||
         (o.domains && o.domains.toLowerCase().includes(rawQ)) ||
@@ -196,9 +316,11 @@ export const AdminPage: React.FC = () => {
         (o.website && o.website.toLowerCase().includes(rawQ)) ||
         (o.contactName && o.contactName.toLowerCase().includes(rawQ)) ||
         (o.contactEmail && o.contactEmail.toLowerCase().includes(rawQ)) ||
-        (o.contactPhone && o.contactPhone.toLowerCase().includes(rawQ)),
-    );
-  }, [organizationsList, orgSearchText, debouncedSearchQuery]);
+        (o.contactPhone && o.contactPhone.toLowerCase().includes(rawQ)) ||
+        (o.product && o.product.toLowerCase().includes(rawQ))
+      );
+    });
+  }, [organizationsList, orgSearchText, debouncedSearchQuery, selectedOrgProductFilter]);
 
   const totalOrgPages = Math.ceil(filteredOrganizations.length / orgPageSize) || 1;
   const paginatedOrganizations = React.useMemo(() => {
@@ -563,8 +685,12 @@ export const AdminPage: React.FC = () => {
         setRoles(rolesData || []);
         setBrandsList(brandsData || []);
       } else if (activeTab === 'organizations') {
-        const orgsData = await ApiClient.get('/organizations');
+        const [orgsData, productsData] = await Promise.all([
+          ApiClient.get('/organizations').catch(() => []),
+          ApiClient.get('/admin/roster/products').catch(() => []),
+        ]);
         setOrganizationsList(Array.isArray(orgsData) ? orgsData : []);
+        setAvailableProducts(Array.isArray(productsData) ? productsData : []);
       } else if (activeTab === 'tags') {
         const [tagsData, productsData, orgsData] = await Promise.all([
           ApiClient.get('/tags').catch(() => []),
@@ -588,7 +714,7 @@ export const AdminPage: React.FC = () => {
     }
   };
 
-  // Close Tag Dropdowns on outside click
+  // Close Tag and Org Dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (tagOrgDropdownRef.current && !tagOrgDropdownRef.current.contains(e.target as Node)) {
@@ -597,12 +723,15 @@ export const AdminPage: React.FC = () => {
       if (tagProductDropdownRef.current && !tagProductDropdownRef.current.contains(e.target as Node)) {
         setIsTagProductOpen(false);
       }
+      if (orgProductDropdownRef.current && !orgProductDropdownRef.current.contains(e.target as Node)) {
+        setIsOrgProductOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Focus search inputs when tag dropdown opens
+  // Focus search inputs when dropdown opens
   useEffect(() => {
     if (isTagOrgOpen) {
       setTagOrgSearch('');
@@ -616,6 +745,13 @@ export const AdminPage: React.FC = () => {
       setTimeout(() => tagProductSearchRef.current?.focus(), 50);
     }
   }, [isTagProductOpen]);
+
+  useEffect(() => {
+    if (isOrgProductOpen) {
+      setOrgProductSearch('');
+      setTimeout(() => orgProductSearchRef.current?.focus(), 50);
+    }
+  }, [isOrgProductOpen]);
 
   const sanitizeDomainChip = (str: string) =>
     str
@@ -692,6 +828,9 @@ export const AdminPage: React.FC = () => {
     setOrgContactName('');
     setOrgContactEmail('');
     setOrgContactPhone('');
+    setOrgProduct('');
+    setIsOrgProductOpen(false);
+    setOrgProductSearch('');
     setIsOrgModalOpen(true);
   };
 
@@ -711,6 +850,9 @@ export const AdminPage: React.FC = () => {
     setOrgContactName(org.contactName || '');
     setOrgContactEmail(org.contactEmail || '');
     setOrgContactPhone(org.contactPhone || '');
+    setOrgProduct(org.product || '');
+    setIsOrgProductOpen(false);
+    setOrgProductSearch('');
     setIsOrgModalOpen(true);
   };
 
@@ -747,6 +889,7 @@ export const AdminPage: React.FC = () => {
         contactName: orgContactName.trim() || null,
         contactEmail: orgContactEmail.trim() || null,
         contactPhone: orgContactPhone.trim() || null,
+        product: orgProduct.trim() || null,
       };
 
       if (editingOrg) {
@@ -764,6 +907,335 @@ export const AdminPage: React.FC = () => {
     } finally {
       setIsOrgSubmitting(false);
     }
+  };
+
+  const handleExportOrganizations = () => {
+    let orgsToExport: any[] = [];
+    if (selectedOrgIds.size > 0) {
+      orgsToExport = organizationsList.filter((org: any) => selectedOrgIds.has(org.id));
+    } else {
+      orgsToExport = filteredOrganizations.length > 0 ? filteredOrganizations : organizationsList;
+    }
+
+    if (orgsToExport.length === 0) {
+      toast.info('No organizations available to export');
+      return;
+    }
+
+    const headers = [
+      'Organization Name',
+      'Product',
+      'Sender Domains / Email Domains',
+      'Website',
+      'Contact Name',
+      'Contact Email',
+      'Contact Phone',
+      'Account Notes / Description',
+    ];
+
+    const rows = orgsToExport.map((org: any) => {
+      const escapeField = (val: string | null | undefined) => {
+        if (!val) return '';
+        const s = String(val).replace(/"/g, '""');
+        return `"${s}"`;
+      };
+
+      return [
+        escapeField(org.name),
+        escapeField(org.product),
+        escapeField(org.domains),
+        escapeField(org.website),
+        escapeField(org.contactName),
+        escapeField(org.contactEmail),
+        escapeField(org.contactPhone),
+        escapeField(org.description),
+      ].join(',');
+    });
+
+    const csvString = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['\uFEFF' + csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `organizations_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${orgsToExport.length} ${orgsToExport.length === 1 ? 'organization' : 'organizations'} to CSV`);
+  };
+
+  const handleDownloadSampleOrgCsv = () => {
+    const sampleCsv = `Organization Name,Product,Sender Domains / Email Domains,Website,Contact Name,Contact Email,Contact Phone,Account Notes / Description
+Apollo Hospitals (CB),ClaimBook,"apollohospitals.com, apollo.org",https://apollohospitals.com,Dr. Rajesh Sharma,contact@apollohospitals.com,+91 98765 43210,Enterprise SLA tier-1
+Orange Diagnostics,LIMS,orangehealth.in,https://orangehealth.in,Vynetta,vynetta@orangehealth.in,77986 86764,Central Diagnostics Lab
+City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,+91 99887 76655,Tertiary healthcare group`;
+
+    const blob = new Blob(['\uFEFF' + sampleCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `sample_organizations_template.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleOrgImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOrgImportFile(file);
+
+    try {
+      let text = await file.text();
+      // Strip UTF-8 BOM if present (e.g. from Excel)
+      text = text.replace(/^\uFEFF/, '');
+
+      // RFC-4180 compliant CSV parser that supports multiline fields and escaped quotes
+      const parseFullCsv = (csvText: string): string[][] => {
+        const rows: string[][] = [];
+        let currentRow: string[] = [];
+        let currentField = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < csvText.length; i++) {
+          const char = csvText[i];
+          const nextChar = csvText[i + 1];
+
+          if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+              currentField += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            currentRow.push(currentField);
+            currentField = '';
+          } else if ((char === '\r' || char === '\n') && !inQuotes) {
+            if (char === '\r' && nextChar === '\n') {
+              i++;
+            }
+            currentRow.push(currentField);
+            currentField = '';
+            if (currentRow.some((f) => f.trim().length > 0)) {
+              rows.push(currentRow);
+            }
+            currentRow = [];
+          } else {
+            currentField += char;
+          }
+        }
+        if (currentField || currentRow.length > 0) {
+          currentRow.push(currentField);
+          if (currentRow.some((f) => f.trim().length > 0)) {
+            rows.push(currentRow);
+          }
+        }
+        return rows;
+      };
+
+      const rows = parseFullCsv(text);
+      if (rows.length <= 1) {
+        toast.error('The selected CSV file appears to be empty or missing data rows');
+        setOrgImportPreview([]);
+        return;
+      }
+
+      const headerRow = rows[0].map((h) => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+      
+      // Robust column header detection
+      const nameIdx = headerRow.findIndex(
+        (h) =>
+          h === 'organization name' ||
+          h === 'company name' ||
+          h === 'org name' ||
+          h === 'organization' ||
+          h === 'company' ||
+          h === 'name' ||
+          (h.includes('organization') && !h.includes('contact')) ||
+          (h.includes('company') && !h.includes('contact')) ||
+          (h.includes('name') && !h.includes('contact')),
+      );
+
+      const productIdx = headerRow.findIndex(
+        (h) => h === 'product' || h === 'app' || h === 'module' || h.includes('product'),
+      );
+
+      const domainsIdx = headerRow.findIndex(
+        (h) =>
+          h.includes('domain') ||
+          h.includes('sender') ||
+          h.includes('email domain') ||
+          h === 'domains',
+      );
+
+      const websiteIdx = headerRow.findIndex(
+        (h) => h === 'website' || h === 'url' || h === 'portal' || h.includes('website') || h.includes('url'),
+      );
+
+      const contactNameIdx = headerRow.findIndex(
+        (h) =>
+          h === 'contact name' ||
+          h === 'contact person' ||
+          h === 'contact' ||
+          (h.includes('contact') && h.includes('name')) ||
+          (h.includes('contact') && !h.includes('email') && !h.includes('phone')),
+      );
+
+      const contactEmailIdx = headerRow.findIndex(
+        (h) =>
+          h === 'contact email' ||
+          h === 'email' ||
+          h === 'email address' ||
+          (h.includes('email') && !h.includes('domain')),
+      );
+
+      const contactPhoneIdx = headerRow.findIndex(
+        (h) =>
+          h === 'contact phone' ||
+          h === 'phone' ||
+          h === 'mobile' ||
+          h === 'tel' ||
+          h.includes('phone') ||
+          h.includes('mobile') ||
+          h.includes('tel'),
+      );
+
+      const descIdx = headerRow.findIndex(
+        (h) =>
+          h.includes('note') ||
+          h.includes('description') ||
+          h.includes('desc') ||
+          h.includes('account notes') ||
+          h.includes('sla'),
+      );
+
+      const normalizeProduct = (p: string | null | undefined): string | null => {
+        if (!p) return null;
+        const clean = p.trim();
+        const lower = clean.toLowerCase();
+        if (lower === 'claimbook' || lower === 'claim book' || lower === 'claim-book') return 'ClaimBook';
+        if (lower === 'lims') return 'LIMS';
+        if (lower === 'his') return 'HIS';
+        return clean.slice(0, 120);
+      };
+
+      const parsedItems = [];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const name = nameIdx !== -1 ? row[nameIdx]?.trim() : row[0]?.trim();
+        if (!name) continue;
+
+        parsedItems.push({
+          name: name.slice(0, 120),
+          product: productIdx !== -1 ? normalizeProduct(row[productIdx]) : null,
+          domains: domainsIdx !== -1 && row[domainsIdx]?.trim() ? row[domainsIdx].trim() : null,
+          website: websiteIdx !== -1 && row[websiteIdx]?.trim() ? row[websiteIdx].trim().slice(0, 255) : null,
+          contactName: contactNameIdx !== -1 && row[contactNameIdx]?.trim() ? row[contactNameIdx].trim().slice(0, 120) : null,
+          contactEmail: contactEmailIdx !== -1 && row[contactEmailIdx]?.trim() ? row[contactEmailIdx].trim().slice(0, 255) : null,
+          contactPhone: contactPhoneIdx !== -1 && row[contactPhoneIdx]?.trim() ? row[contactPhoneIdx].trim().slice(0, 50) : null,
+          description: descIdx !== -1 && row[descIdx]?.trim() ? row[descIdx].trim().slice(0, 2000) : null,
+        });
+      }
+
+      setOrgImportPreview(parsedItems);
+    } catch (err: any) {
+      toast.error('Failed to parse CSV file: ' + (err.message || 'Invalid format'));
+      setOrgImportPreview([]);
+    }
+  };
+
+  const handleExecuteOrgImport = async () => {
+    if (orgImportPreview.length === 0) {
+      toast.error('No valid organizations to import');
+      return;
+    }
+
+    setIsOrgImporting(true);
+    try {
+      const res: any = await ApiClient.post('/organizations/bulk-import', {
+        organizations: orgImportPreview,
+      });
+
+      toast.success(
+        `Import completed successfully: ${res?.created || 0} created, ${res?.updated || 0} updated/merged!`,
+      );
+      setIsOrgImportModalOpen(false);
+      setOrgImportFile(null);
+      setOrgImportPreview([]);
+
+      const updated = await ApiClient.get('/organizations');
+      setOrganizationsList(Array.isArray(updated) ? updated : []);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to import organizations');
+    } finally {
+      setIsOrgImporting(false);
+    }
+  };
+
+  const handleBulkDeleteOrganizations = async () => {
+    if (selectedOrgIds.size === 0) return;
+    const count = selectedOrgIds.size;
+    if (!window.confirm(`Are you sure you want to delete ${count} selected ${count === 1 ? 'organization' : 'organizations'}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsOrgBulkDeleting(true);
+    try {
+      await ApiClient.post('/organizations/bulk-delete', {
+        ids: Array.from(selectedOrgIds),
+      });
+
+      toast.success(`Successfully deleted ${count} ${count === 1 ? 'organization' : 'organizations'}`);
+      setOrganizationsList((prev) => prev.filter((o) => !selectedOrgIds.has(o.id)));
+      setSelectedOrgIds(new Set());
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to bulk delete organizations');
+    } finally {
+      setIsOrgBulkDeleting(false);
+    }
+  };
+
+  const isAllCurrentPageSelected =
+    paginatedOrganizations.length > 0 &&
+    paginatedOrganizations.every((o: any) => selectedOrgIds.has(o.id));
+
+  const isAllFilteredSelected =
+    filteredOrganizations.length > 0 &&
+    filteredOrganizations.length === selectedOrgIds.size &&
+    filteredOrganizations.every((o: any) => selectedOrgIds.has(o.id));
+
+  const toggleSelectAllOrgs = () => {
+    if (isAllCurrentPageSelected || isAllFilteredSelected) {
+      setSelectedOrgIds(new Set());
+    } else {
+      const newSet = new Set(selectedOrgIds);
+      for (const org of paginatedOrganizations) {
+        newSet.add(org.id);
+      }
+      setSelectedOrgIds(newSet);
+    }
+  };
+
+  const selectAllFilteredOrganizations = () => {
+    const newSet = new Set<string>();
+    for (const org of filteredOrganizations) {
+      newSet.add(org.id);
+    }
+    setSelectedOrgIds(newSet);
+  };
+
+  const toggleSelectOrg = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const newSet = new Set(selectedOrgIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedOrgIds(newSet);
   };
 
   const handleDeleteOrganization = async (id: string, name: string) => {
@@ -825,7 +1297,7 @@ export const AdminPage: React.FC = () => {
     setTagDomainList([]);
     setTagDomainInput('');
     setTagOrganization('');
-    setTagProduct('');
+    setTagProducts([]);
     setIsTagOrgOpen(false);
     setIsTagProductOpen(false);
     setTagOrgSearch('');
@@ -846,7 +1318,13 @@ export const AdminPage: React.FC = () => {
     setTagDomainList(existing);
     setTagDomainInput('');
     setTagOrganization(tag.organization || '');
-    setTagProduct(tag.product || '');
+    const existingProds = tag.product
+      ? tag.product
+          .split(/[\s,;]+/)
+          .map((p: string) => p.trim())
+          .filter(Boolean)
+      : [];
+    setTagProducts(existingProds);
     setIsTagOrgOpen(false);
     setIsTagProductOpen(false);
     setTagOrgSearch('');
@@ -889,6 +1367,7 @@ export const AdminPage: React.FC = () => {
       }
 
       const domainString = finalDomains.join(', ');
+      const productString = tagProducts.length > 0 ? tagProducts.join(', ') : null;
 
       if (editingTag) {
         await ApiClient.patch(`/tags/${editingTag.id}`, {
@@ -896,7 +1375,7 @@ export const AdminPage: React.FC = () => {
           color: tagColor || '#3b82f6',
           domains: domainString || null,
           organization: tagOrganization.trim() || null,
-          product: tagProduct.trim() || null,
+          product: productString,
         });
         toast.success('Tag updated successfully');
       } else {
@@ -905,7 +1384,7 @@ export const AdminPage: React.FC = () => {
           color: tagColor || '#3b82f6',
           domains: domainString || undefined,
           organization: tagOrganization.trim() || undefined,
-          product: tagProduct.trim() || undefined,
+          product: productString || undefined,
         });
         toast.success('Tag created successfully');
       }
@@ -2360,9 +2839,188 @@ export const AdminPage: React.FC = () => {
                       Manage enterprise client accounts, hospital groups, and associate email domains for automated ticket routing & SLA management.
                     </p>
                   </div>
-                  <button onClick={openCreateOrgModal} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Plus size={14} /> Create Organization
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {selectedOrgIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleBulkDeleteOrganizations}
+                        disabled={isOrgBulkDeleting}
+                        className="btn btn-danger"
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px' }}
+                      >
+                        <Trash2 size={14} />
+                        Delete Selected ({selectedOrgIds.size})
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleExportOrganizations}
+                      className="btn btn-secondary"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px' }}
+                      title={selectedOrgIds.size > 0 ? `Export ${selectedOrgIds.size} selected organizations to CSV` : 'Export all organizations to CSV'}
+                    >
+                      <Download size={14} /> {selectedOrgIds.size > 0 ? `Export Selected (${selectedOrgIds.size})` : 'Export CSV'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrgImportFile(null);
+                        setOrgImportPreview([]);
+                        setIsOrgImportModalOpen(true);
+                      }}
+                      className="btn btn-secondary"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px' }}
+                      title="Bulk import organizations from CSV"
+                    >
+                      <Upload size={14} /> Import CSV
+                    </button>
+                    <button onClick={openCreateOrgModal} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px' }}>
+                      <Plus size={14} /> Create Organization
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bulk Selection Notification Bar */}
+                {selectedOrgIds.size > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                      border: '1px solid rgba(37, 99, 235, 0.25)',
+                      borderRadius: 'var(--radius-md, 6px)',
+                      padding: '10px 16px',
+                      marginBottom: '14px',
+                      fontSize: '13px',
+                      flexWrap: 'wrap',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                      <CheckCircle size={16} style={{ color: 'var(--primary, #2563eb)' }} />
+                      {isAllFilteredSelected ? (
+                        <span>
+                          All <strong>{filteredOrganizations.length}</strong> organizations are selected.
+                        </span>
+                      ) : (
+                        <span>
+                          All <strong>{selectedOrgIds.size}</strong> organizations on this page are selected.{' '}
+                          {filteredOrganizations.length > selectedOrgIds.size && (
+                            <button
+                              type="button"
+                              onClick={selectAllFilteredOrganizations}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--primary, #2563eb)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                                padding: '0 4px',
+                                fontSize: '13px',
+                              }}
+                            >
+                              Select all {filteredOrganizations.length} organizations
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrgIds(new Set())}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--primary, #2563eb)',
+                          fontSize: '12.5px',
+                          cursor: 'pointer',
+                          fontWeight: 500,
+                        }}
+                      >
+                        Clear Selection
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Product Quick Filter Tabs */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    flexWrap: 'wrap',
+                    marginBottom: '14px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: 'var(--text-secondary)',
+                      marginRight: '2px',
+                    }}
+                  >
+                    <Filter size={13} style={{ color: 'var(--primary, #2563eb)' }} />
+                    <span>Filter by Product:</span>
+                  </div>
+
+                  {dynamicOrgProductTabs.map((tab) => {
+                    const isSelected = selectedOrgProductFilter === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrgProductFilter(tab.id);
+                          setOrgPage(1);
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          height: '28px',
+                          boxSizing: 'border-box',
+                          padding: '0 10px',
+                          borderRadius: '20px',
+                          fontSize: '12px',
+                          fontWeight: isSelected ? 600 : 500,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          border: isSelected
+                            ? `1px solid ${tab.color}`
+                            : '1px solid var(--border-subtle, rgba(255, 255, 255, 0.12))',
+                          boxShadow: isSelected ? `0 0 0 1px ${tab.color}` : 'none',
+                          backgroundColor: isSelected
+                            ? 'rgba(37, 99, 235, 0.12)'
+                            : 'var(--bg-subtle, transparent)',
+                          color: isSelected ? tab.color : 'var(--text-secondary)',
+                        }}
+                      >
+                        {tab.icon && <span style={{ fontSize: '12px' }}>{tab.icon}</span>}
+                        <span>{tab.label}</span>
+                        <span
+                          style={{
+                            padding: '1px 6px',
+                            borderRadius: '10px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            lineHeight: '1.2',
+                            backgroundColor: isSelected ? 'rgba(0, 0, 0, 0.15)' : 'var(--bg-card, rgba(0, 0, 0, 0.06))',
+                            color: isSelected ? tab.color : 'var(--text-muted)',
+                          }}
+                        >
+                          {tab.count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Search, Filter & View Mode Controls Bar */}
@@ -2435,8 +3093,36 @@ export const AdminPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Right: Results Count & View Mode Switcher */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {/* Right: Select All, Results Count & View Mode Switcher */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    {/* Quick Select Checkbox exclusively for Grid View */}
+                    {orgViewMode === 'grid' && paginatedOrganizations.length > 0 && (
+                      <label
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontSize: '12.5px',
+                          fontWeight: 500,
+                          color: 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          userSelect: 'none',
+                          padding: '2px 4px',
+                          background: 'transparent',
+                          border: 'none',
+                        }}
+                        title="Select or deselect all on current page"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isAllCurrentPageSelected || isAllFilteredSelected}
+                          onChange={toggleSelectAllOrgs}
+                          style={{ cursor: 'pointer', accentColor: 'var(--primary, #2563eb)' }}
+                        />
+                        <span>Select All</span>
+                      </label>
+                    )}
+
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>
                       {filteredOrganizations.length} {filteredOrganizations.length === 1 ? 'organization' : 'organizations'}
                     </span>
@@ -2553,6 +3239,15 @@ export const AdminPage: React.FC = () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                          <th style={{ padding: '10px 14px', width: '40px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={isAllCurrentPageSelected || isAllFilteredSelected}
+                              onChange={toggleSelectAllOrgs}
+                              style={{ cursor: 'pointer', accentColor: 'var(--primary, #2563eb)' }}
+                              title="Select / Deselect all"
+                            />
+                          </th>
                           <th style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
                             ORGANIZATION & DETAILS
                           </th>
@@ -2577,9 +3272,25 @@ export const AdminPage: React.FC = () => {
                             : [];
                           const isExpanded = expandedOrgDomainIds.has(org.id);
                           const displayedDomains = isExpanded ? domains : domains.slice(0, 5);
+                          const isSelected = selectedOrgIds.has(org.id);
 
                           return (
-                            <tr key={org.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <tr
+                              key={org.id}
+                              style={{
+                                borderBottom: '1px solid var(--border-subtle)',
+                                backgroundColor: isSelected ? 'rgba(37, 99, 235, 0.05)' : 'transparent',
+                                transition: 'background-color 0.1s ease',
+                              }}
+                            >
+                              <td style={{ padding: '12px 14px', verticalAlign: 'top', textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => toggleSelectOrg(org.id, e as any)}
+                                  style={{ cursor: 'pointer', accentColor: 'var(--primary, #2563eb)' }}
+                                />
+                              </td>
                               <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                                   {/* Modern Organization Avatar Badge */}
@@ -2602,7 +3313,7 @@ export const AdminPage: React.FC = () => {
                                   </div>
 
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, flex: 1 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                       <span
                                         style={{
                                           fontSize: '13.5px',
@@ -2613,6 +3324,28 @@ export const AdminPage: React.FC = () => {
                                       >
                                         {org.name}
                                       </span>
+                                      {org.product && (() => {
+                                        const style = getProductBadgeStyle(org.product);
+                                        return (
+                                          <span
+                                            style={{
+                                              fontSize: '11px',
+                                              fontWeight: 600,
+                                              backgroundColor: style?.bg || 'rgba(168, 85, 247, 0.12)',
+                                              color: style?.color || '#9333ea',
+                                              border: `1px solid ${style?.border || 'rgba(168, 85, 247, 0.3)'}`,
+                                              borderRadius: '3px',
+                                              padding: '1.5px 6px',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '3px',
+                                            }}
+                                            title={`Associated Product: ${org.product}`}
+                                          >
+                                            {style?.icon || '📦'} {org.product}
+                                          </span>
+                                        );
+                                      })()}
                                     </div>
                                     {org.description && (
                                       <ActionNoteViewer
@@ -2810,19 +3543,20 @@ export const AdminPage: React.FC = () => {
                         : [];
                       const isExpanded = expandedOrgDomainIds.has(org.id);
                       const displayedDomains = isExpanded ? domains : domains.slice(0, 4);
+                      const isSelected = selectedOrgIds.has(org.id);
 
                       return (
                         <div
                           key={org.id}
                           style={{
-                            backgroundColor: 'var(--bg-surface, #ffffff)',
+                            backgroundColor: isSelected ? 'rgba(37, 99, 235, 0.03)' : 'var(--bg-surface, #ffffff)',
                             borderRadius: 'var(--radius-md, 8px)',
-                            border: '1px solid var(--border-subtle, #e2e8f0)',
+                            border: isSelected ? '1px solid rgba(37, 99, 235, 0.4)' : '1px solid var(--border-subtle, #e2e8f0)',
                             display: 'flex',
                             flexDirection: 'column',
                             justifyContent: 'space-between',
                             padding: '16px',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                            boxShadow: isSelected ? '0 0 0 1px rgba(37, 99, 235, 0.2)' : '0 1px 3px rgba(0,0,0,0.04)',
                             transition: 'all 0.2s ease',
                             position: 'relative',
                           }}
@@ -2839,7 +3573,13 @@ export const AdminPage: React.FC = () => {
                                 marginBottom: '12px',
                               }}
                             >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => toggleSelectOrg(org.id, e as any)}
+                                  style={{ cursor: 'pointer', accentColor: 'var(--primary, #2563eb)', marginRight: '2px' }}
+                                />
                                 <div
                                   style={{
                                     width: '36px',
@@ -2857,20 +3597,44 @@ export const AdminPage: React.FC = () => {
                                   <Building2 size={18} />
                                 </div>
                                 <div style={{ minWidth: 0, flex: 1 }}>
-                                  <h4
-                                    style={{
-                                      fontSize: '14px',
-                                      fontWeight: 700,
-                                      margin: 0,
-                                      color: 'var(--text-primary)',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                    }}
-                                    title={org.name}
-                                  >
-                                    {org.name}
-                                  </h4>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <h4
+                                      style={{
+                                        fontSize: '14px',
+                                        fontWeight: 700,
+                                        margin: 0,
+                                        color: 'var(--text-primary)',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                      title={org.name}
+                                    >
+                                      {org.name}
+                                    </h4>
+                                    {org.product && (() => {
+                                      const style = getProductBadgeStyle(org.product);
+                                      return (
+                                        <span
+                                          style={{
+                                            fontSize: '10.5px',
+                                            fontWeight: 600,
+                                            backgroundColor: style?.bg || 'rgba(168, 85, 247, 0.12)',
+                                            color: style?.color || '#9333ea',
+                                            border: `1px solid ${style?.border || 'rgba(168, 85, 247, 0.3)'}`,
+                                            borderRadius: '3px',
+                                            padding: '1px 5px',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '3px',
+                                          }}
+                                          title={`Associated Product: ${org.product}`}
+                                        >
+                                          {style?.icon || '📦'} {org.product}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
                                   {org.website && (
                                     <div style={{ marginTop: '2px' }}>
                                       <a
@@ -7503,6 +8267,320 @@ export const AdminPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Associated Product */}
+          <div ref={orgProductDropdownRef} style={{ position: 'relative' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '6px',
+              }}
+            >
+              <label
+                className="form-label"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  margin: 0,
+                }}
+              >
+                <Box size={14} style={{ color: '#a855f7' }} />
+                Product / Application{' '}
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOrgProductOpen(!isOrgProductOpen);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--primary, #6366f1)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                }}
+              >
+                {orgProduct ? 'Change' : 'Select'}
+                <ChevronDown size={12} />
+              </button>
+            </div>
+
+            <div
+              onClick={() => {
+                setIsOrgProductOpen(!isOrgProductOpen);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-md, 6px)',
+                cursor: 'pointer',
+                backgroundColor: orgProduct
+                  ? 'rgba(168, 85, 247, 0.08)'
+                  : 'var(--bg-surface)',
+                border: orgProduct
+                  ? '1px solid rgba(168, 85, 247, 0.35)'
+                  : '1px dashed var(--border-medium)',
+                minHeight: '38px',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                <Box
+                  size={15}
+                  style={{
+                    color: orgProduct ? '#a855f7' : 'var(--text-muted, #94a3b8)',
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: orgProduct ? 600 : 400,
+                    color: orgProduct
+                      ? 'var(--text-primary, #f8fafc)'
+                      : 'var(--text-muted, #94a3b8)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {orgProduct || 'No Product selected'}
+                </span>
+              </div>
+
+              {orgProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOrgProduct('');
+                  }}
+                  title="Clear Product"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted, #94a3b8)',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted, #94a3b8)')}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Product Dropdown Popup Menu */}
+            {isOrgProductOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: 0,
+                  right: 0,
+                  marginBottom: '6px',
+                  backgroundColor: 'var(--bg-surface, #1e293b)',
+                  border: '1px solid var(--border-medium, rgba(255, 255, 255, 0.15))',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  boxShadow: '0 -10px 25px -5px rgba(0, 0, 0, 0.5), 0 -8px 10px -6px rgba(0, 0, 0, 0.4)',
+                  zIndex: 100,
+                  padding: '8px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    backgroundColor: 'var(--bg-input, rgba(0, 0, 0, 0.25))',
+                    border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.08))',
+                    marginBottom: '8px',
+                  }}
+                >
+                  <Search size={13} style={{ color: 'var(--text-muted, #94a3b8)', flexShrink: 0 }} />
+                  <input
+                    ref={orgProductSearchRef}
+                    type="text"
+                    value={orgProductSearch}
+                    onChange={(e) => setOrgProductSearch(e.target.value)}
+                    placeholder="Search products..."
+                    style={{
+                      width: '100%',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-primary, #f8fafc)',
+                      fontSize: '12px',
+                      outline: 'none',
+                    }}
+                  />
+                  {orgProductSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setOrgProductSearch('')}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {orgProduct && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrgProduct('');
+                        setIsOrgProductOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '6px 8px',
+                        borderRadius: '4px',
+                        background: 'none',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginBottom: '4px',
+                      }}
+                    >
+                      <X size={12} /> Clear selection (No Product)
+                    </button>
+                  )}
+                  {availableProducts.filter((p: any) => {
+                    const name = typeof p === 'string' ? p : p?.name || '';
+                    return name.toLowerCase().includes(orgProductSearch.toLowerCase());
+                  }).length === 0 ? (
+                    <div>
+                      <div
+                        style={{
+                          padding: '10px 8px',
+                          textAlign: 'center',
+                          fontSize: '12px',
+                          color: 'var(--text-muted, #94a3b8)',
+                        }}
+                      >
+                        {availableProducts.length === 0
+                          ? 'No products configured yet.'
+                          : 'No matching products'}
+                      </div>
+                      {orgProductSearch.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOrgProduct(orgProductSearch.trim());
+                            setIsOrgProductOpen(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '6px 8px',
+                            borderRadius: '4px',
+                            background: 'none',
+                            border: '1px dashed var(--border-subtle, rgba(255,255,255,0.15))',
+                            color: 'var(--primary, #6366f1)',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <Plus size={12} /> Use "{orgProductSearch.trim()}"
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    availableProducts
+                      .filter((p: any) => {
+                        const name = typeof p === 'string' ? p : p?.name || '';
+                        return name.toLowerCase().includes(orgProductSearch.toLowerCase());
+                      })
+                      .map((p: any) => {
+                        const prodName = typeof p === 'string' ? p : p.name;
+                        const prodKey = typeof p === 'string' ? p : p.id || prodName;
+                        const isSelected = prodName === orgProduct;
+                        return (
+                          <button
+                            key={prodKey}
+                            type="button"
+                            onClick={() => {
+                              setOrgProduct(prodName);
+                              setIsOrgProductOpen(false);
+                            }}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              backgroundColor: isSelected
+                                ? 'rgba(168, 85, 247, 0.15)'
+                                : 'transparent',
+                              border: 'none',
+                              color: isSelected ? '#c084fc' : 'var(--text-primary, #f8fafc)',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              transition: 'background-color 0.1s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-input, rgba(255, 255, 255, 0.05))';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <span style={{ fontWeight: isSelected ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {prodName}
+                            </span>
+                            {isSelected && <Check size={14} style={{ color: '#c084fc', flexShrink: 0 }} />}
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+            )}
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+              Associate this client organization with a specific product or application suite.
+            </p>
+          </div>
+
           <div>
             <label className="form-label" style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px' }}>
               Account Notes / SLA Details <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
@@ -7529,6 +8607,278 @@ export const AdminPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Bulk Import Organizations Modal */}
+      <Modal
+        isOpen={isOrgImportModalOpen}
+        onClose={() => {
+          if (!isOrgImporting) {
+            setIsOrgImportModalOpen(false);
+            setOrgImportFile(null);
+            setOrgImportPreview([]);
+          }
+        }}
+        title="Bulk Import Client Organizations from CSV"
+        maxWidth="820px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-md, 6px)',
+              backgroundColor: 'rgba(37, 99, 235, 0.06)',
+              border: '1px solid rgba(37, 99, 235, 0.18)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: '12px',
+            }}
+          >
+            <div style={{ fontSize: '12.5px', lineHeight: '1.5', color: 'var(--text-secondary)' }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '2px' }}>
+                CSV Format Instructions:
+              </div>
+              Your CSV should include columns: <code style={{ color: 'var(--primary)', fontWeight: 600 }}>Organization Name</code>, <code style={{ color: 'var(--primary)' }}>Product</code>, <code style={{ color: 'var(--primary)' }}>Sender Domains</code>, <code style={{ color: 'var(--primary)' }}>Website</code>, <code style={{ color: 'var(--primary)' }}>Contact Name</code>, <code style={{ color: 'var(--primary)' }}>Contact Email</code>, <code style={{ color: 'var(--primary)' }}>Contact Phone</code>.
+              Existing organizations will have new domains merged safely without overwriting data.
+            </div>
+            <button
+              type="button"
+              onClick={handleDownloadSampleOrgCsv}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', flexShrink: 0, fontSize: '11.5px' }}
+            >
+              <Download size={13} /> Sample CSV
+            </button>
+          </div>
+
+          {/* File Upload Box */}
+          <div
+            style={{
+              border: '2px dashed var(--border-medium, rgba(255, 255, 255, 0.15))',
+              borderRadius: 'var(--radius-md, 8px)',
+              padding: '24px',
+              textAlign: 'center',
+              backgroundColor: 'var(--bg-subtle, rgba(0, 0, 0, 0.02))',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+            onClick={() => document.getElementById('org-csv-file-input')?.click()}
+          >
+            <input
+              id="org-csv-file-input"
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={handleOrgImportFileChange}
+            />
+            <FileSpreadsheet size={34} style={{ color: 'var(--primary, #2563eb)', marginBottom: '8px', opacity: 0.85 }} />
+            <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+              {orgImportFile ? orgImportFile.name : 'Click to select CSV file or drag and drop'}
+            </div>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+              {orgImportFile ? `${(orgImportFile.size / 1024).toFixed(1)} KB • CSV Document` : 'Supports UTF-8 CSV exports and spreadsheet files'}
+            </div>
+          </div>
+
+          {/* Live Preview Table */}
+          {orgImportPreview.length > 0 && (() => {
+            const previewProductCounts: Record<string, number> = {};
+            for (const item of orgImportPreview) {
+              const p = item.product?.trim() || 'Unassigned';
+              previewProductCounts[p] = (previewProductCounts[p] || 0) + 1;
+            }
+
+            const filteredPreview = orgImportPreview.filter((item: any) => {
+              if (!orgImportSearchText.trim()) return true;
+              const q = orgImportSearchText.trim().toLowerCase();
+              return (
+                item.name?.toLowerCase().includes(q) ||
+                item.product?.toLowerCase().includes(q) ||
+                item.domains?.toLowerCase().includes(q) ||
+                item.contactName?.toLowerCase().includes(q) ||
+                item.contactEmail?.toLowerCase().includes(q)
+              );
+            });
+
+            return (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                      Preview: {orgImportPreview.length} Ready
+                    </span>
+                    {(() => {
+                      const sortedEntries = Object.entries(previewProductCounts).sort((a, b) => b[1] - a[1]);
+                      const visibleEntries = sortedEntries.slice(0, 3);
+                      const overflowEntries = sortedEntries.slice(3);
+                      const overflowTotal = overflowEntries.reduce((sum, [, c]) => sum + c, 0);
+
+                      return (
+                        <>
+                          {visibleEntries.map(([pName, pCount]) => {
+                            const badge = getProductBadgeStyle(pName === 'Unassigned' ? null : pName);
+                            return (
+                              <span
+                                key={pName}
+                                style={{
+                                  fontSize: '11px',
+                                  padding: '1px 7px',
+                                  borderRadius: '10px',
+                                  backgroundColor: badge ? badge.bg : 'rgba(100, 116, 139, 0.12)',
+                                  color: badge ? badge.color : 'var(--text-muted)',
+                                  fontWeight: 600,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {badge ? badge.icon : '⚪'} {pName}: {pCount}
+                              </span>
+                            );
+                          })}
+                          {overflowEntries.length > 0 && (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                padding: '1px 7px',
+                                borderRadius: '10px',
+                                backgroundColor: 'var(--bg-subtle, rgba(0, 0, 0, 0.05))',
+                                color: 'var(--text-secondary, #64748b)',
+                                border: '1px solid var(--border-subtle, rgba(255, 255, 255, 0.1))',
+                                fontWeight: 600,
+                                cursor: 'help',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={overflowEntries.map(([name, count]) => `${name}: ${count}`).join(' • ')}
+                            >
+                              +{overflowEntries.length} more ({overflowTotal})
+                            </span>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Search inside preview */}
+                  <div style={{ position: 'relative', width: '190px', flexShrink: 0 }}>
+                    <Search size={12} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      placeholder="Search preview..."
+                      value={orgImportSearchText}
+                      onChange={(e) => setOrgImportSearchText(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '4px 8px 4px 26px',
+                        fontSize: '11.5px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border-subtle)',
+                        backgroundColor: 'var(--bg-subtle)',
+                        color: 'var(--text-primary)',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '6px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                      <tr style={{ backgroundColor: 'var(--bg-card, #ffffff)', borderBottom: '1.5px solid var(--border-medium, #cbd5e1)', textAlign: 'left' }}>
+                        <th style={{ padding: '5px 8px', width: '30px', textAlign: 'center', color: 'var(--text-muted)', backgroundColor: 'var(--bg-card, #ffffff)' }}>#</th>
+                        <th style={{ padding: '5px 8px', fontWeight: 600, color: 'var(--text-primary)', backgroundColor: 'var(--bg-card, #ffffff)' }}>NAME</th>
+                        <th style={{ padding: '5px 8px', fontWeight: 600, color: 'var(--text-primary)', backgroundColor: 'var(--bg-card, #ffffff)', whiteSpace: 'nowrap', width: '120px' }}>PRODUCT</th>
+                        <th style={{ padding: '5px 8px', fontWeight: 600, color: 'var(--text-primary)', backgroundColor: 'var(--bg-card, #ffffff)' }}>DOMAINS</th>
+                        <th style={{ padding: '5px 8px', fontWeight: 600, color: 'var(--text-primary)', backgroundColor: 'var(--bg-card, #ffffff)' }}>CONTACT</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPreview.map((row, idx) => {
+                        const style = getProductBadgeStyle(row.product);
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <td style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '10px' }}>{idx + 1}</td>
+                            <td style={{ padding: '4px 8px', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.name}</td>
+                            <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>
+                              {row.product ? (
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    backgroundColor: style?.bg || 'rgba(168, 85, 247, 0.12)',
+                                    color: style?.color || '#9333ea',
+                                    border: `1px solid ${style?.border || 'rgba(168, 85, 247, 0.3)'}`,
+                                    borderRadius: '3px',
+                                    padding: '1.5px 6px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    whiteSpace: 'nowrap',
+                                    lineHeight: '1.2',
+                                  }}
+                                >
+                                  <span>{style?.icon || '📦'}</span>
+                                  <span>{row.product}</span>
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)' }}>—</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '4px 8px', color: 'var(--text-secondary)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {row.domains || '—'}
+                            </td>
+                            <td style={{ padding: '4px 8px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                              {row.contactEmail || row.contactName || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Modal Actions */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsOrgImportModalOpen(false);
+                setOrgImportFile(null);
+                setOrgImportPreview([]);
+              }}
+              disabled={isOrgImporting}
+              className="btn btn-secondary btn-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleExecuteOrgImport}
+              disabled={isOrgImporting || orgImportPreview.length === 0}
+              className="btn btn-primary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              {isOrgImporting ? (
+                <>
+                  <RotateCw size={13} className="animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                <>
+                  <Upload size={13} />
+                  Import {orgImportPreview.length} Organizations
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Create / Edit Tag Modal */}
@@ -8048,7 +9398,7 @@ export const AdminPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Associated Product */}
+          {/* Associated Products Multi-Select */}
           <div ref={tagProductDropdownRef} style={{ position: 'relative' }}>
             <div
               style={{
@@ -8094,7 +9444,7 @@ export const AdminPage: React.FC = () => {
                   borderRadius: '4px',
                 }}
               >
-                {tagProduct ? 'Change' : 'Select'}
+                {tagProducts.length > 0 ? `Manage (${tagProducts.length})` : 'Select'}
                 <ChevronDown size={12} />
               </button>
             </div>
@@ -8108,51 +9458,74 @@ export const AdminPage: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '8px 12px',
+                padding: '6px 10px',
                 borderRadius: 'var(--radius-md, 6px)',
                 cursor: 'pointer',
-                backgroundColor: tagProduct
+                backgroundColor: tagProducts.length > 0
                   ? 'rgba(168, 85, 247, 0.08)'
                   : 'var(--bg-surface)',
-                border: tagProduct
+                border: tagProducts.length > 0
                   ? '1px solid rgba(168, 85, 247, 0.35)'
                   : '1px dashed var(--border-medium)',
                 minHeight: '38px',
+                gap: '8px',
+                flexWrap: 'wrap',
                 transition: 'all 0.15s ease',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
                 <Box
                   size={15}
                   style={{
-                    color: tagProduct ? '#a855f7' : 'var(--text-muted, #94a3b8)',
+                    color: tagProducts.length > 0 ? '#a855f7' : 'var(--text-muted, #94a3b8)',
                     flexShrink: 0,
                   }}
                 />
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: tagProduct ? 600 : 400,
-                    color: tagProduct
-                      ? 'var(--text-primary, #f8fafc)'
-                      : 'var(--text-muted, #94a3b8)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {tagProduct || 'No Product selected'}
-                </span>
+                {tagProducts.length === 0 ? (
+                  <span style={{ fontSize: '13px', color: 'var(--text-muted, #94a3b8)' }}>
+                    All Products
+                  </span>
+                ) : (
+                  tagProducts.map((p) => (
+                    <span
+                      key={p}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                        border: '1px solid rgba(168, 85, 247, 0.35)',
+                        color: '#c084fc',
+                        padding: '2px 7px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <span>{p}</span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTagProducts(tagProducts.filter((tp) => tp !== p));
+                        }}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', opacity: 0.8 }}
+                        title={`Remove ${p}`}
+                      >
+                        <X size={12} />
+                      </span>
+                    </span>
+                  ))
+                )}
               </div>
 
-              {tagProduct && (
+              {tagProducts.length > 0 && (
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setTagProduct('');
+                    setTagProducts([]);
                   }}
-                  title="Clear Product"
+                  title="Clear All Products (Make Common)"
                   style={{
                     background: 'none',
                     border: 'none',
@@ -8172,7 +9545,7 @@ export const AdminPage: React.FC = () => {
               )}
             </div>
 
-            {/* Product Dropdown Popup Menu (Opens upwards as a Dropup so it never overflows the modal bottom) */}
+            {/* Product Dropdown Popup Menu */}
             {isTagProductOpen && (
               <div
                 style={{
@@ -8207,7 +9580,7 @@ export const AdminPage: React.FC = () => {
                     type="text"
                     value={tagProductSearch}
                     onChange={(e) => setTagProductSearch(e.target.value)}
-                    placeholder="Search products..."
+                    placeholder="Search products (Click to multi-select)..."
                     style={{
                       width: '100%',
                       background: 'none',
@@ -8236,12 +9609,11 @@ export const AdminPage: React.FC = () => {
                 </div>
 
                 <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {tagProduct && (
+                  {tagProducts.length > 0 && (
                     <button
                       type="button"
                       onClick={() => {
-                        setTagProduct('');
-                        setIsTagProductOpen(false);
+                        setTagProducts([]);
                       }}
                       style={{
                         width: '100%',
@@ -8283,8 +9655,11 @@ export const AdminPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            setTagProduct(tagProductSearch.trim());
-                            setIsTagProductOpen(false);
+                            const trimmed = tagProductSearch.trim();
+                            if (!tagProducts.includes(trimmed)) {
+                              setTagProducts([...tagProducts, trimmed]);
+                            }
+                            setTagProductSearch('');
                           }}
                           style={{
                             width: '100%',
@@ -8301,7 +9676,7 @@ export const AdminPage: React.FC = () => {
                             gap: '6px',
                           }}
                         >
-                          <Plus size={12} /> Use "{tagProductSearch.trim()}"
+                          <Plus size={12} /> Add "{tagProductSearch.trim()}"
                         </button>
                       )}
                     </div>
@@ -8314,14 +9689,17 @@ export const AdminPage: React.FC = () => {
                       .map((p: any) => {
                         const prodName = typeof p === 'string' ? p : p.name;
                         const prodKey = typeof p === 'string' ? p : p.id || prodName;
-                        const isSelected = prodName === tagProduct;
+                        const isSelected = tagProducts.includes(prodName);
                         return (
                           <button
                             key={prodKey}
                             type="button"
                             onClick={() => {
-                              setTagProduct(prodName);
-                              setIsTagProductOpen(false);
+                              if (isSelected) {
+                                setTagProducts(tagProducts.filter((tp) => tp !== prodName));
+                              } else {
+                                setTagProducts([...tagProducts, prodName]);
+                              }
                             }}
                             style={{
                               width: '100%',
@@ -8360,7 +9738,7 @@ export const AdminPage: React.FC = () => {
               </div>
             )}
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
-              When an email/ticket arrives from the sender domains above, it will automatically have this Product assigned.
+              Select 1 or more specific products, or leave unselected to make this tag common across all products.
             </p>
           </div>
 

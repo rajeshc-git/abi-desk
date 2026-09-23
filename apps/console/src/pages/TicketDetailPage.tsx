@@ -478,7 +478,10 @@ export const TicketDetailPage: React.FC = () => {
         </h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
           <div>
-            <strong>Assignee:</strong> {ticket.assignee?.fullName || 'Unassigned'}
+            <strong>Assignee:</strong> {ticket.assignee?.fullName || ticket.assignee?.name || 'Unassigned'}
+          </div>
+          <div>
+            <strong>Team:</strong> {ticket.team?.name || (typeof ticket.team === 'string' ? ticket.team : undefined) || 'Unassigned'}
           </div>
           <div>
             <strong>Queue:</strong> {ticket.queue?.name || 'General Queue'}

@@ -492,6 +492,8 @@ model Organization {
   contactName  String?  @db.VarChar(120)
   contactEmail String?  @db.VarChar(255)
   contactPhone String?  @db.VarChar(50)
+  /// Associated default product / module for this organization
+  product      String?  @db.VarChar(120)
 
   createdAt    DateTime @default(now()) @db.Timestamptz(6)
   updatedAt    DateTime @updatedAt @db.Timestamptz(6)
