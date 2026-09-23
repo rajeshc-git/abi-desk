@@ -102,8 +102,7 @@ services:
       # database as the low-privilege runtime role (see `pnpm db:check`).
       - ./packages/db/prisma/checks:/checks:ro
     healthcheck:
-      test:
-        ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB:-abidesk}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB:-abidesk}" ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -129,7 +128,7 @@ services:
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -141,7 +140,7 @@ services:
   # media never occupies an API worker.
   # -------------------------------------------------------------------------
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     restart: unless-stopped
     command: server /data --console-address ':9001'
     environment:
@@ -153,7 +152,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: [ "CMD", "mc", "ready", "local" ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -161,7 +160,7 @@ services:
 
   # One-shot: create the media bucket and lock down anonymous access.
   minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
     depends_on:
       minio:
         condition: service_healthy
@@ -169,7 +168,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-abidesk}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       S3_BUCKET: ${S3_BUCKET:-abi-desk-media}
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: [ "/bin/sh", "-c" ]
     command:
       - |
         set -e
