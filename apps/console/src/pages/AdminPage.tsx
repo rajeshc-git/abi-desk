@@ -2086,8 +2086,12 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       ? window.location.hostname
       : typeof __CONSOLE_HOST__ !== 'undefined'
         ? __CONSOLE_HOST__
-        : 'localhost';
-  const apiHostUrl = `http://${currentHost}:4000`;
+  const apiHostUrl =
+    typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1'
+      ? window.location.origin
+      : `http://${currentHost}:4000`;
   const widgetEmbedSnippet = `<!-- ABI Desk Customer Support Widget -->
 <script
   src="${apiHostUrl}/api/v1/auth/widget.js"
