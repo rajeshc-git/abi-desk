@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     define: {
       __CONSOLE_HOST__: JSON.stringify(consoleHost),
+      __API_PORT__: JSON.stringify(env.API_PORT || env.PORT || '4000'),
     },
     server: {
       port: 9999,

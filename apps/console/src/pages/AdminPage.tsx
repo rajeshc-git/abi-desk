@@ -59,6 +59,7 @@ import { useSearch } from '../context/SearchContext';
 import { THEME_PRESETS, applyPrimaryTheme } from '../styles/theme-utils';
 
 declare const __CONSOLE_HOST__: string;
+declare const __API_PORT__: string;
 
 export const AdminPage: React.FC = () => {
   const { activeBrandId, brands, reloadBrands } = useAuth();
@@ -2087,12 +2088,13 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       : typeof __CONSOLE_HOST__ !== 'undefined'
         ? __CONSOLE_HOST__
         : 'localhost';
+  const configuredApiPort = typeof __API_PORT__ !== 'undefined' ? __API_PORT__ : '4000';
   const apiHostUrl =
     typeof window !== 'undefined' &&
     window.location.hostname !== 'localhost' &&
     window.location.hostname !== '127.0.0.1'
       ? window.location.origin
-      : `http://${currentHost}:4000`;
+      : `http://${currentHost}:${configuredApiPort}`;
   const widgetEmbedSnippet = `<!-- ABI Desk Customer Support Widget -->
 <script
   src="${apiHostUrl}/api/v1/auth/widget.js"
