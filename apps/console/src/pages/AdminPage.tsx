@@ -2086,6 +2086,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       ? window.location.hostname
       : typeof __CONSOLE_HOST__ !== 'undefined'
         ? __CONSOLE_HOST__
+        : 'localhost';
   const apiHostUrl =
     typeof window !== 'undefined' &&
     window.location.hostname !== 'localhost' &&
