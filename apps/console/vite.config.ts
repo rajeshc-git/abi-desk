@@ -24,11 +24,11 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:4000',
+          target: `http://localhost:${env.API_PORT || env.PORT || 4000}`,
           changeOrigin: true,
         },
         '/socket.io': {
-          target: 'http://localhost:4000',
+          target: `http://localhost:${env.API_PORT || env.PORT || 4000}`,
           ws: true,
           changeOrigin: true,
         },
