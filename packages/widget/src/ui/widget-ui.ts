@@ -63,11 +63,6 @@ export class WidgetUI {
     priority: 'NORMAL',
   };
 
-  // Organization & Product Dropdown Popover States
-  private isOrgDropdownOpen = false;
-  private isProductDropdownOpen = false;
-  private orgSearchQuery = '';
-  private productSearchQuery = '';
 
   // Widget OTP Verification properties
   private otpSentEmail: string | null = null;
@@ -323,16 +318,6 @@ export class WidgetUI {
     const selectedOrg = this.ticketDraft.organization || this.config.defaultOrganization || '';
     const selectedProd = this.ticketDraft.product || this.config.defaultProduct || '';
 
-    const orgList = this.config.organizations || [];
-    const prodList = this.config.products || [];
-
-    const filteredOrgs = orgList.filter((o) =>
-      o.toLowerCase().includes(this.orgSearchQuery.toLowerCase()),
-    );
-    const filteredProducts = prodList.filter((p) =>
-      p.toLowerCase().includes(this.productSearchQuery.toLowerCase()),
-    );
-
     return `
       <form id="abi-ticket-form">
         ${
@@ -354,166 +339,9 @@ export class WidgetUI {
           <input type="text" class="abi-input" id="abi-ticket-subject" placeholder="What can we help you with?" value="${this.escapeHtml(this.ticketDraft.subject)}" required />
         </div>
 
-        <!-- Organization & Product Grouped Card (Console Design) -->
-        <div class="abi-org-prod-card">
-          <!-- 1. Organization / Account -->
-          <div style="position: relative;" id="abi-org-dropdown-container">
-            <div class="abi-section-header">
-              <span class="abi-section-title org">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
-                  <path d="M9 22v-4h6v4"></path>
-                  <path d="M8 6h.01"></path>
-                  <path d="M16 6h.01"></path>
-                  <path d="M8 10h.01"></path>
-                  <path d="M16 10h.01"></path>
-                  <path d="M8 14h.01"></path>
-                  <path d="M16 14h.01"></path>
-                </svg>
-                Organization / Account
-              </span>
-              ${
-                selectedOrg
-                  ? `
-              <button type="button" id="abi-org-toggle-btn" class="abi-section-action-btn">
-                Change
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-              </button>
-              `
-                  : ''
-              }
-            </div>
-
-            <div id="abi-org-trigger" class="abi-custom-select-trigger ${selectedOrg ? 'selected-org' : 'empty'}">
-              <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${selectedOrg ? '#0284c7' : '#94a3b8'}" stroke-width="2" style="flex-shrink: 0;">
-                  <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
-                  <path d="M9 22v-4h6v4"></path>
-                  <path d="M8 6h.01"></path>
-                  <path d="M16 6h.01"></path>
-                  <path d="M8 10h.01"></path>
-                  <path d="M16 10h.01"></path>
-                  <path d="M8 14h.01"></path>
-                  <path d="M16 14h.01"></path>
-                </svg>
-                <span style="font-weight: ${selectedOrg ? '600' : '400'}; color: ${selectedOrg ? '#0369a1' : 'var(--abi-text-muted)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  ${selectedOrg ? this.escapeHtml(selectedOrg) : 'No Organization selected'}
-                </span>
-              </div>
-              ${
-                selectedOrg
-                  ? `<button type="button" id="abi-org-clear-btn" class="abi-clear-btn" title="Clear organization">&times;</button>`
-                  : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>`
-              }
-            </div>
-
-            <!-- Hidden input for form submission -->
-            <input type="hidden" id="abi-ticket-organization" value="${this.escapeHtml(selectedOrg)}" />
-
-            ${
-              this.isOrgDropdownOpen
-                ? `
-            <div class="abi-custom-dropdown-popover" id="abi-org-popover">
-              <div class="abi-dropdown-search-box">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                <input type="text" class="abi-dropdown-search-input" id="abi-org-search-input" placeholder="Search organization..." value="${this.escapeHtml(this.orgSearchQuery)}" />
-              </div>
-              <div class="abi-dropdown-list">
-                ${filteredOrgs
-                  .map(
-                    (org) => `
-                  <div class="abi-dropdown-item ${selectedOrg === org ? 'active' : ''}" data-org="${this.escapeHtml(org)}">
-                    <div style="display: flex; align-items: center; gap: 7px; overflow: hidden;">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${selectedOrg === org ? 'var(--abi-primary)' : '#64748b'}" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path></svg>
-                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(org)}</span>
-                    </div>
-                    ${selectedOrg === org ? `<span style="color: var(--abi-primary); font-weight: 700;">✓</span>` : ''}
-                  </div>
-                `,
-                  )
-                  .join('')}
-                ${filteredOrgs.length === 0 ? `<div style="padding: 12px; text-align: center; color: var(--abi-text-muted); font-size: 11px;">No organizations found</div>` : ''}
-              </div>
-            </div>
-            `
-                : ''
-            }
-          </div>
-
-          <!-- 2. Product Name -->
-          <div style="position: relative;" id="abi-prod-dropdown-container">
-            <div class="abi-section-header">
-              <span class="abi-section-title prod">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                </svg>
-                Product Name
-              </span>
-              ${
-                selectedProd
-                  ? `
-              <button type="button" id="abi-prod-toggle-btn" class="abi-section-action-btn">
-                Change
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-              </button>
-              `
-                  : ''
-              }
-            </div>
-
-            <div id="abi-prod-trigger" class="abi-custom-select-trigger ${selectedProd ? 'selected-prod' : 'empty'}">
-              <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${selectedProd ? '#9333ea' : '#94a3b8'}" stroke-width="2" style="flex-shrink: 0;">
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                </svg>
-                <span style="font-weight: ${selectedProd ? '600' : '400'}; color: ${selectedProd ? '#7e22ce' : 'var(--abi-text-muted)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  ${selectedProd ? this.escapeHtml(selectedProd) : 'No Product selected'}
-                </span>
-              </div>
-              ${
-                selectedProd
-                  ? `<button type="button" id="abi-prod-clear-btn" class="abi-clear-btn" title="Clear product">&times;</button>`
-                  : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>`
-              }
-            </div>
-
-            <!-- Hidden input for form submission -->
-            <input type="hidden" id="abi-ticket-product" value="${this.escapeHtml(selectedProd)}" />
-
-            ${
-              this.isProductDropdownOpen
-                ? `
-            <div class="abi-custom-dropdown-popover" id="abi-prod-popover">
-              <div class="abi-dropdown-search-box">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                <input type="text" class="abi-dropdown-search-input" id="abi-prod-search-input" placeholder="Search product..." value="${this.escapeHtml(this.productSearchQuery)}" />
-              </div>
-              <div class="abi-dropdown-list">
-                ${filteredProducts
-                  .map(
-                    (prod) => `
-                  <div class="abi-dropdown-item ${selectedProd === prod ? 'active' : ''}" data-prod="${this.escapeHtml(prod)}">
-                    <div style="display: flex; align-items: center; gap: 7px; overflow: hidden;">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${selectedProd === prod ? 'var(--abi-primary)' : '#64748b'}" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline></svg>
-                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(prod)}</span>
-                    </div>
-                    ${selectedProd === prod ? `<span style="color: var(--abi-primary); font-weight: 700;">✓</span>` : ''}
-                  </div>
-                `,
-                  )
-                  .join('')}
-                ${filteredProducts.length === 0 ? `<div style="padding: 12px; text-align: center; color: var(--abi-text-muted); font-size: 11px;">No products found</div>` : ''}
-              </div>
-            </div>
-            `
-                : ''
-            }
-          </div>
-        </div>
+        <!-- Hidden inputs for organization and product -->
+        <input type="hidden" id="abi-ticket-organization" value="${this.escapeHtml(selectedOrg)}" />
+        <input type="hidden" id="abi-ticket-product" value="${this.escapeHtml(selectedProd)}" />
 
         <div class="abi-form-group">
           <label class="abi-label">Description</label>
@@ -2037,95 +1865,6 @@ export class WidgetUI {
       ticketForm.addEventListener('change', () => this.saveTicketDraftFromDOM());
     }
 
-    // Organization Dropdown Trigger & Events
-    this.shadow.querySelector('#abi-org-trigger')?.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('#abi-org-clear-btn')) return;
-      this.isOrgDropdownOpen = !this.isOrgDropdownOpen;
-      this.isProductDropdownOpen = false;
-      this.render();
-    });
-    this.shadow.querySelector('#abi-org-toggle-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.isOrgDropdownOpen = !this.isOrgDropdownOpen;
-      this.isProductDropdownOpen = false;
-      this.render();
-    });
-    this.shadow.querySelector('#abi-org-clear-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ticketDraft.organization = '';
-      this.isOrgDropdownOpen = false;
-      this.render();
-    });
-    this.shadow.querySelectorAll('#abi-org-popover .abi-dropdown-item').forEach((item) => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const org = item.getAttribute('data-org') || '';
-        this.ticketDraft.organization = org;
-        this.isOrgDropdownOpen = false;
-        this.render();
-      });
-    });
-    const orgSearchInput = this.shadow.querySelector('#abi-org-search-input') as HTMLInputElement | null;
-    if (orgSearchInput) {
-      orgSearchInput.focus();
-      orgSearchInput.addEventListener('click', (e) => e.stopPropagation());
-      orgSearchInput.addEventListener('input', (e) => {
-        e.stopPropagation();
-        const q = (e.target as HTMLInputElement).value.toLowerCase();
-        this.orgSearchQuery = q;
-        const items = this.shadow.querySelectorAll('#abi-org-popover .abi-dropdown-item');
-        items.forEach((item) => {
-          const text = (item.getAttribute('data-org') || '').toLowerCase();
-          (item as HTMLElement).style.display = text.includes(q) ? 'flex' : 'none';
-        });
-      });
-    }
-
-    // Product Dropdown Trigger & Events
-    this.shadow.querySelector('#abi-prod-trigger')?.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('#abi-prod-clear-btn')) return;
-      this.isProductDropdownOpen = !this.isProductDropdownOpen;
-      this.isOrgDropdownOpen = false;
-      this.render();
-    });
-    this.shadow.querySelector('#abi-prod-toggle-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.isProductDropdownOpen = !this.isProductDropdownOpen;
-      this.isOrgDropdownOpen = false;
-      this.render();
-    });
-    this.shadow.querySelector('#abi-prod-clear-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ticketDraft.product = '';
-      this.isProductDropdownOpen = false;
-      this.render();
-    });
-    this.shadow.querySelectorAll('#abi-prod-popover .abi-dropdown-item').forEach((item) => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const prod = item.getAttribute('data-prod') || '';
-        this.ticketDraft.product = prod;
-        this.isProductDropdownOpen = false;
-        this.render();
-      });
-    });
-    const prodSearchInput = this.shadow.querySelector('#abi-prod-search-input') as HTMLInputElement | null;
-    if (prodSearchInput) {
-      prodSearchInput.focus();
-      prodSearchInput.addEventListener('click', (e) => e.stopPropagation());
-      prodSearchInput.addEventListener('input', (e) => {
-        e.stopPropagation();
-        const q = (e.target as HTMLInputElement).value.toLowerCase();
-        this.productSearchQuery = q;
-        const items = this.shadow.querySelectorAll('#abi-prod-popover .abi-dropdown-item');
-        items.forEach((item) => {
-          const text = (item.getAttribute('data-prod') || '').toLowerCase();
-          (item as HTMLElement).style.display = text.includes(q) ? 'flex' : 'none';
-        });
-      });
-    }
 
     // Media action buttons in Ticket form
     this.shadow
