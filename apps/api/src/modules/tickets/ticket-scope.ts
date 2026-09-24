@@ -49,6 +49,7 @@ export function toPolicySubject(principal: AuthenticatedPrincipal): PolicySubjec
     permissions: principal.permissions,
     isPlatformAdmin: principal.isPlatformAdmin,
     brandId: principal.brandId ?? null,
+    roles: principal.roles,
   };
 }
 

@@ -165,10 +165,8 @@ describe('RBAC matrix conformance (Requirement.md)', () => {
       }
     });
 
-    it('does not hold internal notes or tenant-wide ticket editing', () => {
-      // The matrix gives them ✗ on Internal Notes and only "Edit Own Ticket", which
-      // reads as a deliberate separation of administration from casework.
-      expect(defaultGrantFor('TENANT_ADMIN', 'ticket:note:internal')?.granted ?? false).toBe(false);
+    it('holds internal notes but not tenant-wide ticket editing', () => {
+      expect(defaultGrantFor('TENANT_ADMIN', 'ticket:note:internal')?.granted).toBe(true);
       expect(defaultGrantFor('TENANT_ADMIN', 'ticket:update:tenant')?.granted ?? false).toBe(false);
       expect(defaultGrantFor('TENANT_ADMIN', 'ticket:update:own')?.granted).toBe(true);
     });

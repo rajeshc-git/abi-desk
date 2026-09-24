@@ -46,6 +46,21 @@
   }
 }
 
+/* 125% Scaling on 1080p Laptops (1536×864 viewport range) */
+@media screen and (min-width: 1441px) and (max-width: 1600px) {
+  .app-shell {
+    transform: scale(0.80);
+    transform-origin: top left;
+    width: calc(100vw / 0.80);
+    height: calc(100vh / 0.80);
+  }
+
+  .ticket-workspace-main.is-maximized {
+    width: calc(100vw / 0.80) !important;
+    height: calc(100vh / 0.80) !important;
+  }
+}
+
 /* Sidebar */
 .app-sidebar {
   width: 250px;

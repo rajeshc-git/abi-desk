@@ -53,7 +53,7 @@ export const TicketDetailPage: React.FC = () => {
   const { socket } = useSocket();
 
   const canWriteInternal =
-    !!user && !user.roles.includes('TENANT_ADMIN') && !user.roles.includes('GUEST_CUSTOMER');
+    !!user && !user.roles.includes('GUEST_CUSTOMER');
 
   const [ticket, setTicket] = useState<any | null>(null);
   const [comments, setComments] = useState<CommentItem[]>([]);

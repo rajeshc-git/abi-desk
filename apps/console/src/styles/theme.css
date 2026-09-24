@@ -76,6 +76,20 @@
   padding: 0;
 }
 
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  max-height: 100vh;
+  overflow: hidden !important;
+  position: fixed;
+  inset: 0;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-app);
@@ -84,9 +98,6 @@ body {
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
-  height: 100vh;
-  width: 100vw;
 }
 
 button, input, select, textarea {

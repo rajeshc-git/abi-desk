@@ -202,8 +202,9 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       optional('ticket:escalate', true),
       optional('ticket:close', true),
       allow('ticket:tag'),
+      allow('ticket:note:internal'),
 
-      // Deliberately absent, matching the matrix: ticket:note:internal (✗),
+      // Deliberately absent, matching the matrix:
       // ticket:assign:agent (Queue only), ticket:bulk_update (✗),
       // ticket:update:tenant (only "Edit Own Ticket" is granted).
 
@@ -465,7 +466,7 @@ export const REQUIREMENTS_MATRIX: readonly MatrixRow[] = [
     permissions: ['ticket:note:internal'],
     cells: {
       GUEST_CUSTOMER: 'no',
-      TENANT_ADMIN: 'no',
+      TENANT_ADMIN: 'yes',
       L1_SUPPORT: 'yes',
       L2_SUPPORT: 'yes',
       L3_SUPPORT: 'yes',

@@ -20,6 +20,7 @@ export interface PolicySubject {
   isPlatformAdmin: boolean;
   /** Set when the user's roles are restricted to a single brand. */
   brandId?: string | null;
+  roles?: readonly (RoleKey | string)[];
 }
 
 /**
@@ -117,6 +118,14 @@ export function resolveTicketScope(subject: PolicySubject): AccessScope {
  * not see them.
  */
 export function canReadInternalNotes(subject: PolicySubject): boolean {
+  if (
+    subject.roles?.some((r) =>
+      ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r),
+    ) ||
+    subject.isPlatformAdmin
+  ) {
+    return true;
+  }
   return can(subject, 'ticket:note:internal');
 }
 

@@ -359,7 +359,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         title="Console Settings"
         maxWidth="900px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minHeight: '520px' }}>
           {/* Settings Tabs */}
           <div
             style={{

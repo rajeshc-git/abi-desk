@@ -790,7 +790,14 @@ export class TicketService {
     const tenantId = this.requireTenant(principal);
     const ticket = await this.findByIdOrThrow(principal, ticketId);
 
-    if (dto.visibility === 'INTERNAL' && !principal.permissions.has('ticket:note:internal')) {
+    const canWriteNote =
+      principal.permissions.has('ticket:note:internal') ||
+      principal.roles.some((r) =>
+        ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r),
+      ) ||
+      principal.isPlatformAdmin;
+
+    if (dto.visibility === 'INTERNAL' && !canWriteNote) {
       throw AppException.permissionDenied(
         'Internal notes require the ticket:note:internal permission.',
         { ticketId, roles: principal.roles },
