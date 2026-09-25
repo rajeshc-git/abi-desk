@@ -219,8 +219,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
       title: 'Documents Center',
       path: '/documents',
       icon: FileSpreadsheet,
-      roles: ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN'],
-      permissions: ['admin:brand:manage', 'report:view:tenant'],
+      roles: ['TENANT_ADMIN', 'L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'QA_TEAM', 'ADMIN', 'PLATFORM_ADMIN'],
+      permissions: ['ticket:read:tenant', 'report:view:tenant', 'admin:brand:manage'],
     },
     {
       title: 'Setup',
