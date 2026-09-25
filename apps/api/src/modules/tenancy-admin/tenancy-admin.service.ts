@@ -535,6 +535,20 @@ export class TenancyAdminService {
         );
       }
 
+      // Revoke any previous pending invitations for this email to satisfy unique constraints
+      // and ensure only the latest invite token is active.
+      await tx.invitation.updateMany({
+        where: {
+          tenantId,
+          email: dto.email.toLowerCase(),
+          acceptedAt: null,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+
       const rawToken = randomBytes(32).toString('hex');
       const tokenHash = createHash('sha256').update(rawToken).digest('hex');
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
