@@ -241,6 +241,46 @@ export class TicketService {
     if (this.gateway) {
       this.gateway.broadcastTicketCreated(tenantId, result);
     }
+
+    // Automated acknowledgment email for Widget-created tickets (routed via SMTP 2)
+    if (result.channel === 'WIDGET' && result.requester?.email) {
+      const senderEmail = result.requester.email;
+      const senderName = result.requester.fullName || senderEmail.split('@')[0] || 'Customer';
+
+      this.mailService
+        .sendTicketMail(
+          {
+            to: { email: senderEmail, name: senderName },
+            subject: `[Ticket #${result.number}] Received: ${result.subject}`,
+            text: `Hello ${senderName},\n\nWe have received your support request regarding "${result.subject}" (Ticket #${result.number}). Our team is actively reviewing it and will get back to you shortly.\n\nYou can track this ticket in the support widget or reply directly to this email at any time.\n\nBest regards,\nSupport Team`,
+            html: `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+                <div style="margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 12px;">
+                  <h2 style="margin: 0; color: #2563eb; font-size: 20px;">Support Request Received</h2>
+                </div>
+                <p style="font-size: 15px; margin-bottom: 16px;">Hello <strong>${senderName}</strong>,</p>
+                <p style="font-size: 14px; line-height: 1.6; color: #334155; margin-bottom: 20px;">
+                  We have received your support request regarding <strong>"${result.subject}"</strong>. Our team is actively reviewing it and will respond as soon as possible.
+                </p>
+                <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 6px 6px 0;">
+                  <p style="margin: 0; font-size: 13px; color: #64748b;">Ticket Reference:</p>
+                  <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #0f172a;">#${result.number}</p>
+                </div>
+                <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 0;">
+                  You can track this ticket in the support widget or reply directly to this email at any time to attach further details.
+                </p>
+              </div>
+            `,
+            tag: 'ticket.created_ack',
+            ...(result.brand?.supportEmail ? { replyTo: result.brand.supportEmail } : {}),
+          },
+          'WIDGET',
+        )
+        .catch((err) => {
+          this.logger.error({ err, ticketId: result.id }, 'Failed to send widget ticket creation ack email');
+        });
+    }
+
     return result;
   }
 
@@ -909,7 +949,7 @@ export class TicketService {
           html: `<div style="white-space: pre-wrap; font-family: sans-serif; font-size: 14px; color: #333333;">${dto.body}</div>`,
           tag: 'ticket.reply',
           ...(ticket.brand?.supportEmail ? { replyTo: ticket.brand.supportEmail } : {}),
-        }).catch((err) => {
+        }, ticket.channel).catch((err) => {
           this.logger.error({ err, ticketId }, 'Failed to send outbound reply email to customer');
         });
       }
@@ -2754,7 +2794,7 @@ export class TicketService {
           </div>
         `,
         tag: 'ticket.created_ack',
-      }).catch((err) => {
+      }, 'EMAIL').catch((err) => {
         this.logger.error({ err, ticketId: created.id }, 'Failed to send ticket creation ack email');
       });
 

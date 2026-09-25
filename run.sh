@@ -19,28 +19,25 @@ if [ ! -d node_modules ]; then
     echo ""
 fi
 
-# Build workspace packages if not already built
-if [ ! -d packages/widget/dist ]; then
-    echo "[Building workspace packages and generating Prisma client...]"
-    pnpm db:generate
-    pnpm --filter @abi-desk/rbac build
-    pnpm --filter @abi-desk/db build
-    pnpm --filter @abi-desk/widget build
-    echo ""
-fi
+echo "[1/3] Building all workspace packages and production frontend bundle..."
+pnpm db:generate
+pnpm --filter @abi-desk/rbac build
+pnpm --filter @abi-desk/db build
+pnpm --filter @abi-desk/widget build
+pnpm --filter @abi-desk/console build
+echo ""
 
-echo "[1/2] Starting Docker containers (including BACKEND API,Worker,DB,etc...)"
+echo "[2/3] Starting Docker containers (including BACKEND API, Worker, DB, etc...)"
 docker compose up -d --build
 
 echo ""
-echo "[2/2] Launching local dev tools..."
+echo "[3/3] Launching production frontend and local tools..."
 
-# Launch Console and Prisma Studio in the background
-nohup pnpm --filter @abi-desk/console dev > /dev/null 2>&1 &
+# Launch compiled production Console and Prisma Studio in the background
+nohup pnpm --filter @abi-desk/console start > /dev/null 2>&1 &
 nohup pnpm db:studio --browser none > /dev/null 2>&1 &
 
-
 echo ""
-echo "All services started! Console and Prisma Studio are running in the background."
+echo "All services started! Production Console (dist) and Prisma Studio are running in the background."
 exit 0
 

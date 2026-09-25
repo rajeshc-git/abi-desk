@@ -35,5 +35,21 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    preview: {
+      port: 9999,
+      host: true,
+      allowedHosts: true,
+      proxy: {
+        '/api': {
+          target: `http://localhost:${env.API_PORT || env.PORT || 4000}`,
+          changeOrigin: true,
+        },
+        '/socket.io': {
+          target: `http://localhost:${env.API_PORT || env.PORT || 4000}`,
+          ws: true,
+          changeOrigin: true,
+        },
+      },
+    },
   };
 });

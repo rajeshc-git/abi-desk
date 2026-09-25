@@ -17,26 +17,23 @@ if not exist node_modules (
     echo.
 )
 
-:: Build workspace packages if not already built
-if not exist packages\widget\dist (
-    echo [Building workspace packages and generating Prisma client...]
-    call pnpm db:generate
-    call pnpm --filter @abi-desk/rbac build
-    call pnpm --filter @abi-desk/db build
-    call pnpm --filter @abi-desk/widget build
-    echo.
-)
+echo [1/3] Building all workspace packages and production frontend bundle...
+call pnpm db:generate
+call pnpm --filter @abi-desk/rbac build
+call pnpm --filter @abi-desk/db build
+call pnpm --filter @abi-desk/widget build
+call pnpm --filter @abi-desk/console build
+echo.
 
-echo [1/2] Starting Docker containers (including BACKEND API,Worker,DB,etc)...
+echo [2/3] Starting Docker containers (including BACKEND API,Worker,DB,etc)...
 docker compose up -d --build
 
 echo.
-echo [2/2] Launching local dev tools...
-:: Launching Console and Prisma Studio in minimized cmd windows (using cmd /c so they close automatically when stopped)
-start /min "ABI Desk - Console" cmd /c "pnpm --filter @abi-desk/console dev"
+echo [3/3] Launching production frontend and local tools...
+:: Launching Production Console and Prisma Studio in minimized cmd windows
+start /min "ABI Desk - Production Console" cmd /c "pnpm --filter @abi-desk/console start"
 start /min "ABI Desk - Prisma Studio" cmd /c "pnpm db:studio --browser none"
 
-
 echo.
-echo All services started! Console and Prisma Studio are running minimized in the background.
+echo All services started! Production Console (dist) and Prisma Studio are running minimized in the background.
 exit /b 0

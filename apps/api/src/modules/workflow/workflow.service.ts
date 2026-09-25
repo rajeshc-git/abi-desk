@@ -859,7 +859,7 @@ export class WorkflowService {
         `,
         tag: `ticket.status_${toStatus.toLowerCase()}`,
         ...(ticket.brand?.supportEmail ? { replyTo: ticket.brand.supportEmail } : {}),
-      });
+      }, ticket.channel);
     } catch (err) {
       this.logger.error({ err, ticketId }, 'Failed to send status update email');
     }

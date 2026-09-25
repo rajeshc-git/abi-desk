@@ -498,7 +498,7 @@ export class AssignmentService {
         `,
         tag: `ticket.bulk_${toStatus.toLowerCase()}`,
         ...(ticket.brand?.supportEmail ? { replyTo: ticket.brand.supportEmail } : {}),
-      });
+      }, ticket.channel);
     } catch (err) {
       this.logger.error({ err, ticketId }, 'Failed to send bulk status update email');
     }
