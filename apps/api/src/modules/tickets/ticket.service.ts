@@ -272,7 +272,6 @@ export class TicketService {
               </div>
             `,
             tag: 'ticket.created_ack',
-            ...(result.brand?.supportEmail ? { replyTo: result.brand.supportEmail } : {}),
           },
           'WIDGET',
         )
@@ -948,7 +947,6 @@ export class TicketService {
           text: dto.body,
           html: `<div style="white-space: pre-wrap; font-family: sans-serif; font-size: 14px; color: #333333;">${dto.body}</div>`,
           tag: 'ticket.reply',
-          ...(ticket.brand?.supportEmail ? { replyTo: ticket.brand.supportEmail } : {}),
         }, ticket.channel).catch((err) => {
           this.logger.error({ err, ticketId }, 'Failed to send outbound reply email to customer');
         });
