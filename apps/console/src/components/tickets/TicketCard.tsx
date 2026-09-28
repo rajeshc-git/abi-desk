@@ -144,12 +144,50 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
         {ticket.subject}
       </div>
 
-      {/* Organization, Product, Category, and Tags pills container */}
-      {(((ticket as any).customFields?.organization || (ticket as any).organization) ||
+      {/* Organization, Product, Category, Channel and Tags pills container */}
+      {(ticket.channel ||
+        ((ticket as any).customFields?.organization || (ticket as any).organization) ||
         ((ticket as any).customFields?.product || (ticket as any).product) ||
         ticket.category ||
         (ticket.tags && ticket.tags.length > 0)) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+          {/* Channel Badge */}
+          {ticket.channel && (
+            <span
+              style={{
+                fontSize: '10px',
+                fontWeight: 600,
+                backgroundColor:
+                  ticket.channel === 'WIDGET'
+                    ? 'rgba(16, 185, 129, 0.12)'
+                    : ticket.channel === 'EMAIL'
+                    ? 'rgba(59, 130, 246, 0.12)'
+                    : 'rgba(100, 116, 139, 0.12)',
+                color:
+                  ticket.channel === 'WIDGET'
+                    ? '#059669'
+                    : ticket.channel === 'EMAIL'
+                    ? '#2563eb'
+                    : '#475569',
+                border: `1px solid ${
+                  ticket.channel === 'WIDGET'
+                    ? 'rgba(16, 185, 129, 0.3)'
+                    : ticket.channel === 'EMAIL'
+                    ? 'rgba(59, 130, 246, 0.3)'
+                    : 'rgba(100, 116, 139, 0.3)'
+                }`,
+                borderRadius: '3px',
+                padding: '1px 5px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px',
+              }}
+              title={`Inbound Channel: ${ticket.channel}`}
+            >
+              {ticket.channel === 'WIDGET' ? '🌐 Widget' : ticket.channel === 'EMAIL' ? '✉️ Email' : `📡 ${ticket.channel}`}
+            </span>
+          )}
+
           {/* Organization Badge */}
           {((ticket as any).customFields?.organization || (ticket as any).organization) && (
             <span

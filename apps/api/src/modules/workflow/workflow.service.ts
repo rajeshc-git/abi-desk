@@ -777,8 +777,9 @@ export class WorkflowService {
     toStatus: TicketStatus,
     comment?: string,
   ) {
-    // Send email for all customer-facing status changes
-    if (!['RESOLVED', 'CLOSED', 'AWAITING_CUSTOMER_CONFIRMATION', 'PENDING_CUSTOMER', 'REOPENED', 'ON_HOLD', 'ESCALATED_L2', 'ESCALATED_L3', 'IN_DEVELOPMENT', 'IN_QA'].includes(toStatus)) {
+    // Send email ONLY for customer-facing status changes (Resolved, Closed, Awaiting Customer, Reopened, On Hold)
+    // Internal workflow escalations (ESCALATED_L2, ESCALATED_L3, IN_DEVELOPMENT, IN_QA) NEVER send customer emails
+    if (!['RESOLVED', 'CLOSED', 'AWAITING_CUSTOMER_CONFIRMATION', 'PENDING_CUSTOMER', 'REOPENED', 'ON_HOLD'].includes(toStatus)) {
       return;
     }
 
@@ -820,9 +821,8 @@ export class WorkflowService {
         title = 'Ticket On Hold';
         message = `Your ticket <strong>#${ticket.number}</strong> has been placed on hold while our team coordinates next steps.`;
       } else if (toStatus.startsWith('ESCALATED') || toStatus.startsWith('IN_DEV') || toStatus === 'IN_QA') {
-        subject = `[Ticket #${ticket.number}] In Progress: ${ticket.subject}`;
-        title = 'Ticket In Progress';
-        message = `Your ticket <strong>#${ticket.number}</strong> has been escalated to our engineering and senior support specialists for in-depth investigation.`;
+        // Internal escalation states are strictly internal - never send customer email
+        return;
       }
 
       await this.mailService.sendTicketMail({

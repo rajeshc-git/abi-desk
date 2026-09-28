@@ -212,7 +212,7 @@ export const TicketDetailPage: React.FC = () => {
       setComments(mappedComments);
       // Smart Adaptive Default: Auto-expand if fresh ticket (0 replies), auto-collapse if ongoing conversation thread
       setIsDescriptionExpanded(mappedComments.length === 0);
-      setDiagnostics(data.diagnostics || data.diagnosticBundle?.payload || null);
+      setDiagnostics(data.diagnosticBundle || data.diagnostics || data.diagnosticBundle?.payload || data.customFields?.diagnostics || null);
       try {
         setMediaAssets(await ApiClient.get<MediaAssetItem[]>(`/tickets/${ticketId}/media`));
       } catch {
@@ -629,6 +629,7 @@ export const TicketDetailPage: React.FC = () => {
               ticketId={ticket.id}
               currentAssignee={ticket.assignee}
               currentTeam={ticket.team}
+              currentTier={ticket.tier}
               align="right"
               onAssigned={(res) => {
                 if (res.assignee !== undefined) {
@@ -687,7 +688,42 @@ export const TicketDetailPage: React.FC = () => {
               {ticket.channel && (
                 <>
                   <span className="meta-dot">•</span>
-                  <span style={{ textTransform: 'capitalize' }}>via {ticket.channel.toLowerCase()}</span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      textTransform: 'capitalize',
+                      fontWeight: 600,
+                    }}
+                  >
+                    via {ticket.channel.toLowerCase()}
+                  </span>
+                </>
+              )}
+              {(ticket.diagnosticBundle?.pageUrl || diagnostics?.pageUrl || (ticket as any).customFields?.pageUrl || (ticket as any).customFields?.originUrl) && (
+                <>
+                  <span className="meta-dot">•</span>
+                  <span
+                    className="livechat-origin-badge"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '12px',
+                    }}
+                  >
+                    <Globe size={12} style={{ color: 'var(--primary)' }} />
+                    <span style={{ fontWeight: 600 }}>Origin:</span>{' '}
+                    <a
+                      href={ticket.diagnosticBundle?.pageUrl || diagnostics?.pageUrl || (ticket as any).customFields?.pageUrl || (ticket as any).customFields?.originUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#2563eb', textDecoration: 'underline' }}
+                    >
+                      {ticket.diagnosticBundle?.pageUrl || diagnostics?.pageUrl || (ticket as any).customFields?.pageUrl || (ticket as any).customFields?.originUrl}
+                    </a>
+                  </span>
                 </>
               )}
             </div>
@@ -1095,6 +1131,7 @@ export const TicketDetailPage: React.FC = () => {
                 ticketId={ticket.id}
                 currentAssignee={ticket.assignee}
                 currentTeam={ticket.team}
+                currentTier={ticket.tier}
                 align="left"
                 onAssigned={(res) => {
                   if (res.assignee !== undefined) {

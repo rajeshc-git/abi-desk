@@ -185,6 +185,40 @@ export class TicketService {
         await this.attachTags(tx, tenantId, created.id, dto.tags, principal.userId);
       }
 
+      if (dto.diagnostics && typeof dto.diagnostics === 'object') {
+        const diag: any = dto.diagnostics;
+        const pageUrl = diag.pageUrl || (typeof diag.page === 'string' ? diag.page : null);
+        try {
+          await tx.diagnosticBundle.create({
+            data: {
+              tenantId,
+              ticketId: created.id,
+              capturedAt: diag.capturedAt ? new Date(diag.capturedAt) : new Date(),
+              pageUrl: pageUrl ? String(pageUrl).substring(0, 2048) : 'about:blank',
+              pageTitle: diag.pageTitle ? String(diag.pageTitle).substring(0, 500) : null,
+              userAgent: diag.userAgent ? String(diag.userAgent) : 'Widget Client',
+              browserName: diag.browserName ? String(diag.browserName) : null,
+              browserVersion: diag.browserVersion ? String(diag.browserVersion) : null,
+              osName: diag.osName ? String(diag.osName) : null,
+              osVersion: diag.osVersion ? String(diag.osVersion) : null,
+              deviceType: diag.deviceType ? String(diag.deviceType) : null,
+              screenWidth: diag.screenWidth ? Number(diag.screenWidth) : null,
+              screenHeight: diag.screenHeight ? Number(diag.screenHeight) : null,
+              viewportWidth: diag.viewportWidth ? Number(diag.viewportWidth) : null,
+              viewportHeight: diag.viewportHeight ? Number(diag.viewportHeight) : null,
+              devicePixelRatio: diag.devicePixelRatio ? Number(diag.devicePixelRatio) : null,
+              timezone: diag.timezone ? String(diag.timezone) : null,
+              locale: diag.locale ? String(diag.locale) : null,
+              consoleEntries: Array.isArray(diag.consoleLogs) ? diag.consoleLogs : [],
+              networkEntries: Array.isArray(diag.networkLogs) ? diag.networkLogs : [],
+              jsErrors: Array.isArray(diag.errors) ? diag.errors : [],
+            },
+          });
+        } catch (diagErr) {
+          this.logger.warn({ err: diagErr, ticketId: created.id }, 'Could not attach initial diagnostics bundle');
+        }
+      }
+
       await this.applyAutoDomainTags(tx, tenantId, created.id, requesterId);
       await this.applyAutoCategoryKeywords(tx, tenantId, created.id, created.subject, dto.description, dto.customFields);
 
@@ -323,7 +357,31 @@ export class TicketService {
         brand: { select: { id: true, name: true, slug: true, supportEmail: true } },
         queue: { select: { id: true, name: true, slug: true, tier: true } },
         team: { select: { id: true, name: true, slug: true } },
-        diagnosticBundle: { select: { id: true, capturedAt: true } },
+        diagnosticBundle: {
+          select: {
+            id: true,
+            capturedAt: true,
+            pageUrl: true,
+            pageTitle: true,
+            referrerUrl: true,
+            userAgent: true,
+            browserName: true,
+            browserVersion: true,
+            osName: true,
+            osVersion: true,
+            deviceType: true,
+            viewportWidth: true,
+            viewportHeight: true,
+            screenWidth: true,
+            screenHeight: true,
+            devicePixelRatio: true,
+            timezone: true,
+            locale: true,
+            consoleEntries: true,
+            networkEntries: true,
+            jsErrors: true,
+          },
+        },
         mediaAssets: {
           where: { commentId: null, chatMessageId: null },
           select: { id: true, originalFilename: true, mimeType: true },

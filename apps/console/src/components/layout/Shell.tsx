@@ -37,8 +37,6 @@ export const Shell: React.FC = () => {
       const incoming = data.ticket;
       if (!incoming) return;
 
-      toast.info(`📬 New Ticket #${incoming.number}: ${incoming.subject}`);
-
       try {
         const existing: string[] = JSON.parse(localStorage.getItem('unread_ticket_ids') || '[]');
         const updated = Array.from(new Set([...existing, incoming.id]));
@@ -48,13 +46,6 @@ export const Shell: React.FC = () => {
 
     const handleTicketCommented = (data: any) => {
       if (!data.ticketId) return;
-
-      // Only toast for customer public replies
-      if (data.comment?.author?.kind === 'CUSTOMER' || data.comment?.visibility === 'PUBLIC') {
-        const ticketNum = data.ticketNumber || (data.ticket?.number) || data.ticketId.slice(0, 8);
-        const cleanNumber = String(ticketNum).replace(/^#/, '');
-        toast.info(`💬 New reply on ticket #${cleanNumber}`);
-      }
 
       try {
         const existing: string[] = JSON.parse(localStorage.getItem('unread_ticket_ids') || '[]');
@@ -70,7 +61,7 @@ export const Shell: React.FC = () => {
       socket.off('ticket.created', handleTicketCreated);
       socket.off('ticket.commented', handleTicketCommented);
     };
-  }, [socket, toast]);
+  }, [socket]);
 
   useEffect(() => {
     if (activeBrandId && brands.length > 0) {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { MoreHorizontal, ExternalLink, Mail, Phone } from 'lucide-react';
+import { MoreHorizontal, ExternalLink, Mail, Phone, AtSign } from 'lucide-react';
 
 interface FormattedEmailContentProps {
   text: string | null | undefined;
@@ -737,9 +737,10 @@ function renderTextWithLinks(text: string, keyPrefix: string): React.ReactNode {
     `|\\*\\*([^\\*\\n]+)\\*\\*` +
     `|\\*([^\\*\\n]+)\\*` +
     `|_([^_\n]+)_` +
-    `|~([^~\\n]+)~` +
-    `|\`([^\`\\n]+)\`` +
+    `|~([^~\n]+)~` +
+    `|\`([^\`\n]+)\`` +
     `|([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})` +
+    `|(@[a-zA-Z0-9._-]+(?:\\s[a-zA-Z0-9._-]+)?)` +
     `|(https?:\\/\\/[^\\s<>\"]+|(?:www\\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\.(?:${DOMAIN_TLDS})(?::[0-9]{1,5})?(?:\\/[^\\s<>\"]*)?)` +
     `|(mailto:[^\\s<>\"]+)` +
     `|(tel:[^\\s<>\"]+)`,
@@ -778,6 +779,7 @@ function renderTextWithLinks(text: string, keyPrefix: string): React.ReactNode {
       mdStrike,
       mdCode,
       emailAddr,
+      mentionTag,
       rawUrl,
       mailtoUrl,
       telUrl,
@@ -891,6 +893,29 @@ function renderTextWithLinks(text: string, keyPrefix: string): React.ReactNode {
           <Mail size={12} />
           <span>{emailAddr}</span>
         </a>,
+      );
+    } else if (mentionTag) {
+      parts.push(
+        <span
+          key={matchKey}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            color: 'var(--primary, #2563eb)',
+            fontWeight: 600,
+            fontSize: '12px',
+            padding: '1px 6px',
+            borderRadius: '4px',
+            border: '1px solid rgba(37, 99, 235, 0.25)',
+            verticalAlign: 'baseline',
+            margin: '0 2px',
+          }}
+        >
+          <AtSign size={11} style={{ opacity: 0.85 }} />
+          <span>{mentionTag.replace(/^@/, '')}</span>
+        </span>,
       );
     } else if (mailtoUrl) {
       parts.push(

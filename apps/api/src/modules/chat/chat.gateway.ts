@@ -199,8 +199,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   broadcastTicketUpdated(tenantId: string, ticketId: string, ticket: any) {
-    this.server.to(`tenant:${tenantId}`).emit('ticket.updated', { ticketId, ticket });
-    this.server.to(`ticket:${ticketId}`).emit('ticket.updated', { ticketId, ticket });
+    this.server.to([`tenant:${tenantId}`, `ticket:${ticketId}`]).emit('ticket.updated', { ticketId, ticket });
     this.server.to(`tenant:${tenantId}`).emit('ticket.inbox_updated', {
       action: 'UPDATED',
       ticketId,
@@ -209,8 +208,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   broadcastTicketCommented(tenantId: string, ticketId: string, comment: any, ticketNumber?: string) {
-    this.server.to(`tenant:${tenantId}`).emit('ticket.commented', { ticketId, ticketNumber, comment });
-    this.server.to(`ticket:${ticketId}`).emit('ticket.commented', { ticketId, ticketNumber, comment });
+    this.server.to([`tenant:${tenantId}`, `ticket:${ticketId}`]).emit('ticket.commented', { ticketId, ticketNumber, comment });
     this.server.to(`tenant:${tenantId}`).emit('ticket.inbox_updated', {
       action: 'COMMENT_ADDED',
       ticketId,

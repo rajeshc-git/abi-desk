@@ -459,9 +459,8 @@ export class AssignmentService {
         title = 'Ticket On Hold';
         message = `Your ticket <strong>#${ticket.number}</strong> has been placed on hold while our team coordinates next steps.`;
       } else if (toStatus.startsWith('ESCALATED') || toStatus.startsWith('IN_DEV') || toStatus === 'IN_QA') {
-        subject = `[Ticket #${ticket.number}] In Progress: ${ticket.subject}`;
-        title = 'Ticket In Progress';
-        message = `Your ticket <strong>#${ticket.number}</strong> has been escalated to our engineering and senior support specialists for in-depth investigation.`;
+        // Escalations, In Dev, and In QA are internal workflow states - skip customer outbound email
+        return;
       }
 
       await this.mailService.sendTicketMail({

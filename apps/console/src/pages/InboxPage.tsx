@@ -23,6 +23,7 @@ import {
   User,
   X,
   GitMerge,
+  Globe,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { TicketsApi } from '../api/tickets';
@@ -1352,7 +1353,32 @@ export const InboxPage: React.FC = () => {
                 {selectedTicket.channel && (
                   <>
                     <span style={{ opacity: 0.5 }}>•</span>
-                    <span style={{ textTransform: 'capitalize' }}>via {selectedTicket.channel.toLowerCase()}</span>
+                    <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>via {selectedTicket.channel.toLowerCase()}</span>
+                  </>
+                )}
+                {((selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl) && (
+                  <>
+                    <span style={{ opacity: 0.5 }}>•</span>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '12px',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <Globe size={11} style={{ color: 'var(--primary)' }} />
+                      <span style={{ fontWeight: 600 }}>Origin:</span>{' '}
+                      <a
+                        href={(selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#2563eb', textDecoration: 'underline' }}
+                      >
+                        {(selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl}
+                      </a>
+                    </span>
                   </>
                 )}
               </div>

@@ -56,6 +56,8 @@ export const createTicketSchema = z.object({
    */
   requesterId: uuid.optional(),
   customFields: z.record(z.unknown()).optional(),
+  /** Diagnostics payload sent when raised via widget. */
+  diagnostics: z.record(z.unknown()).optional(),
   /** Media uploaded while the widget form is being composed. */
   attachmentIds: z.array(uuid).max(20).optional(),
 });

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Send,
   Lock,
@@ -12,8 +12,11 @@ import {
   FileText,
   Plus,
   ExternalLink,
+  AtSign,
+  Search,
 } from 'lucide-react';
 import { TicketsApi } from '../../api/tickets';
+import { ApiClient } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import {
   SnippetTemplate,
@@ -64,6 +67,162 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionDropdownRef = useRef<HTMLDivElement>(null);
+
+  // @Mention Autocomplete state
+  const [staffUsers, setStaffUsers] = useState<Array<{ id: string; fullName: string; email: string; role?: string; tier?: string }>>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStartPos, setMentionStartPos] = useState<number>(-1);
+
+  // Fetch available team members for @mentions
+  useEffect(() => {
+    ApiClient.get<any[]>('/admin/users')
+      .catch(() => ApiClient.get<any[]>('/users'))
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setStaffUsers(res.filter((u: any) => u.status !== 'DEACTIVATED'));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const filteredMentions = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase().trim();
+    return staffUsers
+      .filter((u) => {
+        const name = (u.fullName || '').toLowerCase();
+        const email = (u.email || '').toLowerCase();
+        return name.includes(q) || email.includes(q);
+      })
+      .slice(0, 6);
+  }, [mentionQuery, staffUsers]);
+
+  const detectedMentions = useMemo(() => {
+    const list: string[] = [];
+    const matches = Array.from(body.matchAll(/@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)/g));
+    for (const m of matches) {
+      const name = m[1].trim();
+      if (name && !list.includes(name)) {
+        list.push(name);
+      }
+    }
+    return list;
+  }, [body]);
+
+  const checkMentionTrigger = (text: string, cursor: number) => {
+    const textBefore = text.slice(0, cursor);
+    // Matches @ followed by letters/numbers/underscores/dots or single spaced first-last name up to 30 chars
+    const match = textBefore.match(/(?:^|\s)@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]*)?)$/);
+    if (match) {
+      setMentionQuery(match[1]);
+      const atIndex = textBefore.lastIndexOf('@');
+      setMentionStartPos(atIndex);
+      setMentionIndex(0);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const handleSelectMention = (targetUser: { fullName: string; email: string }) => {
+    const textarea = textareaRef.current;
+    if (!textarea || mentionStartPos < 0) return;
+
+    const mentionTag = `@${targetUser.fullName || targetUser.email} `;
+    const cursor = textarea.selectionStart ?? body.length;
+    const before = body.substring(0, mentionStartPos);
+    const after = body.substring(cursor);
+    const newBody = `${before}${mentionTag}${after}`;
+
+    setBody(newBody);
+    setMentionQuery(null);
+
+    setTimeout(() => {
+      textarea.focus();
+      const newPos = mentionStartPos + mentionTag.length;
+      textarea.setSelectionRange(newPos, newPos);
+    }, 20);
+  };
+
+  const handleRemoveMention = (name: string) => {
+    // Cleanly removes @Name (and optional trailing space) from composer body
+    const regex = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s?`, 'g');
+    const newBody = body.replace(regex, '');
+    setBody(newBody);
+    setMentionQuery(null);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    // If mention popover is actively open with navigation
+    if (mentionQuery !== null && filteredMentions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev + 1) % filteredMentions.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        handleSelectMention(filteredMentions[mentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionQuery(null);
+        return;
+      }
+    }
+
+    // Smart Atomic Backspace: If cursor is right after an @Mention tag, delete the whole tag in 1 press
+    if (e.key === 'Backspace') {
+      const textarea = textareaRef.current;
+      if (textarea && textarea.selectionStart === textarea.selectionEnd) {
+        const cursor = textarea.selectionStart;
+        const textBefore = body.slice(0, cursor);
+
+        for (const staff of staffUsers) {
+          const name = staff.fullName || staff.email;
+          if (!name) continue;
+          const tagWithSpace = `@${name} `;
+          const tagWithoutSpace = `@${name}`;
+
+          if (textBefore.endsWith(tagWithSpace)) {
+            e.preventDefault();
+            const newBody = body.slice(0, cursor - tagWithSpace.length) + body.slice(cursor);
+            setBody(newBody);
+            setMentionQuery(null);
+            setTimeout(() => {
+              textarea.focus();
+              const newPos = cursor - tagWithSpace.length;
+              textarea.setSelectionRange(newPos, newPos);
+            }, 10);
+            return;
+          }
+
+          if (textBefore.endsWith(tagWithoutSpace)) {
+            e.preventDefault();
+            const newBody = body.slice(0, cursor - tagWithoutSpace.length) + body.slice(cursor);
+            setBody(newBody);
+            setMentionQuery(null);
+            setTimeout(() => {
+              textarea.focus();
+              const newPos = cursor - tagWithoutSpace.length;
+              textarea.setSelectionRange(newPos, newPos);
+            }, 10);
+            return;
+          }
+        }
+      }
+    }
+  };
 
   // Snippet dropdown & modal state
   const [isSnippetDropdownOpen, setIsSnippetDropdownOpen] = useState(false);
@@ -90,6 +249,25 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isSnippetDropdownOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        mentionDropdownRef.current &&
+        !mentionDropdownRef.current.contains(e.target as Node) &&
+        textareaRef.current &&
+        !textareaRef.current.contains(e.target as Node)
+      ) {
+        setMentionQuery(null);
+      }
+    };
+    if (mentionQuery !== null) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [mentionQuery]);
 
   const handleOpenSnippetsDropdown = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -666,18 +844,278 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
               </div>
             )}
 
-            <textarea
-              ref={textareaRef}
-              className="composer-textarea"
-              placeholder={
-                isInternal && canWriteInternal
-                  ? 'Write an internal note for teammates...'
-                  : 'Type your reply to the customer...'
-              }
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={4}
-            />
+            {/* Live Mention Tags Bar */}
+            {detectedMentions.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '6px',
+                  padding: '5px 16px',
+                  backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                  borderBottom: '1px solid rgba(37, 99, 235, 0.12)',
+                  fontSize: '11px',
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: 'var(--primary, #2563eb)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                  }}
+                >
+                  <AtSign size={12} />
+                  <span>Mentioning:</span>
+                </span>
+                {detectedMentions.map((name) => (
+                  <span
+                    key={name}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                      color: 'var(--primary, #2563eb)',
+                      border: '1px solid rgba(37, 99, 235, 0.25)',
+                      borderRadius: '12px',
+                      padding: '1px 7px 1px 9px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <span>@{name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMention(name)}
+                      title={`Remove @${name}`}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color: 'var(--primary, #2563eb)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '1px',
+                        borderRadius: '50%',
+                        opacity: 0.8,
+                        transition: 'opacity 0.15s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = '1';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = '0.8';
+                      }}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div style={{ position: 'relative', width: '100%', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              {/* WhatsApp/Slack-Style @Mention Autocomplete Popover */}
+              {mentionQuery !== null && (
+                <div
+                  ref={mentionDropdownRef}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    left: '14px',
+                    width: '320px',
+                    maxWidth: '90vw',
+                    backgroundColor: 'var(--bg-surface, #ffffff)',
+                    border: '1px solid var(--border-medium, #cbd5e1)',
+                    borderRadius: '8px',
+                    boxShadow: '0 12px 28px -4px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0,0,0,0.06)',
+                    zIndex: 9999,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    animation: 'fadeIn 0.12s ease-out',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Popover Header with Search */}
+                  <div
+                    style={{
+                      padding: '8px 10px',
+                      backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                      borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <AtSign size={13} style={{ color: 'var(--primary, #2563eb)' }} />
+                        <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>Mention Teammate</span>
+                      </div>
+                      <span style={{ fontSize: '10px', textTransform: 'none', fontWeight: 500 }}>
+                        ↑↓ to navigate • ↵ to select
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        backgroundColor: 'var(--bg-surface, #ffffff)',
+                        border: '1px solid var(--border-medium, #cbd5e1)',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                      }}
+                    >
+                      <Search size={12} style={{ color: 'var(--text-muted)' }} />
+                      <input
+                        type="text"
+                        placeholder="Search team member..."
+                        value={mentionQuery}
+                        onChange={(e) => setMentionQuery(e.target.value)}
+                        onKeyDown={handleTextareaKeyDown}
+                        style={{
+                          border: 'none',
+                          outline: 'none',
+                          fontSize: '12px',
+                          width: '100%',
+                          background: 'transparent',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Mentions List */}
+                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    {filteredMentions.length === 0 ? (
+                      <div style={{ padding: '14px 12px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
+                        No staff members found matching "{mentionQuery}"
+                      </div>
+                    ) : (
+                      filteredMentions.map((staff, idx) => {
+                        const isSelected = idx === mentionIndex;
+                        return (
+                          <div
+                            key={staff.id}
+                            onClick={() => handleSelectMention(staff)}
+                            style={{
+                              padding: '8px 12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              cursor: 'pointer',
+                              backgroundColor: isSelected
+                                ? 'var(--primary-surface, rgba(37, 99, 235, 0.1))'
+                                : 'transparent',
+                              borderLeft: isSelected
+                                ? '3px solid var(--primary, #2563eb)'
+                                : '3px solid transparent',
+                              transition: 'background-color 0.1s ease',
+                            }}
+                            onMouseEnter={() => setMentionIndex(idx)}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                              <div
+                                style={{
+                                  width: '26px',
+                                  height: '26px',
+                                  borderRadius: '50%',
+                                  backgroundColor: isSelected ? 'var(--primary, #2563eb)' : '#e2e8f0',
+                                  color: isSelected ? '#ffffff' : '#334155',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '10.5px',
+                                  fontWeight: 700,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {(staff.fullName || staff.email || '??').slice(0, 2).toUpperCase()}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                <span
+                                  style={{
+                                    fontSize: '12.5px',
+                                    fontWeight: isSelected ? 700 : 600,
+                                    color: 'var(--text-primary)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {staff.fullName}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '10.5px',
+                                    color: 'var(--text-muted)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {staff.email}
+                                </span>
+                              </div>
+                            </div>
+
+                            {staff.role && (
+                              <span
+                                style={{
+                                  fontSize: '9.5px',
+                                  fontWeight: 600,
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'var(--bg-hover, #f1f5f9)',
+                                  color: 'var(--text-muted)',
+                                  border: '1px solid var(--border-subtle)',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {staff.role}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <textarea
+                ref={textareaRef}
+                className="composer-textarea"
+                placeholder={
+                  isInternal && canWriteInternal
+                    ? 'Write an internal note for teammates (type @ to mention a teammate)...'
+                    : 'Type your reply to the customer (type @ to mention a teammate)...'
+                }
+                value={body}
+                onChange={(e) => {
+                  setBody(e.target.value);
+                  checkMentionTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                }}
+                onKeyDown={handleTextareaKeyDown}
+                onClick={(e) => {
+                  checkMentionTrigger(body, (e.target as HTMLTextAreaElement).selectionStart ?? body.length);
+                }}
+                onKeyUp={(e) => {
+                  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                    checkMentionTrigger(body, (e.target as HTMLTextAreaElement).selectionStart ?? body.length);
+                  }
+                }}
+                style={{ flex: 1, minHeight: '180px', height: '100%', resize: 'none' }}
+              />
+            </div>
 
             {body.trim().length === 0 && (
               <div
@@ -732,7 +1170,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                 className={`btn ${isInternal && canWriteInternal ? 'btn-secondary' : 'btn-primary'}`}
                 style={{
                   ...(isInternal && canWriteInternal
-                    ? { backgroundColor: '#f59e0b', color: '#000000', fontWeight: 600 }
+                    ? { backgroundColor: '#f59e0b', color: '#ffffff', fontWeight: 600 }
                     : {}),
                   ...(isSending || isUploading || !body.trim()
                     ? { opacity: 0.5, cursor: 'not-allowed', pointerEvents: 'none' }

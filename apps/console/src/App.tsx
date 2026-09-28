@@ -21,6 +21,7 @@ import './styles/layout.css';
 import './styles/components.css';
 
 import { ToastProvider } from './context/ToastContext';
+import { NotificationProvider } from './context/NotificationContext';
 
 export const App: React.FC = () => {
   return (
@@ -28,7 +29,8 @@ export const App: React.FC = () => {
       <AuthProvider>
         <ToastProvider>
           <SocketProvider>
-            <Routes>
+            <NotificationProvider>
+              <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -54,6 +56,7 @@ export const App: React.FC = () => {
               {/* Fallback */}
               <Route path="*" element={<Navigate to="/inbox" replace />} />
             </Routes>
+            </NotificationProvider>
           </SocketProvider>
         </ToastProvider>
       </AuthProvider>

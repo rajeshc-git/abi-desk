@@ -4,6 +4,8 @@ import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSearch, type SearchTag, type SearchCategory } from '../../context/SearchContext';
 import { ApiClient } from '../../api/client';
+import { useNotifications } from '../../context/NotificationContext';
+import { NotificationDropdown } from './NotificationDropdown';
 
 interface HeaderProps {
   onToggleSidebar?: () => void;
@@ -24,6 +26,10 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     selectedProduct,
     setSelectedProduct,
   } = useSearch();
+
+  const { unreadCount } = useNotifications();
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const notifBtnRef = useRef<HTMLButtonElement>(null);
 
   const [tagsList, setTagsList] = useState<SearchTag[]>([]);
   const [categoriesList, setCategoriesList] = useState<SearchCategory[]>([]);
@@ -631,25 +637,64 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
           </div>
         )}
 
-        <button
-          type="button"
-          className="notification-btn header-action-btn"
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-md)',
-            color: 'var(--text-secondary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            padding: 0,
-            flexShrink: 0,
-          }}
-          title="Notifications"
-        >
-          <Bell size={16} />
-        </button>
+        <div style={{ position: 'relative' }}>
+          <button
+            ref={notifBtnRef}
+            type="button"
+            onClick={() => setIsNotifOpen((prev) => !prev)}
+            className="notification-btn header-action-btn"
+            style={{
+              background: isNotifOpen ? 'var(--bg-hover, #f1f5f9)' : 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              color: isNotifOpen ? 'var(--primary, #2563eb)' : 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              padding: 0,
+              flexShrink: 0,
+              position: 'relative',
+              width: '36px',
+              height: '36px',
+              transition: 'all 0.15s ease',
+            }}
+            title={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+          >
+            <Bell size={16} />
+            {unreadCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  height: '17px',
+                  minWidth: '17px',
+                  padding: '0 4px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '2px solid var(--bg-surface, #ffffff)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  animation: 'pulse 2s infinite',
+                }}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          <NotificationDropdown
+            isOpen={isNotifOpen}
+            onClose={() => setIsNotifOpen(false)}
+            triggerRef={notifBtnRef}
+          />
+        </div>
       </div>
     </header>
   );
