@@ -2451,7 +2451,17 @@ export const DocumentsPage: React.FC = () => {
       case 'capaNotes':
         return t.capaNotes || '';
       case 'description':
-        return t.description ? t.description.replace(/<[^>]*>?/gm, '').replace(/[\r\n]+/g, ' ') : '';
+        return t.description
+          ? t.description
+              .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, ' ')
+              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+              .replace(/<xml[^>]*>[\s\S]*?<\/xml>/gi, ' ')
+              .replace(/<!--[\s\S]*?-->/g, ' ')
+              .replace(/<[^>]*>?/gm, '')
+              .replace(/[\r\n]+/g, ' ')
+              .trim()
+          : '';
       default:
         return String(t[colId] || '');
     }

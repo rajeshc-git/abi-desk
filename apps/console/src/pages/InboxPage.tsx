@@ -526,22 +526,51 @@ export const InboxPage: React.FC = () => {
 
   const getCleanSnippet = (text?: string) => {
     if (!text) return '';
-    // 1. Strip HTML tags
-    let cleaned = text.replace(/<[^>]+>/g, ' ');
-    // 2. Decode HTML entities
+    let cleaned = text;
+
+    // 1. Strip head, style, script, xml tags and their inner contents, plus HTML comments
+    cleaned = cleaned
+      .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, ' ')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<xml[^>]*>[\s\S]*?<\/xml>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ');
+
+    // 2. Strip remaining HTML tags
+    cleaned = cleaned.replace(/<[^>]+>/g, ' ');
+
+    // 3. Decode HTML entities
     cleaned = cleaned
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&amp;/g, '&')
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
-      .replace(/&nbsp;/g, ' ');
-    // 3. Cut off email reply headers (e.g. "On Tue, 15 Sept ... wrote:", "From: ...", "-----Original Message-----")
-    const replyHeaderMatch = cleaned.match(/\b(On\s+[A-Za-z]+,\s+[0-9]+.+?wrote:|-{2,}\s*Original Message\s*-{2,}|From:\s*|Sent:\s*|To:\s*)/i);
+      .replace(/&apos;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&#(\d+);/g, (_, dec) => {
+        try {
+          return String.fromCharCode(parseInt(dec, 10));
+        } catch {
+          return '';
+        }
+      });
+
+    // 4. Strip any leftover stray CSS rules (e.g. "P {margin-top:0;margin-bottom:0;}" or "@media ...")
+    cleaned = cleaned
+      .replace(/@media[^{]*\{[\s\S]*?\}\s*\}/gi, ' ')
+      .replace(/@[a-zA-Z-]+[^{]*\{[\s\S]*?\}/gi, ' ')
+      .replace(/(?:^|\s)[.#a-zA-Z0-9_\-,\s:>+*~]+\s*\{[^}]*\}/g, ' ');
+
+    // 5. Cut off email reply headers (e.g. "On Tue, 15 Sept ... wrote:", "From: ...", "-----Original Message-----")
+    const replyHeaderMatch = cleaned.match(
+      /\b(On\s+[A-Za-z]+,\s+[0-9]+.+?wrote:|-{2,}\s*Original Message\s*-{2,}|From:\s*|Sent:\s*|To:\s*)/i,
+    );
     if (replyHeaderMatch && replyHeaderMatch.index !== undefined && replyHeaderMatch.index > 0) {
       cleaned = cleaned.substring(0, replyHeaderMatch.index);
     }
-    // 4. Collapse whitespace
+
+    // 6. Collapse whitespace
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
     return cleaned;
   };

@@ -418,7 +418,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
 
     // Snippet for comments or internal notes
     if (ev.body && diffRows.length === 0) {
-      const cleanSnippet = ev.body.replace(/<[^>]*>/g, '').trim().slice(0, 160);
+      const cleanSnippet = ev.body
+        .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, ' ')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<xml[^>]*>[\s\S]*?<\/xml>/gi, ' ')
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/(?:^|\s)[.#a-zA-Z0-9_\-,\s:>+*~]+\s*\{[^}]*\}/g, ' ')
+        .trim()
+        .slice(0, 160);
       if (cleanSnippet) {
         diffRows.push({
           field: ev.visibility === 'INTERNAL' ? 'Internal Note Content' : 'Reply Content',
