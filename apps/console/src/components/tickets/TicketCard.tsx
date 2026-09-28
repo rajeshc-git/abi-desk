@@ -48,6 +48,7 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
 
   return (
     <div
+      className="ticket-card"
       onClick={onClick}
       style={{
         padding: '14px 16px',
@@ -122,40 +123,11 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
             </span>
           )}
         </div>
-        <div style={{ flexShrink: 0 }}>
-          <StatusBadge status={ticket.status} />
-        </div>
-      </div>
-
-      <div
-        title={ticket.subject}
-        style={{
-          fontSize: '14px',
-          fontWeight: isUnread ? 700 : 600,
-          color: isUnread ? 'var(--text-primary)' : 'var(--text-secondary, #334155)',
-          marginBottom: '6px',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          width: '100%',
-          display: 'block',
-        }}
-      >
-        {ticket.subject}
-      </div>
-
-      {/* Organization, Product, Category, Channel and Tags pills container */}
-      {(ticket.channel ||
-        ((ticket as any).customFields?.organization || (ticket as any).organization) ||
-        ((ticket as any).customFields?.product || (ticket as any).product) ||
-        ticket.category ||
-        (ticket.tags && ticket.tags.length > 0)) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
-          {/* Channel Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           {ticket.channel && (
             <span
               style={{
-                fontSize: '10px',
+                fontSize: '9.5px',
                 fontWeight: 600,
                 backgroundColor:
                   ticket.channel === 'WIDGET'
@@ -181,12 +153,40 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '3px',
+                textTransform: 'capitalize',
               }}
               title={`Inbound Channel: ${ticket.channel}`}
             >
               {ticket.channel === 'WIDGET' ? '🌐 Widget' : ticket.channel === 'EMAIL' ? '✉️ Email' : `📡 ${ticket.channel}`}
             </span>
           )}
+          <StatusBadge status={ticket.status} />
+        </div>
+      </div>
+
+      <div
+        title={ticket.subject}
+        style={{
+          fontSize: '14px',
+          fontWeight: isUnread ? 700 : 600,
+          color: isUnread ? 'var(--text-primary)' : 'var(--text-secondary, #334155)',
+          marginBottom: '6px',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          width: '100%',
+          display: 'block',
+        }}
+      >
+        {ticket.subject}
+      </div>
+
+      {/* Organization, Product, Category, and Tags pills container */}
+      {(((ticket as any).customFields?.organization || (ticket as any).organization) ||
+        ((ticket as any).customFields?.product || (ticket as any).product) ||
+        ticket.category ||
+        (ticket.tags && ticket.tags.length > 0)) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
 
           {/* Organization Badge */}
           {((ticket as any).customFields?.organization || (ticket as any).organization) && (
