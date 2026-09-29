@@ -202,6 +202,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       optional('ticket:escalate', true),
       optional('ticket:close', true),
       allow('ticket:tag'),
+      allow('ticket:delete'),
       allow('ticket:note:internal'),
 
       // Deliberately absent, matching the matrix:

@@ -120,20 +120,20 @@ const AVAILABLE_COLUMNS: ColumnDef[] = [
 ];
 
 const ALL_STATUSES = [
-  'NEW',
-  'TRIAGE',
-  'OPEN',
-  'PENDING_CUSTOMER',
-  'ON_HOLD',
-  'ESCALATED_L2',
-  'ESCALATED_L3',
-  'IN_DEVELOPMENT',
-  'IN_QA',
-  'PENDING_RELEASE',
-  'RELEASED',
-  'RESOLVED',
-  'CLOSED',
-  'CANCELLED',
+  { value: 'NEW', label: 'New' },
+  { value: 'TRIAGE', label: 'Triage' },
+  { value: 'OPEN', label: 'In Progress' },
+  { value: 'PENDING_CUSTOMER', label: 'Pending Customer' },
+  { value: 'ON_HOLD', label: 'On Hold' },
+  { value: 'ESCALATED_L2', label: 'Escalated (L2)' },
+  { value: 'ESCALATED_L3', label: 'Escalated (L3)' },
+  { value: 'IN_DEVELOPMENT', label: 'In Development' },
+  { value: 'IN_QA', label: 'In QA' },
+  { value: 'PENDING_RELEASE', label: 'Pending Release' },
+  { value: 'RELEASED', label: 'Released' },
+  { value: 'RESOLVED', label: 'Resolved' },
+  { value: 'CLOSED', label: 'Closed' },
+  { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
 const ALL_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL'];
@@ -2388,7 +2388,7 @@ export const DocumentsPage: React.FC = () => {
       case 'subject':
         return t.subject || '';
       case 'status':
-        return t.status || '';
+        return t.status === 'OPEN' ? 'In Progress' : (t.status || '').replace(/_/g, ' ');
       case 'priority':
         return t.priority || '';
       case 'tier':
@@ -2813,25 +2813,26 @@ export const DocumentsPage: React.FC = () => {
     const upperVal = val.toUpperCase();
 
     // Status Styling
-    if (lowerHeader.includes('status') || ['NEW', 'OPEN', 'RESOLVED', 'CLOSED', 'TRIAGE', 'IN_QA', 'ON_HOLD', 'CANCELLED'].includes(upperVal)) {
+    if (lowerHeader.includes('status') || ['NEW', 'OPEN', 'IN PROGRESS', 'RESOLVED', 'CLOSED', 'TRIAGE', 'IN_QA', 'ON_HOLD', 'CANCELLED'].includes(upperVal)) {
+      const displayVal = upperVal === 'OPEN' ? 'In Progress' : val;
       if (upperVal === 'RESOLVED' || upperVal === 'CLOSED') {
         return (
           <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#16a34a', padding: '2px 8px', borderRadius: '12px' }}>
-            {val}
+            {displayVal}
           </span>
         );
       }
-      if (upperVal === 'NEW' || upperVal === 'OPEN' || upperVal === 'TRIAGE') {
+      if (upperVal === 'NEW' || upperVal === 'OPEN' || upperVal === 'IN PROGRESS' || upperVal === 'TRIAGE') {
         return (
           <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#2563eb', padding: '2px 8px', borderRadius: '12px' }}>
-            {val}
+            {displayVal}
           </span>
         );
       }
       if (upperVal.includes('ESCALAT') || upperVal === 'ON_HOLD') {
         return (
           <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(245, 158, 11, 0.12)', color: '#d97706', padding: '2px 8px', borderRadius: '12px' }}>
-            {val}
+            {displayVal}
           </span>
         );
       }

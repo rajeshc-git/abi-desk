@@ -1347,6 +1347,7 @@ export class WidgetUI {
   }
 
   private formatStatus(status: string): string {
+    if (status === 'OPEN') return 'In Progress';
     return status.replace(/_/g, ' ').replace(/L(\d)/g, 'L$1');
   }
 

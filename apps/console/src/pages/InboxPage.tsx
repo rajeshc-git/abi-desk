@@ -357,6 +357,12 @@ export const InboxPage: React.FC = () => {
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  const canDeleteTickets =
+    user?.roles?.some((r: string) => ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r)) ||
+    user?.permissions?.includes('ticket:delete');
   const [expandedCommentIds, setExpandedCommentIds] = useState<Set<string>>(new Set());
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState<boolean>(true);
   const [expandedMergedTicketIds, setExpandedMergedTicketIds] = useState<Set<string>>(new Set());
@@ -866,13 +872,38 @@ export const InboxPage: React.FC = () => {
   const handleUnmergeTicket = async (primaryTicketId: string, secondaryTicketId: string) => {
     try {
       const updatedMaster: any = await TicketsApi.unmerge(primaryTicketId, secondaryTicketId);
-      toast.success('Ticket unmerged and restored to Open status.');
+      toast.success('Ticket unmerged and restored to In Progress status.');
       await loadTickets(true);
       if (selectedTicket?.id === primaryTicketId || selectedTicket?.id === secondaryTicketId) {
         setSelectedTicket(updatedMaster);
       }
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || 'Failed to unmerge ticket');
+    }
+  };
+
+  const handleBulkDeleteTickets = async () => {
+    if (selectedIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const ticketIdsArray = Array.from(selectedIds);
+      const res: any = await TicketsApi.bulkDelete(ticketIdsArray);
+      toast.success(res?.message || `Successfully deleted ${selectedIds.size} ticket(s).`);
+
+      if (selectedTicket && selectedIds.has(selectedTicket.id)) {
+        setSelectedTicket(null);
+        setSelectedComments([]);
+        setSelectedMedia([]);
+      }
+
+      setSelectedIds(new Set());
+      setIsBulkDeleteOpen(false);
+      await loadTickets(true);
+    } catch (err: any) {
+      console.error('Failed to delete tickets:', err);
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to delete selected tickets');
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -890,14 +921,15 @@ export const InboxPage: React.FC = () => {
     if (!selectedTicket) return;
     try {
       const res: any = await ApiClient.post(`/tickets/${selectedTicket.id}/transitions`, { toStatus: newStatus, comment });
+      const displayStatus = newStatus === 'OPEN' ? 'In Progress' : newStatus.replace(/_/g, ' ');
       if (res?.kind === 'pending_approval') {
-        toast.info(`Transition to ${newStatus} requires sign-off. Approval request submitted.`);
+        toast.info(`Transition to ${displayStatus} requires sign-off. Approval request submitted.`);
       } else {
         setSelectedTicket((prev: any) => ({ ...prev, status: newStatus }));
         setTickets((prev) =>
           prev.map((t) => (t.id === selectedTicket.id ? { ...t, status: newStatus } : t))
         );
-        toast.success(`Ticket #${selectedTicket.number} status updated to ${newStatus}`);
+        toast.success(`Ticket #${selectedTicket.number} status updated to ${displayStatus}`);
       }
       loadTickets();
     } catch (err: any) {
@@ -1003,6 +1035,29 @@ export const InboxPage: React.FC = () => {
           >
             <span>{selectedIds.size} selected</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {canDeleteTickets && (
+                <button
+                  type="button"
+                  onClick={() => setIsBulkDeleteOpen(true)}
+                  className="btn btn-danger btn-sm"
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: '11px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: 600,
+                    backgroundColor: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                  }}
+                  title="Permanently delete selected tickets"
+                >
+                  <Trash2 size={12} /> Delete ({selectedIds.size})
+                </button>
+              )}
               {selectedIds.size >= 2 && (
                 <button
                   type="button"
@@ -1587,7 +1642,7 @@ export const InboxPage: React.FC = () => {
                                   border: '1px solid #fecaca',
                                   borderRadius: '4px',
                                 }}
-                                title="Unmerge ticket and restore to Open"
+                                title="Unmerge ticket and restore to In Progress"
                               >
                                 Unmerge
                               </button>
@@ -2345,6 +2400,107 @@ export const InboxPage: React.FC = () => {
         selectedTickets={tickets.filter((t) => selectedIds.has(t.id))}
         onConfirmMerge={handleMergeTickets}
       />
+
+      {/* Bulk Delete Tickets Confirmation Modal */}
+      {isBulkDeleteOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.45)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 3000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => !isBulkDeleting && setIsBulkDeleteOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface, #ffffff)',
+              borderRadius: '12px',
+              maxWidth: '440px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: '#fee2e2',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Trash2 size={20} color="#dc2626" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary, #0f172a)', margin: 0 }}>
+                  Delete {selectedIds.size} Ticket{selectedIds.size > 1 ? 's' : ''}?
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)', margin: '2px 0 0 0' }}>
+                  Permanent Database Deletion
+                </p>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary, #475569)', lineHeight: 1.5, marginBottom: '20px' }}>
+              Are you sure you want to permanently delete <strong>{selectedIds.size} selected ticket{selectedIds.size > 1 ? 's' : ''}</strong> from the database? All associated comments, attachments, timeline events, and SLA clocks will be completely removed. <strong>This action cannot be undone.</strong>
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteOpen(false)}
+                disabled={isBulkDeleting}
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteTickets}
+                disabled={isBulkDeleting}
+                className="btn btn-danger"
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  backgroundColor: '#dc2626',
+                  color: '#ffffff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600,
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                {isBulkDeleting ? (
+                  <>
+                    <LoadingSpinner size={14} /> Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} /> Yes, Delete Permanently
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status Transition Note Modal */}
       {selectedTicket && (

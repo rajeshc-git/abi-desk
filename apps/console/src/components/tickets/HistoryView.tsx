@@ -336,10 +336,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
         to: ev.toValue || '-None-',
       });
     } else if (type === 'STATUS_CHANGED' || type === 'RESOLVED' || type === 'CLOSED' || type === 'REOPENED') {
+      const formatStatus = (val?: string | null) => {
+        if (!val) return null;
+        if (val === 'OPEN') return 'In Progress';
+        return val.replace(/_/g, ' ');
+      };
       diffRows.push({
         field: 'Status changed from',
-        from: ev.fromValue ? ev.fromValue.replace(/_/g, ' ') : '-None-',
-        to: ev.toValue ? ev.toValue.replace(/_/g, ' ') : 'Updated',
+        from: formatStatus(ev.fromValue) || '-None-',
+        to: formatStatus(ev.toValue) || 'Updated',
       });
     } else if (type === 'TIER_CHANGED' || type === 'ESCALATED') {
       diffRows.push({

@@ -32,10 +32,10 @@ export function formatUserFriendlyError(error: any): string {
     return 'Invalid email address or password. Please verify your credentials.';
   }
   if (
-    lower.includes('cannot post') ||
-    lower.includes('cannot get') ||
-    lower.includes('cannot patch') ||
-    lower.includes('cannot delete')
+    lower.startsWith('cannot post ') ||
+    lower.startsWith('cannot get ') ||
+    lower.startsWith('cannot patch ') ||
+    lower.startsWith('cannot delete ')
   ) {
     return 'The requested service is initializing. Please try again in a moment.';
   }

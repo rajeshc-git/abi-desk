@@ -311,9 +311,14 @@ export const bulkImportOrganizationsSchema = z.object({
 export class BulkImportOrganizationsDto extends createZodDto(bulkImportOrganizationsSchema) {}
 
 export const bulkDeleteOrganizationsSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(5000),
+  ids: z.array(z.string().uuid()).min(1).max(500),
 });
 export class BulkDeleteOrganizationsDto extends createZodDto(bulkDeleteOrganizationsSchema) {}
+
+export const bulkDeleteTicketsSchema = z.object({
+  ticketIds: z.array(z.string().uuid()).min(1).max(500),
+});
+export class BulkDeleteTicketsDto extends createZodDto(bulkDeleteTicketsSchema) {}
 
 
 

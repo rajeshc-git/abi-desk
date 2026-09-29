@@ -6,7 +6,7 @@ interface StatusBadgeProps {
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   const normalized = status.toLowerCase();
-  const label = status.replace(/_/g, ' ');
+  const label = status === 'OPEN' ? 'In Progress' : status.replace(/_/g, ' ');
 
   return <span className={`badge badge-${normalized}`}>{label}</span>;
 };

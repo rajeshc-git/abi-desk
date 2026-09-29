@@ -187,7 +187,7 @@ export const AnalyticsPage: React.FC = () => {
 
   // Donut Segments for Status & Priority
   const statusSegments: DonutSegment[] = (volume?.byStatus || []).map((s: any) => ({
-    label: s.status.replace(/_/g, ' '),
+    label: s.status === 'OPEN' ? 'In Progress' : s.status.replace(/_/g, ' '),
     count: s.count,
     color: STATUS_COLORS[s.status] || '#94a3b8',
   }));

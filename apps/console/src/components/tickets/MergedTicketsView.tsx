@@ -286,7 +286,7 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
                       disabled={unmergingId === sec.id}
                       className="btn btn-danger btn-sm"
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}
-                      title="Unmerge this ticket and restore back to Open"
+                      title="Unmerge this ticket and restore back to In Progress"
                     >
                       <Undo2 size={13} />
                       {unmergingId === sec.id ? 'Unmerging...' : 'Unmerge'}

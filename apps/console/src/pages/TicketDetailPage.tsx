@@ -284,11 +284,12 @@ export const TicketDetailPage: React.FC = () => {
     if (!id) return;
     try {
       const res: any = await ApiClient.post(`/tickets/${id}/transitions`, { toStatus: newStatus, comment });
+      const displayStatus = newStatus === 'OPEN' ? 'In Progress' : newStatus.replace(/_/g, ' ');
       if (res?.kind === 'pending_approval') {
-        toast.info(`Transition to ${newStatus} requires sign-off. Approval request #${res.approvalRequestId || ''} submitted.`);
+        toast.info(`Transition to ${displayStatus} requires sign-off. Approval request #${res.approvalRequestId || ''} submitted.`);
       } else {
         setTicket((prev: any) => ({ ...prev, status: newStatus }));
-        toast.success(`Ticket status updated to ${newStatus}!`);
+        toast.success(`Ticket status updated to ${displayStatus}!`);
       }
       loadTicketDetails(id);
     } catch (err: any) {
@@ -329,7 +330,7 @@ export const TicketDetailPage: React.FC = () => {
   const handleUnmergeTicket = async (primaryTicketId: string, secondaryTicketId: string) => {
     try {
       const updatedMaster: any = await TicketsApi.unmerge(primaryTicketId, secondaryTicketId);
-      toast.success('Ticket unmerged and restored to Open status.');
+      toast.success('Ticket unmerged and restored to In Progress status.');
       setTicket(updatedMaster);
       if (id) loadTicketDetails(id);
     } catch (err: any) {

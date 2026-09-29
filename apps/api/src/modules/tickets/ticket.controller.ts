@@ -21,6 +21,7 @@ import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { AppException } from '../../common/errors/app-exception';
 import {
   AddCommentDto,
+  BulkDeleteTicketsDto,
   CreateTicketDto,
   LinkTicketDto,
   ListCommentsDto,
@@ -331,5 +332,29 @@ export class TicketController {
     @Body() dto: SplitTicketDto,
   ) {
     return this.tickets.split(principal, params.id, dto);
+  }
+
+  /** Permanently deletes a single ticket. */
+  @Delete(':id')
+  @RequirePermission('ticket:delete')
+  @Audited({ action: 'ticket.deleted', resourceType: 'ticket', idParam: 'id' })
+  @HttpCode(HttpStatus.OK)
+  delete(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param() params: TicketIdParamDto,
+  ) {
+    return this.tickets.deleteTicket(principal, params.id);
+  }
+
+  /** Bulk permanently deletes tickets. */
+  @Post('bulk-delete')
+  @RequirePermission('ticket:delete')
+  @Audited({ action: 'ticket.bulk_deleted', resourceType: 'ticket' })
+  @HttpCode(HttpStatus.OK)
+  bulkDelete(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: BulkDeleteTicketsDto,
+  ) {
+    return this.tickets.bulkDelete(principal, dto.ticketIds);
   }
 }

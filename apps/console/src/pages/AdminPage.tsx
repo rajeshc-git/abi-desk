@@ -608,6 +608,8 @@ export const AdminPage: React.FC = () => {
   const [inviteBrandId, setInviteBrandId] = useState('');
   const [inviteMessage, setInviteMessage] = useState('');
   const [isInviting, setIsInviting] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<any | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -1987,6 +1989,21 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       toast.success(`User status updated to ${nextStatus}!`);
     } catch (err: any) {
       toast.error(`Failed to update status: ${err.message}`);
+    }
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setIsDeletingUser(true);
+    try {
+      await ApiClient.delete(`/admin/users/${userToDelete.id}`);
+      toast.success(`User '${userToDelete.fullName || userToDelete.email}' permanently deleted from database!`);
+      setUserToDelete(null);
+      loadData();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to delete user');
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -6075,6 +6092,20 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                           >
                             {isSuspended ? 'Activate' : 'Suspend'}
                           </button>
+                          <button
+                            onClick={() => setUserToDelete(u)}
+                            className="btn btn-danger btn-sm"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title="Delete User from Database"
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       </div>
                     );
@@ -6322,6 +6353,20 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                             style={{ padding: '4px 10px', fontSize: '11px' }}
                           >
                             {isSuspended ? 'Activate' : 'Suspend'}
+                          </button>
+                          <button
+                            onClick={() => setUserToDelete(u)}
+                            className="btn btn-danger btn-sm"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title="Delete Customer from Database"
+                          >
+                            <Trash2 size={12} />
                           </button>
                         </div>
                       </div>
@@ -10020,6 +10065,99 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
           </div>
         </form>
       </Modal>
+
+      {/* Delete User Confirmation Modal */}
+      {userToDelete && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 2100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+          onClick={() => !isDeletingUser && setUserToDelete(null)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface, #ffffff)',
+              borderRadius: '12px',
+              border: '1px solid var(--border-subtle, #e2e8f0)',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              width: '100%',
+              maxWidth: '440px',
+              padding: '24px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', marginBottom: '16px' }}>
+              <div
+                style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '50%',
+                  backgroundColor: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, margin: '0 0 6px 0', color: 'var(--text-primary)' }}>
+                  Delete User Permanently?
+                </h3>
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                  Are you sure you want to permanently delete{' '}
+                  <strong style={{ color: 'var(--text-primary)' }}>
+                    {userToDelete.fullName || userToDelete.email}
+                  </strong>{' '}
+                  ({userToDelete.email}) from the database? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+                style={{ padding: '7px 16px', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={handleConfirmDeleteUser}
+                disabled={isDeletingUser}
+                style={{
+                  padding: '7px 18px',
+                  fontSize: '13px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600,
+                }}
+              >
+                <Trash2 size={14} />
+                {isDeletingUser ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

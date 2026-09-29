@@ -184,6 +184,16 @@ export class TenancyAdminController {
     return this.adminService.updateUserAdmin(principal, userId, dto);
   }
 
+  @Delete('users/:id')
+  @RequirePermission('admin:user:manage')
+  @Audited({ action: 'user.deleted', resourceType: 'user', idParam: 'id' })
+  deleteUser(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param('id') userId: string,
+  ) {
+    return this.adminService.deleteUser(principal, userId);
+  }
+
   @Post('users/invite')
   @RequirePermission('admin:user:invite')
   @Audited({ action: 'user.invited', resourceType: 'user' })

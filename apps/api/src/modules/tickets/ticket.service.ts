@@ -1596,6 +1596,153 @@ export class TicketService {
     return this.findByIdOrThrow(principal, createdSplitTicket.id);
   }
 
+  /**
+   * Permanently deletes a single ticket and safely cleans up all relations/foreign keys.
+   */
+  async deleteTicket(principal: AuthenticatedPrincipal, ticketId: string) {
+    const tenantId = this.requireTenant(principal);
+    const ticket = await this.findByIdOrThrow(principal, ticketId);
+
+    return this.prisma.run(async (tx) => {
+      // 1. Unlink chat conversations
+      await tx.chatConversation.updateMany({
+        where: { ticketId: ticket.id },
+        data: { ticketId: null },
+      });
+
+      // 2. Delete ticket links (both source and target)
+      await tx.ticketLink.deleteMany({
+        where: {
+          OR: [{ sourceId: ticket.id }, { targetId: ticket.id }],
+        },
+      });
+
+      // 3. Delete approval decisions and requests
+      const approvalRequests = await tx.approvalRequest.findMany({
+        where: { ticketId: ticket.id },
+        select: { id: true },
+      });
+      if (approvalRequests.length > 0) {
+        await tx.approvalDecision.deleteMany({
+          where: { requestId: { in: approvalRequests.map((r) => r.id) } },
+        });
+      }
+      await tx.approvalRequest.deleteMany({ where: { ticketId: ticket.id } });
+
+      // 4. Delete child entities & notifications
+      await tx.notification.deleteMany({ where: { tenantId, resourceId: ticket.id } });
+      await tx.ticketWatcher.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.ticketTag.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.ticketComment.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.ticketEvent.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.mediaAsset.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.diagnosticBundle.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.csatResponse.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.ticketSlaState.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.slaEvent.deleteMany({ where: { ticketId: ticket.id } });
+      await tx.automationRun.deleteMany({ where: { ticketId: ticket.id } });
+
+      // 5. Delete ticket itself
+      await tx.ticket.delete({
+        where: { id: ticket.id },
+      });
+
+      await this.audit.record({
+        action: 'ticket.deleted',
+        resourceType: 'ticket',
+        resourceId: ticket.id,
+        resourceLabel: ticket.number,
+        tenantId,
+        actorId: principal.userId,
+      });
+
+      return { success: true, message: `Ticket ${ticket.number} deleted successfully.` };
+    });
+  }
+
+  /**
+   * Permanently deletes multiple tickets in bulk and safely cleans up all relations/foreign keys.
+   */
+  async bulkDelete(principal: AuthenticatedPrincipal, ticketIds: string[]) {
+    const tenantId = this.requireTenant(principal);
+    const uniqueIds = Array.from(new Set(ticketIds));
+    if (uniqueIds.length === 0) {
+      throw AppException.badRequest('At least one ticket ID is required.');
+    }
+
+    // Verify tickets belong to this tenant
+    const existingTickets = await this.prisma.client.ticket.findMany({
+      where: { id: { in: uniqueIds }, tenantId },
+      select: { id: true, number: true },
+    });
+
+    if (existingTickets.length === 0) {
+      throw AppException.notFound('None of the specified tickets were found.');
+    }
+
+    const foundIds = existingTickets.map((t) => t.id);
+
+    return this.prisma.run(async (tx) => {
+      // 1. Unlink chat conversations
+      await tx.chatConversation.updateMany({
+        where: { ticketId: { in: foundIds } },
+        data: { ticketId: null },
+      });
+
+      // 2. Delete ticket links (both source and target)
+      await tx.ticketLink.deleteMany({
+        where: {
+          OR: [{ sourceId: { in: foundIds } }, { targetId: { in: foundIds } }],
+        },
+      });
+
+      // 3. Delete approval decisions and requests
+      const approvalRequests = await tx.approvalRequest.findMany({
+        where: { ticketId: { in: foundIds } },
+        select: { id: true },
+      });
+      if (approvalRequests.length > 0) {
+        await tx.approvalDecision.deleteMany({
+          where: { requestId: { in: approvalRequests.map((r) => r.id) } },
+        });
+      }
+      await tx.approvalRequest.deleteMany({ where: { ticketId: { in: foundIds } } });
+
+      // 4. Delete child entities & notifications
+      await tx.notification.deleteMany({ where: { tenantId, resourceId: { in: foundIds } } });
+      await tx.ticketWatcher.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.ticketTag.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.ticketComment.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.ticketEvent.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.mediaAsset.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.diagnosticBundle.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.csatResponse.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.ticketSlaState.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.slaEvent.deleteMany({ where: { ticketId: { in: foundIds } } });
+      await tx.automationRun.deleteMany({ where: { ticketId: { in: foundIds } } });
+
+      // 5. Delete tickets
+      const deleted = await tx.ticket.deleteMany({
+        where: { id: { in: foundIds }, tenantId },
+      });
+
+      await this.audit.record({
+        action: 'ticket.bulk_deleted',
+        resourceType: 'ticket',
+        resourceId: foundIds.join(','),
+        resourceLabel: `${deleted.count} tickets deleted`,
+        tenantId,
+        actorId: principal.userId,
+      });
+
+      return {
+        success: true,
+        count: deleted.count,
+        message: `Successfully deleted ${deleted.count} ticket(s).`,
+      };
+    });
+  }
+
   // =========================================================================
   // Internals
   // =========================================================================

@@ -521,6 +521,66 @@ export class TenancyAdminService {
     });
   }
 
+  async deleteUser(principal: AuthenticatedPrincipal, userId: string) {
+    const tenantId = this.tenantContext.requireTenantId();
+
+    if (principal.userId === userId) {
+      throw AppException.badRequest('You cannot delete your own account.');
+    }
+
+    const user = await this.db.client.user.findFirst({
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      throw AppException.notFound('User not found.');
+    }
+
+    return this.db.run(async (tx) => {
+      // 1. Delete tickets requested by this user (cascades ticket comments, events, SLA clocks)
+      await tx.ticket.deleteMany({
+        where: { tenantId, requesterId: userId },
+      });
+
+      // 2. Unassign tickets assigned to this user
+      await tx.ticket.updateMany({
+        where: { tenantId, assigneeId: userId },
+        data: { assigneeId: null },
+      });
+
+      // 3. Clear authorId on remaining comments
+      await tx.ticketComment.updateMany({
+        where: { tenantId, authorId: userId },
+        data: { authorId: null },
+      });
+
+      // 4. Delete approval decisions made by this user
+      await tx.approvalDecision.deleteMany({ where: { approverId: userId } });
+
+      // 5. Delete watchers, notifications, CSAT responses
+      await tx.ticketWatcher.deleteMany({ where: { userId } });
+      await tx.csatResponse.deleteMany({ where: { userId } });
+      await tx.notification.deleteMany({ where: { userId } });
+      await tx.notificationPreference.deleteMany({ where: { userId } });
+
+      // 6. Delete user roles & team memberships
+      await tx.userRole.deleteMany({ where: { userId, tenantId } });
+      await tx.teamMember.deleteMany({ where: { userId, tenantId } });
+
+      // 7. Delete user identities & sessions
+      await tx.userIdentity.deleteMany({ where: { userId } });
+      await tx.session.deleteMany({ where: { userId } });
+
+      // 8. Delete chat participants
+      await tx.chatParticipant.deleteMany({ where: { userId, tenantId } });
+
+      // 9. Delete user permanently from database
+      await tx.user.delete({ where: { id: userId } });
+
+      return { success: true, message: `User '${user.fullName || user.email}' permanently deleted.` };
+    });
+  }
+
   async inviteUser(principal: AuthenticatedPrincipal, dto: InviteUserDto) {
     const tenantId = this.tenantContext.requireTenantId();
 

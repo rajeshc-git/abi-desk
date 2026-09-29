@@ -43,6 +43,8 @@ export const TicketsApi = {
     ApiClient.post('/tickets/merge', { primaryTicketId, secondaryTicketIds, note }),
   unmerge: (primaryTicketId: string, secondaryTicketId: string, note?: string) =>
     ApiClient.post(`/tickets/${primaryTicketId}/unmerge`, { secondaryTicketId, note }),
+  delete: (id: string) => ApiClient.delete(`/tickets/${id}`),
+  bulkDelete: (ticketIds: string[]) => ApiClient.post('/tickets/bulk-delete', { ticketIds }),
   split: (
     ticketId: string,
     data: {
