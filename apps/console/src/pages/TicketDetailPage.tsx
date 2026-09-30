@@ -127,7 +127,18 @@ export const TicketDetailPage: React.FC = () => {
     );
 
   useEffect(() => {
-    if (id) loadTicketDetails(id);
+    if (id) {
+      loadTicketDetails(id);
+      try {
+        const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+        const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+        if (existing.includes(id)) {
+          const updated = existing.filter((tid) => tid !== id);
+          localStorage.setItem(key, JSON.stringify(updated));
+          window.dispatchEvent(new Event('unread_tickets_updated'));
+        }
+      } catch {}
+    }
     ApiClient.get<any[]>('/admin/users')
       .then((users) => {
         if (Array.isArray(users)) {
@@ -135,7 +146,7 @@ export const TicketDetailPage: React.FC = () => {
         }
       })
       .catch(() => { });
-  }, [id]);
+  }, [id, user?.id]);
 
   // Real-time live comment and ticket update synchronization
   const mapComments = (list: any[]): CommentItem[] =>

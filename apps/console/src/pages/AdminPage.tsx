@@ -1865,7 +1865,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         defaultShift: customShift,
         timing,
       });
-      toast.success('Staff member assigned to team!');
+      toast.success('Agent assigned to team!');
       await loadData();
       const refreshedTeams = await ApiClient.get('/admin/teams');
       const updated = (refreshedTeams || []).find((t: any) => t.id === selectedTeamForMembers.id);
@@ -2030,7 +2030,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       setEditingStaffUser(null);
       await loadData();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update staff role.');
+      toast.error(err instanceof Error ? err.message : 'Failed to update agent role.');
     } finally {
       setIsUpdatingStaffRole(false);
     }
@@ -2157,7 +2157,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
           </h2>
 
           <p className="analytics-restriction-desc">
-            System Administration & Setup consoles feature multi-brand management, embed snippet builders, queue matrices, staff roles, and webhook integrations designed specifically for larger displays.
+            System Administration & Setup consoles feature multi-brand management, embed snippet builders, queue matrices, agent roles, and webhook integrations designed specifically for larger displays.
           </p>
 
           <div className="analytics-restriction-specs">
@@ -2226,7 +2226,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         <div>
           <h1 style={{ fontSize: '20px', fontWeight: 700 }}>Setup</h1>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            Configure multi-brand settings, embeddable widgets, routing queues, staff accounts, API
+            Configure multi-brand settings, embeddable widgets, routing queues, agent accounts, API
             credentials, and webhooks.
           </p>
         </div>
@@ -2251,7 +2251,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
           { id: 'tags', label: 'Tags & Auto-Tagging', icon: TagIcon },
           { id: 'categories', label: 'Categories & Keywords', icon: Folder },
           { id: 'teams', label: 'Teams & Queues', icon: Users },
-          { id: 'users', label: 'Staff Directory', icon: UserPlus },
+          { id: 'users', label: 'Agent Directory', icon: UserPlus },
           { id: 'customers', label: 'Customer Directory', icon: UserCheck },
           { id: 'sso', label: 'Single Sign-On (SSO)', icon: Shield },
         ].map((tab) => {
@@ -5693,13 +5693,13 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                                     }}
                                   >
                                     {m.isLead && <span style={{ color: '#d97706' }}>⭐ Lead:</span>}
-                                    <span>{m.user?.fullName || m.user?.displayName || m.user?.email || 'Staff'}</span>
+                                    <span>{m.user?.fullName || m.user?.displayName || m.user?.email || 'Agent'}</span>
                                     <span style={{ fontSize: '10px', color: m.isLead ? '#b45309' : '#64748b', opacity: 0.85 }}>({m.grade || 'Junior'})</span>
                                   </span>
                                 ))
                               ) : (
                                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                                  No staff assigned yet
+                                  No agents assigned yet
                                 </span>
                               )}
                             </div>
@@ -5831,7 +5831,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   }}
                 >
                   <UserPlus size={13} />
-                  <span>Staff Directory ({totalStaffCount})</span>
+                  <span>Agent Directory ({totalStaffCount})</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('customers')}
@@ -5868,7 +5868,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               >
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Staff Directory</h3>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Agent Directory</h3>
                     <span
                       style={{
                         fontSize: '11px',
@@ -5880,7 +5880,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                         border: '1px solid var(--primary-border, #bfdbfe)',
                       }}
                     >
-                      {filteredStaffUsers.length} of {totalStaffCount} Staff
+                      {filteredStaffUsers.length} of {totalStaffCount} Agents
                     </span>
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
@@ -5888,7 +5888,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   </p>
                 </div>
                 <button onClick={() => setIsInviteOpen(true)} className="btn btn-primary btn-sm">
-                  <UserPlus size={14} /> Invite New Staff
+                  <UserPlus size={14} /> Invite New Agent
                 </button>
               </div>
 
@@ -6005,11 +6005,11 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                       borderRadius: 'var(--radius-md)',
                     }}
                   >
-                    No staff members found matching search filters.
+                    No agents found matching search filters.
                   </div>
                 ) : (
                   filteredStaffUsers.map((u) => {
-                    const roleName = u.roles?.[0]?.role?.name || 'Staff';
+                    const roleName = u.roles?.[0]?.role?.name || 'Agent';
                     const tier = u.roles?.[0]?.role?.tier;
                     const isSuspended = u.status === 'SUSPENDED';
 
@@ -6048,7 +6048,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                       >
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                            {u.fullName || 'Unnamed Staff'}
+                            {u.fullName || 'Unnamed Agent'}
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                             {u.email}
@@ -6145,7 +6145,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   }}
                 >
                   <UserPlus size={13} />
-                  <span>Staff Directory ({totalStaffCount})</span>
+                  <span>Agent Directory ({totalStaffCount})</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('customers')}
@@ -7150,11 +7150,11 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         </form>
       </Modal>
 
-      {/* Change Staff Role Modal */}
+      {/* Change Agent Role Modal */}
       <Modal
         isOpen={!!editingStaffUser}
         onClose={() => setEditingStaffUser(null)}
-        title="Change Staff Role"
+        title="Change Agent Role"
       >
         <div style={{ position: 'relative' }}>
           {isUpdatingStaffRole && (
@@ -7328,7 +7328,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       <Modal
         isOpen={isInviteOpen}
         onClose={() => setIsInviteOpen(false)}
-        title="Invite Staff Member"
+        title="Invite Agent"
       >
         <div style={{ position: 'relative' }}>
           {isInviting && (
@@ -7639,7 +7639,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '12.5px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Users size={14} style={{ color: 'var(--primary)' }} />
-                    Staff Directory
+                    Agent Directory
                   </span>
                   <span style={{ fontSize: '11px', fontWeight: '600', padding: '1px 7px', borderRadius: '10px', background: 'var(--bg-app)', color: 'var(--text-muted)' }}>
                     {availableStaff.length} available
@@ -7653,7 +7653,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                     type="text"
                     value={memberSearchQuery}
                     onChange={(e) => setMemberSearchQuery(e.target.value)}
-                    placeholder="Search staff name or email..."
+                    placeholder="Search agent name or email..."
                     className="form-control"
                     style={{ paddingLeft: '28px', fontSize: '11.5px', height: '30px' }}
                   />
@@ -7665,7 +7665,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 {availableStaff.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '36px 12px', color: 'var(--text-muted)', fontSize: '12px' }}>
                     <UserCheck size={24} style={{ color: 'var(--border-strong)', margin: '0 auto 6px', display: 'block' }} />
-                    {memberSearchQuery ? 'No staff matching search.' : 'All staff members are already assigned to this team!'}
+                    {memberSearchQuery ? 'No agents matching search.' : 'All agents are already assigned to this team!'}
                   </div>
                 ) : (
                   availableStaff.map((u: any) => {

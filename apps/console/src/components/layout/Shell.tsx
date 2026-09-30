@@ -38,9 +38,11 @@ export const Shell: React.FC = () => {
       if (!incoming) return;
 
       try {
-        const existing: string[] = JSON.parse(localStorage.getItem('unread_ticket_ids') || '[]');
+        const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+        const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');
         const updated = Array.from(new Set([...existing, incoming.id]));
-        localStorage.setItem('unread_ticket_ids', JSON.stringify(updated));
+        localStorage.setItem(key, JSON.stringify(updated));
+        window.dispatchEvent(new Event('unread_tickets_updated'));
       } catch {}
     };
 
@@ -48,9 +50,11 @@ export const Shell: React.FC = () => {
       if (!data.ticketId) return;
 
       try {
-        const existing: string[] = JSON.parse(localStorage.getItem('unread_ticket_ids') || '[]');
+        const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+        const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');
         const updated = Array.from(new Set([...existing, data.ticketId]));
-        localStorage.setItem('unread_ticket_ids', JSON.stringify(updated));
+        localStorage.setItem(key, JSON.stringify(updated));
+        window.dispatchEvent(new Event('unread_tickets_updated'));
       } catch {}
     };
 
@@ -61,7 +65,7 @@ export const Shell: React.FC = () => {
       socket.off('ticket.created', handleTicketCreated);
       socket.off('ticket.commented', handleTicketCommented);
     };
-  }, [socket]);
+  }, [socket, user?.id]);
 
   useEffect(() => {
     if (activeBrandId && brands.length > 0) {

@@ -684,7 +684,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                   animation: 'pulse 2s infinite',
                 }}
               >
-                {unreadCount > 99 ? '99+' : unreadCount}
+                {unreadCount > 999 ? '999+' : unreadCount}
               </span>
             )}
           </button>

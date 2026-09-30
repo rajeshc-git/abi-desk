@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Inbox,
@@ -22,6 +22,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useSocket } from '../../context/SocketContext';
 import { ZohoDeskLogo } from '../common/ZohoDeskLogo';
 import { Modal } from '../common/Modal';
 import { ApiClient } from '../../api/client';
@@ -60,6 +61,117 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
     'theme' | 'api-keys' | 'webhooks' | 'compliance'
   >('theme');
   const [saveTarget, setSaveTarget] = useState<'PERSONAL' | 'COMPANY'>('PERSONAL');
+
+  // Real-time unread ticket & live chat counts (scoped per user)
+  const { socket } = useSocket();
+  const ticketStorageKey = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+  const getChatViewedKey = useCallback(
+    (convId: string) => (user?.id ? `chat:last_viewed:${user.id}:${convId}` : `chat:last_viewed:${convId}`),
+    [user?.id]
+  );
+
+  const [unreadTicketCount, setUnreadTicketCount] = useState<number>(0);
+  const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
+
+  const updateTicketCount = useCallback(() => {
+    try {
+      const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+      const stored = JSON.parse(localStorage.getItem(key) || '[]');
+      setUnreadTicketCount(Array.isArray(stored) ? stored.length : 0);
+    } catch {
+      setUnreadTicketCount(0);
+    }
+  }, [user?.id]);
+
+  const updateChatCount = useCallback(async () => {
+    try {
+      const res = await ApiClient.get<{ conversations: any[] }>('/chat/conversations').catch(() => ({ conversations: [] }));
+      const list = res?.conversations || [];
+      let count = 0;
+      list.forEach((c: any) => {
+        const localViewed = localStorage.getItem(getChatViewedKey(c.id));
+        if (localViewed && c.lastMessageAt) {
+          if (new Date(c.lastMessageAt).getTime() > new Date(localViewed).getTime()) {
+            count++;
+          }
+        } else if (c.status === 'QUEUED') {
+          count++;
+        } else if (c.lastMessageAt) {
+          count++;
+        }
+      });
+      setUnreadChatCount(count);
+    } catch {
+      // non-blocking
+    }
+  }, [getChatViewedKey]);
+
+  useEffect(() => {
+    updateTicketCount();
+    updateChatCount();
+
+    const handleTicketsUpdated = () => updateTicketCount();
+    const handleChatsUpdated = () => updateChatCount();
+
+    window.addEventListener('unread_tickets_updated', handleTicketsUpdated);
+    window.addEventListener('unread_chats_updated', handleChatsUpdated);
+    window.addEventListener('storage', handleTicketsUpdated);
+
+    return () => {
+      window.removeEventListener('unread_tickets_updated', handleTicketsUpdated);
+      window.removeEventListener('unread_chats_updated', handleChatsUpdated);
+      window.removeEventListener('storage', handleTicketsUpdated);
+    };
+  }, [updateTicketCount, updateChatCount]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTicketCreated = (data: any) => {
+      const incoming = data?.ticket;
+      if (!incoming?.id) return;
+      try {
+        const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+        const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+        const updated = Array.from(new Set([...existing, incoming.id]));
+        localStorage.setItem(key, JSON.stringify(updated));
+        setUnreadTicketCount(updated.length);
+        window.dispatchEvent(new Event('unread_tickets_updated'));
+      } catch {}
+    };
+
+    const handleTicketCommented = (data: any) => {
+      if (!data?.ticketId) return;
+      try {
+        const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+        const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+        const updated = Array.from(new Set([...existing, data.ticketId]));
+        localStorage.setItem(key, JSON.stringify(updated));
+        setUnreadTicketCount(updated.length);
+        window.dispatchEvent(new Event('unread_tickets_updated'));
+      } catch {}
+    };
+
+    const handleChatUpdated = () => {
+      updateChatCount();
+    };
+
+    socket.on('ticket.created', handleTicketCreated);
+    socket.on('ticket.commented', handleTicketCommented);
+    socket.on('chat.inbox_updated', handleChatUpdated);
+    socket.on('chat.message', handleChatUpdated);
+    socket.on('chat.started', handleChatUpdated);
+    socket.on('chat.accepted', handleChatUpdated);
+
+    return () => {
+      socket.off('ticket.created', handleTicketCreated);
+      socket.off('ticket.commented', handleTicketCommented);
+      socket.off('chat.inbox_updated', handleChatUpdated);
+      socket.off('chat.message', handleChatUpdated);
+      socket.off('chat.started', handleChatUpdated);
+      socket.off('chat.accepted', handleChatUpdated);
+    };
+  }, [socket, user?.id, updateChatCount]);
 
   useEffect(() => {
     let timer: any;
@@ -268,11 +380,53 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
 
           const isActive = location.pathname.startsWith(item.path);
           const Icon = item.icon;
+          const badgeCount =
+            item.path === '/inbox'
+              ? unreadTicketCount
+              : item.path === '/chat'
+              ? unreadChatCount
+              : 0;
 
           return (
-            <Link key={item.path} to={item.path} className={`nav-item ${isActive ? 'active' : ''}`} onClick={onClose}>
-              <Icon size={18} />
-              <span>{item.title}</span>
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`nav-item ${isActive ? 'active' : ''}`}
+              onClick={onClose}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                <Icon size={18} style={{ flexShrink: 0 }} />
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {item.title}
+                </span>
+              </div>
+              {badgeCount > 0 && (
+                <span
+                  style={{
+                    backgroundColor: '#ef4444',
+                    color: '#ffffff',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    height: '18px',
+                    minWidth: '18px',
+                    padding: '0 5px',
+                    borderRadius: '10px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    lineHeight: 1,
+                    boxShadow: '0 1px 3px rgba(239, 68, 68, 0.45)',
+                    flexShrink: 0,
+                  }}
+                >
+                  {badgeCount > 999 ? '999+' : badgeCount}
+                </span>
+              )}
             </Link>
           );
         })}

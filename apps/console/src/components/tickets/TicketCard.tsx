@@ -28,7 +28,7 @@ interface TicketCardProps {
   onClick?: () => void;
 }
 
-export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUnread, onClick }) => {
+const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, isUnread, onClick }) => {
   const {
     setSelectedTag,
     setSelectedCategory,
@@ -367,3 +367,18 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket, isSelected, isUn
     </div>
   );
 };
+
+export const TicketCard = React.memo(TicketCardComponent, (prev, next) => {
+  return (
+    prev.isSelected === next.isSelected &&
+    prev.isUnread === next.isUnread &&
+    prev.ticket.id === next.ticket.id &&
+    prev.ticket.status === next.ticket.status &&
+    prev.ticket.priority === next.ticket.priority &&
+    prev.ticket.tier === next.ticket.tier &&
+    prev.ticket.subject === next.ticket.subject &&
+    prev.ticket.category === next.ticket.category &&
+    prev.ticket.updatedAt === next.ticket.updatedAt &&
+    prev.ticket.publicCommentCount === next.ticket.publicCommentCount
+  );
+});

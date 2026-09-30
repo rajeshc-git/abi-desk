@@ -17,8 +17,8 @@ export interface CreateTicketDto {
 }
 
 export const TicketsApi = {
-  list: (params?: Record<string, any>) => ApiClient.get('/tickets', params),
-  getById: (id: string) => ApiClient.get(`/tickets/${id}`),
+  list: (params?: Record<string, any>, options?: RequestInit) => ApiClient.get('/tickets', params, options),
+  getById: (id: string, options?: RequestInit) => ApiClient.request(`/tickets/${id}`, { method: 'GET', ...options }),
   create: (data: CreateTicketDto) => ApiClient.post('/tickets', data),
   update: (id: string, data: Record<string, any>) => ApiClient.patch(`/tickets/${id}`, data),
   assign: (id: string, assigneeId: string | null) =>

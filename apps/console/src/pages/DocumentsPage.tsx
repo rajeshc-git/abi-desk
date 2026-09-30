@@ -41,6 +41,7 @@ import { ApiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { PerformanceReportsModal } from '../components/documents/PerformanceReportsModal';
 
 interface FilterState {
   datePreset:
@@ -1724,6 +1725,7 @@ export const DocumentsPage: React.FC = () => {
   const [viewerPage, setViewerPage] = useState(1);
   const [viewerPageSize, setViewerPageSize] = useState(25);
   const [isViewerFullscreen, setIsViewerFullscreen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -1790,16 +1792,14 @@ export const DocumentsPage: React.FC = () => {
         queuesRes,
         usersRes,
         rosterProdsRes,
-        prodsRes,
       ] = await Promise.allSettled([
-        ApiClient.get('/organizations'),
-        ApiClient.get('/tags'),
-        ApiClient.get('/categories'),
-        ApiClient.get('/admin/teams').catch(() => ApiClient.get('/teams')),
-        ApiClient.get('/queues'),
-        ApiClient.get('/admin/users').catch(() => ApiClient.get('/users')),
-        ApiClient.get('/admin/roster/products'),
-        ApiClient.get('/products'),
+        ApiClient.get('/organizations').catch(() => []),
+        ApiClient.get('/tags').catch(() => []),
+        ApiClient.get('/categories').catch(() => []),
+        ApiClient.get('/admin/teams').catch(() => ApiClient.get('/teams').catch(() => [])),
+        ApiClient.get('/admin/queues').catch(() => ApiClient.get('/analytics/queues').catch(() => [])),
+        ApiClient.get('/admin/users').catch(() => ApiClient.get('/users').catch(() => [])),
+        ApiClient.get('/admin/roster/products').catch(() => []),
       ]);
 
       if (orgsRes.status === 'fulfilled') {
@@ -1813,15 +1813,6 @@ export const DocumentsPage: React.FC = () => {
         const list = extractList(rosterProdsRes.value);
         list.forEach((p: any) => {
           const name = typeof p === 'string' ? p : p.name || p.slug;
-          if (name) productSet.add(String(name).trim());
-        });
-      }
-
-      // Products from /products endpoint
-      if (prodsRes.status === 'fulfilled') {
-        const list = extractList(prodsRes.value);
-        list.forEach((p: any) => {
-          const name = typeof p === 'string' ? p : p.name;
           if (name) productSet.add(String(name).trim());
         });
       }
@@ -2985,22 +2976,23 @@ export const DocumentsPage: React.FC = () => {
 
             <button
               type="button"
-              disabled={isExporting}
-              onClick={() => generateAndDownload()}
+              onClick={() => setIsReportModalOpen(true)}
               className="btn btn-primary"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '8px',
                 fontSize: '13px',
-                fontWeight: 700,
+                fontWeight: 750,
                 height: '38px',
                 padding: '0 16px',
                 borderRadius: '8px',
+                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)',
               }}
+              title="Open Detailed Team & Agent Performance Reports"
             >
-              <Download size={15} />
-              {isExporting ? 'Preparing Document...' : `Download CSV (${totalMatchCount} Items)`}
+              <BarChart3 size={15} />
+              Performance Reports
             </button>
           </div>
         </div>
@@ -4446,6 +4438,12 @@ export const DocumentsPage: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Full-Width Performance & Productivity Reports Modal */}
+        <PerformanceReportsModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+        />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Filter,
@@ -24,6 +24,7 @@ import {
   X,
   GitMerge,
   Globe,
+  Loader2,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { TicketsApi } from '../api/tickets';
@@ -374,7 +375,8 @@ export const InboxPage: React.FC = () => {
   } | null>(null);
   const [unreadTicketIds, setUnreadTicketIds] = useState<Set<string>>(() => {
     try {
-      return new Set(JSON.parse(localStorage.getItem('unread_ticket_ids') || '[]'));
+      const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+      return new Set(JSON.parse(localStorage.getItem(key) || '[]'));
     } catch {
       return new Set();
     }
@@ -384,9 +386,19 @@ export const InboxPage: React.FC = () => {
 
   useEffect(() => {
     try {
-      localStorage.setItem('unread_ticket_ids', JSON.stringify(Array.from(unreadTicketIds)));
+      const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+      const stored = new Set<string>(JSON.parse(localStorage.getItem(key) || '[]'));
+      setUnreadTicketIds(stored);
     } catch {}
-  }, [unreadTicketIds]);
+  }, [user?.id]);
+
+  useEffect(() => {
+    try {
+      const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
+      localStorage.setItem(key, JSON.stringify(Array.from(unreadTicketIds)));
+      window.dispatchEvent(new Event('unread_tickets_updated'));
+    } catch {}
+  }, [unreadTicketIds, user?.id]);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('ALL_OPEN');
@@ -418,43 +430,26 @@ export const InboxPage: React.FC = () => {
     selectedProduct,
   ]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadSelectedMedia = async () => {
-      if (!selectedTicket) {
-        setSelectedMedia([]);
-        return;
-      }
-
-      setIsMediaLoading(true);
-      try {
-        const media = await ApiClient.get<MediaAssetItem[]>(`/tickets/${selectedTicket.id}/media`);
-        if (!cancelled) setSelectedMedia(media);
-      } catch {
-        if (!cancelled) setSelectedMedia([]);
-      } finally {
-        if (!cancelled) setIsMediaLoading(false);
-      }
-    };
-
-    loadSelectedMedia();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedTicket?.id]);
-
-  // Automatically load complete ticket details, description, and comments when a ticket is selected
+  // Automatically load complete ticket details, description, media, and comments when a ticket is selected with AbortController
   useEffect(() => {
     if (!selectedTicket?.id) {
       setSelectedComments([]);
+      setSelectedMedia([]);
+      setIsCommentsLoading(false);
+      setIsMediaLoading(false);
       return;
     }
-    let cancelled = false;
 
-    TicketsApi.getById(selectedTicket.id)
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    setIsCommentsLoading(true);
+    setIsMediaLoading(true);
+
+    // 1. Fetch complete ticket details in background (diagnostics metadata, customFields, linksTo)
+    TicketsApi.getById(selectedTicket.id, { signal })
       .then((fullTicket: any) => {
-        if (!cancelled && fullTicket && fullTicket.id === selectedTicket.id) {
+        if (!signal.aborted && fullTicket && fullTicket.id === selectedTicket.id) {
           setSelectedTicket((prev) => {
             if (!prev || prev.id !== fullTicket.id) return prev;
             return {
@@ -466,25 +461,41 @@ export const InboxPage: React.FC = () => {
           });
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (err?.name === 'AbortError' || err?.message?.includes('aborted')) return;
+      });
 
-    setIsCommentsLoading(true);
-    ApiClient.get<any>(`/tickets/${selectedTicket.id}/comments?pageSize=100`)
+    // 2. Fetch conversation comments in background
+    ApiClient.get<any>(`/tickets/${selectedTicket.id}/comments?pageSize=100`, undefined, { signal })
       .then((res: any) => {
-        if (!cancelled) {
+        if (!signal.aborted) {
           const list = res?.comments || res?.items || (Array.isArray(res) ? res : []);
           setSelectedComments(filterConversationComments(list));
         }
       })
-      .catch(() => {
-        if (!cancelled) setSelectedComments([]);
+      .catch((err) => {
+        if (err?.name === 'AbortError' || err?.message?.includes('aborted')) return;
+        if (!signal.aborted) setSelectedComments([]);
       })
       .finally(() => {
-        if (!cancelled) setIsCommentsLoading(false);
+        if (!signal.aborted) setIsCommentsLoading(false);
+      });
+
+    // 3. Fetch media assets in background
+    ApiClient.get<MediaAssetItem[]>(`/tickets/${selectedTicket.id}/media`, undefined, { signal })
+      .then((media) => {
+        if (!signal.aborted) setSelectedMedia(media);
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError' || err?.message?.includes('aborted')) return;
+        if (!signal.aborted) setSelectedMedia([]);
+      })
+      .finally(() => {
+        if (!signal.aborted) setIsMediaLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [selectedTicket?.id]);
 
@@ -533,21 +544,15 @@ export const InboxPage: React.FC = () => {
 
   const getCleanSnippet = (text?: string) => {
     if (!text) return '';
-    let cleaned = text;
-
-    // 1. Strip head, style, script, xml tags and their inner contents, plus HTML comments
-    cleaned = cleaned
+    // Fast snippet: take only the first 2000 chars for snippet extraction
+    const raw = text.length > 2000 ? text.slice(0, 2000) : text;
+    let cleaned = raw
       .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, ' ')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
       .replace(/<xml[^>]*>[\s\S]*?<\/xml>/gi, ' ')
-      .replace(/<!--[\s\S]*?-->/g, ' ');
-
-    // 2. Strip remaining HTML tags
-    cleaned = cleaned.replace(/<[^>]+>/g, ' ');
-
-    // 3. Decode HTML entities
-    cleaned = cleaned
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&amp;/g, '&')
@@ -563,13 +568,7 @@ export const InboxPage: React.FC = () => {
         }
       });
 
-    // 4. Strip any leftover stray CSS rules (e.g. "P {margin-top:0;margin-bottom:0;}" or "@media ...")
-    cleaned = cleaned
-      .replace(/@media[^{]*\{[\s\S]*?\}\s*\}/gi, ' ')
-      .replace(/@[a-zA-Z-]+[^{]*\{[\s\S]*?\}/gi, ' ')
-      .replace(/(?:^|\s)[.#a-zA-Z0-9_\-,\s:>+*~]+\s*\{[^}]*\}/g, ' ');
-
-    // 5. Cut off email reply headers (e.g. "On Tue, 15 Sept ... wrote:", "From: ...", "-----Original Message-----")
+    // Strip email reply markers
     const replyHeaderMatch = cleaned.match(
       /\b(On\s+[A-Za-z]+,\s+[0-9]+.+?wrote:|-{2,}\s*Original Message\s*-{2,}|From:\s*|Sent:\s*|To:\s*)/i,
     );
@@ -577,9 +576,9 @@ export const InboxPage: React.FC = () => {
       cleaned = cleaned.substring(0, replyHeaderMatch.index);
     }
 
-    // 6. Collapse whitespace
+    // Collapse whitespace
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
-    return cleaned;
+    return cleaned.length > 140 ? cleaned.slice(0, 140) + '...' : cleaned;
   };
 
   // Real-time WebSocket ticket updates (push live events)
@@ -806,40 +805,52 @@ export const InboxPage: React.FC = () => {
     handleSelectTicket(newTicket);
   };
 
-  const handleSelectTicket = (t: TicketSummary) => {
-    setSelectedTicket(t);
-    try {
-      sessionStorage.setItem('last_selected_ticket_id', t.id);
-    } catch {}
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('ticketId', t.id);
+  const handleSelectTicket = useCallback(
+    (t: TicketSummary) => {
+      setSelectedTicket((prev) => (prev?.id === t.id ? prev : t));
+      try {
+        sessionStorage.setItem('last_selected_ticket_id', t.id);
+      } catch {}
+      setSearchParams(
+        (prev) => {
+          if (prev.get('ticketId') === t.id) return prev;
+          const next = new URLSearchParams(prev);
+          next.set('ticketId', t.id);
+          return next;
+        },
+        { replace: true }
+      );
+      setUnreadTicketIds((prev) => {
+        if (!prev.has(t.id)) return prev;
+        const next = new Set(prev);
+        next.delete(t.id);
         return next;
-      },
-      { replace: true }
-    );
-    setUnreadTicketIds((prev) => {
-      if (!prev.has(t.id)) return prev;
-      const next = new Set(prev);
-      next.delete(t.id);
-      return next;
-    });
-  };
+      });
+    },
+    [setSearchParams]
+  );
 
   // Sync selectedTicket when ticketId query param or tickets list changes
   useEffect(() => {
     const paramId = searchParams.get('ticketId') || sessionStorage.getItem('last_selected_ticket_id');
-    if (paramId && (!selectedTicket || selectedTicket.id !== paramId)) {
-      const found = tickets.find((t) => t.id === paramId);
-      if (found) {
-        setSelectedTicket(found);
-      } else if (tickets.length > 0) {
-        TicketsApi.getById(paramId)
-          .then((t) => {
-            if (t) setSelectedTicket(t);
-          })
-          .catch(() => {});
+    if (paramId) {
+      setUnreadTicketIds((prev) => {
+        if (!prev.has(paramId)) return prev;
+        const next = new Set(prev);
+        next.delete(paramId);
+        return next;
+      });
+      if (!selectedTicket || selectedTicket.id !== paramId) {
+        const found = tickets.find((t) => t.id === paramId);
+        if (found) {
+          setSelectedTicket(found);
+        } else if (tickets.length > 0) {
+          TicketsApi.getById(paramId)
+            .then((t) => {
+              if (t) setSelectedTicket(t);
+            })
+            .catch(() => {});
+        }
       }
     }
   }, [searchParams, tickets]);
@@ -2464,7 +2475,15 @@ export const InboxPage: React.FC = () => {
                 onClick={() => setIsBulkDeleteOpen(false)}
                 disabled={isBulkDeleting}
                 className="btn btn-secondary"
-                style={{ padding: '8px 16px', fontSize: '13px' }}
+                style={{
+                  height: '36px',
+                  padding: '0 16px',
+                  fontSize: '13px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxSizing: 'border-box',
+                }}
               >
                 Cancel
               </button>
@@ -2474,22 +2493,26 @@ export const InboxPage: React.FC = () => {
                 disabled={isBulkDeleting}
                 className="btn btn-danger"
                 style={{
-                  padding: '8px 16px',
+                  height: '36px',
+                  padding: '0 16px',
                   fontSize: '13px',
                   backgroundColor: '#dc2626',
                   color: '#ffffff',
                   display: 'inline-flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: '6px',
                   fontWeight: 600,
                   border: 'none',
                   borderRadius: '6px',
-                  cursor: 'pointer',
+                  cursor: isBulkDeleting ? 'not-allowed' : 'pointer',
+                  opacity: isBulkDeleting ? 0.85 : 1,
+                  boxSizing: 'border-box',
                 }}
               >
                 {isBulkDeleting ? (
                   <>
-                    <LoadingSpinner size={14} /> Deleting...
+                    <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Deleting...
                   </>
                 ) : (
                   <>

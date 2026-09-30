@@ -245,7 +245,7 @@ export class ApiClient {
     return res.json();
   }
 
-  static get<T = any>(path: string, params?: Record<string, any>): Promise<T> {
+  static get<T = any>(path: string, params?: Record<string, any>, options: RequestInit = {}): Promise<T> {
     let url = path;
     if (params) {
       const query = new URLSearchParams();
@@ -255,7 +255,7 @@ export class ApiClient {
       const qs = query.toString();
       if (qs) url += `?${qs}`;
     }
-    return this.request<T>(url, { method: 'GET' });
+    return this.request<T>(url, { method: 'GET', ...options });
   }
 
   static post<T = any>(path: string, body?: any): Promise<T> {

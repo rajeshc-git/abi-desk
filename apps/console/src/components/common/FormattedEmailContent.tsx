@@ -102,13 +102,21 @@ interface HtmlEmailRendererProps {
  *   - <img> → constrained max dimensions, signature logos capped smaller
  *   - Preserves ALL original inline styles, fonts, colors, margins exactly
  */
-function sanitizeEmailHtml(raw: string): string {
+interface ProcessedEmailResult {
+  primaryHtml: string;
+  quotedHtml: string;
+  hasQuoted: boolean;
+}
+
+/**
+ * Universal Single-Pass Email Parser & Sanitizer.
+ */
+function processAndSanitizeEmailHtml(raw: string): ProcessedEmailResult {
   if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
-    return raw.replace(/<[^>]*>/g, '');
+    return { primaryHtml: raw.replace(/<[^>]*>/g, ''), quotedHtml: '', hasQuoted: false };
   }
 
-  // Pre-clean VML roundrect buttons (Outlook) before DOM parsing since DOMParser
-  // doesn't understand VML namespace tags and would strip them.
+  // Pre-clean VML roundrect buttons (Outlook)
   let preProcessed = raw;
   preProcessed = preProcessed.replace(
     /<v:roundrect[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/v:roundrect>/gi,
@@ -118,16 +126,22 @@ function sanitizeEmailHtml(raw: string): string {
     },
   );
 
+  // Neutralize inline email MIME cid: references
+  preProcessed = preProcessed.replace(
+    /src=["']cid:([^"']+)["']/gi,
+    'src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-unresolved-cid="true" data-original-cid="$1"',
+  );
+
   const parser = new DOMParser();
   const doc = parser.parseFromString(preProcessed, 'text/html');
 
-  // ── Security: Remove dangerous elements ──
+  // 1. Remove dangerous elements
   const dangerousTags = doc.querySelectorAll(
     'script, style, link, meta, title, head, iframe, object, embed, form, input, textarea, select',
   );
   dangerousTags.forEach((el) => el.remove());
 
-  // Remove HTML comments
+  // 2. Remove HTML comments
   const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
   const comments: Comment[] = [];
   while (walker.nextNode()) {
@@ -135,7 +149,7 @@ function sanitizeEmailHtml(raw: string): string {
   }
   comments.forEach((c) => c.remove());
 
-  // ── Security: Strip event handlers & javascript: URIs ──
+  // 3. Security: Strip event handlers & javascript: URIs
   const allElements = doc.body.querySelectorAll('*');
   allElements.forEach((el) => {
     const attrs = Array.from(el.attributes);
@@ -152,7 +166,7 @@ function sanitizeEmailHtml(raw: string): string {
     });
   });
 
-  // ── Enhancement: Transform <button> elements with href before removing ──
+  // 4. Transform <button> elements with href
   doc.body.querySelectorAll('button').forEach((btn) => {
     const href = btn.getAttribute('href') || btn.closest('a')?.getAttribute('href');
     if (href) {
@@ -164,7 +178,7 @@ function sanitizeEmailHtml(raw: string): string {
     }
   });
 
-  // ── Enhancement: Transform <a> tags → CTA buttons or styled links ──
+  // 5. Transform <a> tags -> CTA buttons or styled links
   const ctaKeywords = /^(?:verify|confirm|reset|view|click here|sign in|log in|get started|download|pay|join|accept|approve|proceed|subscribe|unsubscribe|open|activate|register|check|visit|submit)/i;
 
   doc.body.querySelectorAll('a').forEach((anchor) => {
@@ -182,21 +196,19 @@ function sanitizeEmailHtml(raw: string): string {
     const isCtaText = textContent.length > 0 && textContent.length <= 60 && ctaKeywords.test(textContent);
 
     if (isButtonRole || isButtonClass || isButtonStyle || isCtaText) {
-      // Replace with styled CTA button
       const replacement = doc.createRange().createContextualFragment(
         buildCtaButtonHtml(textContent || 'Open Link', safeHref),
       );
       anchor.replaceWith(replacement);
     } else {
-      // Style as regular link with external icon
       anchor.setAttribute('href', safeHref);
       anchor.setAttribute('target', '_blank');
       anchor.setAttribute('rel', 'noopener noreferrer');
-      anchor.setAttribute('style',
+      anchor.setAttribute(
+        'style',
         `color: #2563eb; font-weight: 600; text-decoration: underline; ${anchor.getAttribute('style') || ''}`,
       );
 
-      // Append external link SVG icon if not already present
       if (!anchor.querySelector('.email-ext-icon')) {
         const icon = doc.createElement('span');
         icon.className = 'email-ext-icon';
@@ -207,13 +219,29 @@ function sanitizeEmailHtml(raw: string): string {
     }
   });
 
-  // ── Enhancement: Constrain <img> dimensions & remove tracking pixels ──
+  // 6. Constrain images & remove tracking pixels
   doc.body.querySelectorAll('img').forEach((img) => {
     const src = img.getAttribute('src') || '';
+    const isUnresolvedCid = img.getAttribute('data-unresolved-cid') === 'true' || src.toLowerCase().startsWith('cid:');
     const w = img.getAttribute('width');
     const h = img.getAttribute('height');
+    const alt = img.getAttribute('alt') || '';
 
-    // Remove tracking pixels
+    if (isUnresolvedCid) {
+      if (alt && !/(?:logo|signature|icon|avatar|brand|image|spacer|blank)/i.test(alt) && alt.length < 80) {
+        const badge = doc.createElement('span');
+        badge.setAttribute(
+          'style',
+          'display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; font-size: 11px; background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 4px; margin: 2px;',
+        );
+        badge.textContent = `📎 ${alt}`;
+        img.replaceWith(badge);
+      } else {
+        img.remove();
+      }
+      return;
+    }
+
     if (
       w === '0' || h === '0' || w === '1' || h === '1' ||
       /1x1|track|beacon|open\.gif|pixel/i.test(src)
@@ -222,13 +250,12 @@ function sanitizeEmailHtml(raw: string): string {
       return;
     }
 
-    // Constrain oversized images
     const numW = w ? parseInt(w, 10) : NaN;
     const numH = h ? parseInt(h, 10) : NaN;
 
     const isSignature =
       /(?:logo|signature|icon|avatar|brand)/i.test(src) ||
-      /(?:logo|signature|icon|avatar|brand)/i.test(img.getAttribute('alt') || '') ||
+      /(?:logo|signature|icon|avatar|brand)/i.test(alt) ||
       Boolean(img.closest('.gmail_signature, [data-smartmail="gmail_signature"], #Signature, .signature'));
 
     const existingStyle = img.getAttribute('style') || '';
@@ -241,11 +268,45 @@ function sanitizeEmailHtml(raw: string): string {
     }
 
     img.setAttribute('style', constraintStyle + existingStyle);
-    // Ensure broken images hide gracefully
     img.setAttribute('onerror', "this.style.display='none'");
   });
 
-  return doc.body.innerHTML;
+  // 7. Extract quoted reply trails in the same pass
+  const quoteSelectors = [
+    '.gmail_quote',
+    '.gmail_extra',
+    'blockquote.gmail_quote',
+    '#divRplyFwdMsg',
+    '[id^="divRplyFwdMsg"]',
+    '.moz-cite-prefix',
+    'blockquote[type="cite"]',
+    '.email-quoted-reply',
+  ];
+
+  const quotedElements: Element[] = [];
+  quoteSelectors.forEach((sel) => {
+    doc.querySelectorAll(sel).forEach((el) => {
+      if (!quotedElements.some((q) => q.contains(el))) {
+        quotedElements.push(el);
+      }
+    });
+  });
+
+  let quotedHtml = '';
+  if (quotedElements.length > 0) {
+    const quotedContainer = document.createElement('div');
+    quotedElements.forEach((el) => {
+      quotedContainer.appendChild(el.cloneNode(true));
+      el.remove();
+    });
+    quotedHtml = quotedContainer.innerHTML;
+  }
+
+  return {
+    primaryHtml: doc.body.innerHTML.trim(),
+    quotedHtml,
+    hasQuoted: quotedHtml.length > 0,
+  };
 }
 
 /** Inline SVG for the external-link icon (matches Lucide ExternalLink 11px) */
@@ -268,69 +329,7 @@ function buildCtaButtonHtml(label: string, href: string): string {
 
 const HtmlEmailRenderer: React.FC<HtmlEmailRendererProps> = ({ rawHtml, className, style }) => {
   const { primaryHtml, quotedHtml, hasQuoted } = useMemo(() => {
-    try {
-      if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') {
-        return { primaryHtml: '', quotedHtml: '', hasQuoted: false };
-      }
-
-      const sanitized = sanitizeEmailHtml(rawHtml);
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(sanitized, 'text/html');
-
-      // Search for quoted email trail elements
-      const quoteSelectors = [
-        '.gmail_quote',
-        '.gmail_extra',
-        'blockquote.gmail_quote',
-        '#divRplyFwdMsg',
-        '[id^="divRplyFwdMsg"]',
-        '.moz-cite-prefix',
-        'blockquote[type="cite"]',
-        '.email-quoted-reply',
-      ];
-
-      const quotedElements: Element[] = [];
-      quoteSelectors.forEach((sel) => {
-        doc.querySelectorAll(sel).forEach((el) => {
-          if (!quotedElements.some((q) => q.contains(el))) {
-            quotedElements.push(el);
-          }
-        });
-      });
-
-      // Also check block elements with "On ... wrote:" or "From: ..." etc.
-      const blockElements = doc.querySelectorAll('div, p, blockquote');
-      for (let i = 0; i < blockElements.length; i++) {
-        const el = blockElements[i];
-        if (!el || quotedElements.some((q) => q.contains(el))) continue;
-        const textContent = el.textContent?.trim() || '';
-        if (
-          /^on\s.+wrote:?$/i.test(textContent) ||
-          /^-+\s*(?:original message|forwarded message)\s*-+$/i.test(textContent) ||
-          /^(?:from|sent|date):\s*.+/i.test(textContent)
-        ) {
-          quotedElements.push(el);
-        }
-      }
-
-      let quotedHtml = '';
-      if (quotedElements.length > 0) {
-        const quotedContainer = document.createElement('div');
-        quotedElements.forEach((el) => {
-          quotedContainer.appendChild(el.cloneNode(true));
-          el.remove();
-        });
-        quotedHtml = quotedContainer.innerHTML;
-      }
-
-      return {
-        primaryHtml: doc.body.innerHTML.trim(),
-        quotedHtml,
-        hasQuoted: quotedHtml.length > 0,
-      };
-    } catch {
-      return { primaryHtml: rawHtml, quotedHtml: '', hasQuoted: false };
-    }
+    return processAndSanitizeEmailHtml(rawHtml);
   }, [rawHtml]);
 
   const [isQuoteExpanded, setIsQuoteExpanded] = useState<boolean>(false);

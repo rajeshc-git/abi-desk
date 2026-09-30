@@ -139,6 +139,9 @@ export const LiveChatPage: React.FC = () => {
     loadConversations();
   }, []);
 
+  const getChatViewedKey = (convId: string) =>
+    user?.id ? `chat:last_viewed:${user.id}:${convId}` : `chat:last_viewed:${convId}`;
+
   useEffect(() => {
     if (!socket || !activeConv) return;
 
@@ -147,7 +150,8 @@ export const LiveChatPage: React.FC = () => {
     const handleNewMessage = (data: { conversationId: string; message: ChatMessage }) => {
       if (data.conversationId === activeConv.id) {
         setMessages((prev) => [...prev, data.message]);
-        localStorage.setItem(`chat:last_viewed:${activeConv.id}`, new Date().toISOString());
+        localStorage.setItem(getChatViewedKey(activeConv.id), new Date().toISOString());
+        window.dispatchEvent(new Event('unread_chats_updated'));
       }
     };
 
@@ -157,7 +161,7 @@ export const LiveChatPage: React.FC = () => {
       socket.emit('leave_conversation', { conversationId: activeConv.id });
       socket.off('chat.message', handleNewMessage);
     };
-  }, [socket, activeConv?.id]);
+  }, [socket, activeConv?.id, user?.id]);
 
   useEffect(() => {
     if (!socket) return;
@@ -208,7 +212,7 @@ export const LiveChatPage: React.FC = () => {
           return;
         }
 
-        const localViewed = localStorage.getItem(`chat:last_viewed:${c.id}`);
+        const localViewed = localStorage.getItem(getChatViewedKey(c.id));
         if (localViewed && c.lastMessageAt) {
           const hasNew = new Date(c.lastMessageAt).getTime() > new Date(localViewed).getTime();
           counts[c.id] = hasNew ? 1 : 0;
@@ -240,7 +244,8 @@ export const LiveChatPage: React.FC = () => {
   const selectConversation = async (conv: ChatConversation) => {
     setActiveConv(conv);
     setUnreadCounts((prev) => ({ ...prev, [conv.id]: 0 }));
-    localStorage.setItem(`chat:last_viewed:${conv.id}`, new Date().toISOString());
+    localStorage.setItem(getChatViewedKey(conv.id), new Date().toISOString());
+    window.dispatchEvent(new Event('unread_chats_updated'));
     try {
       const res = await ApiClient.get<{ messages: ChatMessage[] }>(
         `/chat/conversations/${conv.id}/messages`,
@@ -254,6 +259,9 @@ export const LiveChatPage: React.FC = () => {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMsg.trim() || !activeConv) return;
+
+    localStorage.setItem(getChatViewedKey(activeConv.id), new Date().toISOString());
+    window.dispatchEvent(new Event('unread_chats_updated'));
 
     if (socket && isConnected) {
       socket.emit('send_message', {

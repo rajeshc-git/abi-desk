@@ -195,8 +195,9 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       allow('ticket:read:tenant'),
       allow('ticket:confirm_resolution'),
 
-      // "Queue": route to a queue, never to a named agent.
+      // Ticket assignment: route to queues, teams, or specific agents
       allow('ticket:assign:queue'),
+      allow('ticket:assign:agent'),
 
       // "Optional": on by default, revocable by the tenant.
       optional('ticket:escalate', true),
@@ -206,7 +207,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       allow('ticket:note:internal'),
 
       // Deliberately absent, matching the matrix:
-      // ticket:assign:agent (Queue only), ticket:bulk_update (✗),
+      // ticket:bulk_update (✗),
       // ticket:update:tenant (only "Edit Own Ticket" is granted).
 
       ...CAPTURE_ALL.map(allow),
@@ -503,7 +504,7 @@ export const REQUIREMENTS_MATRIX: readonly MatrixRow[] = [
     permissions: ['ticket:assign:agent'],
     cells: {
       GUEST_CUSTOMER: 'no',
-      TENANT_ADMIN: 'queue',
+      TENANT_ADMIN: 'yes',
       L1_SUPPORT: 'yes',
       L2_SUPPORT: 'yes',
       L3_SUPPORT: 'yes',

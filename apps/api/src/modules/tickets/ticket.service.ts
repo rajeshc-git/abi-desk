@@ -377,9 +377,10 @@ export class TicketService {
             devicePixelRatio: true,
             timezone: true,
             locale: true,
-            consoleEntries: true,
-            networkEntries: true,
-            jsErrors: true,
+            consoleErrorCount: true,
+            consoleWarnCount: true,
+            networkFailureCount: true,
+            jsErrorCount: true,
           },
         },
         mediaAssets: {
@@ -431,6 +432,25 @@ export class TicketService {
     }
 
     return ticket;
+  }
+
+  /**
+   * Fast existence and permission check without joining heavy relations or diagnostic payloads.
+   */
+  async ensureTicketExistsAndScoped(principal: AuthenticatedPrincipal, ticketId: string) {
+    const scopeFilter = ticketFilterFor(principal);
+    if (!scopeFilter) {
+      throw AppException.notFound('Ticket', ticketId);
+    }
+
+    const ticket = await this.prisma.client.ticket.findFirst({
+      where: { id: ticketId, deletedAt: null, ...scopeFilter },
+      select: { id: true },
+    });
+
+    if (!ticket) {
+      throw AppException.notFound('Ticket', ticketId);
+    }
   }
 
   /**
@@ -486,7 +506,7 @@ export class TicketService {
    */
   async timeline(principal: AuthenticatedPrincipal, ticketId: string) {
     // Establishes scope: throws 404 if the caller cannot see the ticket at all.
-    await this.findByIdOrThrow(principal, ticketId);
+    await this.ensureTicketExistsAndScoped(principal, ticketId);
 
     const events = await this.prisma.client.ticketEvent.findMany({
       where: { ticketId },
@@ -1038,7 +1058,7 @@ export class TicketService {
    * nothing rather than escalating.
    */
   async listComments(principal: AuthenticatedPrincipal, ticketId: string, query: ListCommentsDto) {
-    await this.findByIdOrThrow(principal, ticketId);
+    await this.ensureTicketExistsAndScoped(principal, ticketId);
 
     const mayReadInternal = canReadInternalNotes(toPolicySubject(principal));
 

@@ -456,6 +456,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('abidesk_user');
     localStorage.removeItem('abidesk_brand_id');
     localStorage.removeItem('abidesk_theme_color');
+    localStorage.removeItem('unread_ticket_ids');
+    window.dispatchEvent(new Event('unread_tickets_updated'));
+    window.dispatchEvent(new Event('unread_chats_updated'));
     applyPrimaryTheme('#2563eb');
   };
 

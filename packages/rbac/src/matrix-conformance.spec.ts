@@ -96,15 +96,9 @@ describe('RBAC matrix conformance (Requirement.md)', () => {
     });
   }
 
-  describe('the "Queue" cell (Tenant Admin, Assign Ticket)', () => {
-    it('grants routing to a queue but not to a named agent', () => {
-      // This is the whole point of splitting assignment into two permissions.
-      expect(defaultGrantFor('TENANT_ADMIN', 'ticket:assign:queue')?.granted).toBe(true);
-      expect(defaultGrantFor('TENANT_ADMIN', 'ticket:assign:agent')?.granted ?? false).toBe(false);
-    });
-
-    it('gives support tiers both, since their cell is a plain tick', () => {
-      for (const role of ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM'] as const) {
+  describe('Assign Ticket permissions', () => {
+    it('gives Tenant Admin and support tiers both queue routing and agent assignment', () => {
+      for (const role of ['TENANT_ADMIN', 'L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM'] as const) {
         expect(defaultGrantFor(role, 'ticket:assign:agent')?.granted).toBe(true);
         expect(defaultGrantFor(role, 'ticket:assign:queue')?.granted).toBe(true);
       }
