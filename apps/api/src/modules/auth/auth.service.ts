@@ -2027,7 +2027,7 @@ export class AuthService {
     });
   }
 
-  async getUserPreferences(userId: string): Promise<{ themeColor?: string | null }> {
+  async getUserPreferences(userId: string): Promise<{ themeColor?: string | null; docCenterPresets?: any[] }> {
     return this.contexts.runWithBypass('authentication', {}, async () => {
       const user = await this.prisma.client.user.findUnique({
         where: { id: userId },
@@ -2040,8 +2040,8 @@ export class AuthService {
 
   async updateUserPreferences(
     userId: string,
-    dto: { themeColor?: string | null },
-  ): Promise<{ preferences: { themeColor?: string | null } }> {
+    dto: { themeColor?: string | null; docCenterPresets?: any[] },
+  ): Promise<{ preferences: { themeColor?: string | null; docCenterPresets?: any[] } }> {
     return this.contexts.runWithBypass('authentication', { userId }, async () => {
       const user = await this.prisma.client.user.findUniqueOrThrow({
         where: { id: userId },
@@ -2052,6 +2052,10 @@ export class AuthService {
       const updatedPreferences = {
         ...(currentMetadata.preferences || {}),
         themeColor: dto.themeColor !== undefined ? dto.themeColor : (currentMetadata.preferences?.themeColor ?? null),
+        docCenterPresets:
+          dto.docCenterPresets !== undefined
+            ? dto.docCenterPresets
+            : (currentMetadata.preferences?.docCenterPresets ?? []),
       };
 
       await this.prisma.client.user.update({

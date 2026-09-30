@@ -14,6 +14,7 @@ export interface UserSession {
   permissions?: string[];
   preferences?: {
     themeColor?: string | null;
+    docCenterPresets?: any[];
   };
 }
 

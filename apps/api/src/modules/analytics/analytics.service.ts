@@ -479,25 +479,40 @@ export class AnalyticsService {
   }
 
   /**
-   * Agent performance breakdown with resolution metrics and workload.
+   * Agent performance breakdown with resolution metrics, actual resolver credit, and action team workload.
    */
   async getAgentPerformance(_principal: AuthenticatedPrincipal, filter: AnalyticsFilterDto) {
     const tenantId = this.tenantContext.requireTenantId();
     const where = this.buildTicketWhere(tenantId, filter);
 
-    const [assignedGroup, resolvedGroup, agents, csatByAgent, resolvedTickets] = await Promise.all([
-      this.db.client.ticket.groupBy({
-        by: ['assigneeId'],
-        where: { ...where, assigneeId: { not: null } },
-        _count: { id: true },
-      }),
-      this.db.client.ticket.groupBy({
-        by: ['assigneeId'],
-        where: { ...where, assigneeId: { not: null }, status: { in: ['RESOLVED', 'CLOSED'] } },
-        _count: { id: true },
+    const [tickets, agents, csatByAgent] = await Promise.all([
+      this.db.client.ticket.findMany({
+        where,
+        select: {
+          id: true,
+          assigneeId: true,
+          status: true,
+          createdAt: true,
+          resolvedAt: true,
+          comments: {
+            where: { deletedAt: null },
+            select: { authorId: true },
+          },
+          events: {
+            select: {
+              type: true,
+              actorId: true,
+              actorType: true,
+              fromValue: true,
+              toValue: true,
+              metadata: true,
+              createdAt: true,
+            },
+          },
+        },
       }),
       this.db.client.user.findMany({
-        where: { tenantId, kind: 'STAFF' },
+        where: { tenantId, kind: 'STAFF', deletedAt: null },
         select: { id: true, fullName: true, email: true, jobTitle: true },
       }),
       this.db.client.csatResponse.groupBy({
@@ -506,32 +521,89 @@ export class AnalyticsService {
         _avg: { rating: true },
         _count: { id: true },
       }),
-      this.db.client.ticket.findMany({
-        where: { ...where, assigneeId: { not: null }, resolvedAt: { not: null } },
-        select: { assigneeId: true, createdAt: true, resolvedAt: true },
-      }),
     ]);
 
-    const assignedMap = new Map(assignedGroup.map((g) => [g.assigneeId, g._count.id]));
-    const resolvedMap = new Map(resolvedGroup.map((g) => [g.assigneeId, g._count.id]));
-    const csatMap = new Map(
-      csatByAgent.map((g) => [
-        g.agentId,
-        {
-          rating: g._avg.rating ? Math.round(g._avg.rating * 10) / 10 : null,
-          count: g._count.id,
-        },
-      ]),
-    );
-
-    // Compute average resolution hours per agent
+    const assignedMap = new Map<string, number>();
+    const resolvedMap = new Map<string, number>();
+    const participatedMap = new Map<string, Set<string>>(); // agentId -> Set of ticket IDs
     const agentTimeMap = new Map<string, { totalMs: number; count: number }>();
-    resolvedTickets.forEach((t) => {
-      if (t.assigneeId && t.resolvedAt) {
-        const ms = t.resolvedAt.getTime() - t.createdAt.getTime();
-        const current = agentTimeMap.get(t.assigneeId) || { totalMs: 0, count: 0 };
-        agentTimeMap.set(t.assigneeId, { totalMs: current.totalMs + ms, count: current.count + 1 });
+
+    tickets.forEach((t) => {
+      const ticketId = t.id;
+      const ticketParticipants = new Set<string>();
+
+      // 1. Current assignee gets assigned count & is a participant
+      if (t.assigneeId) {
+        assignedMap.set(t.assigneeId, (assignedMap.get(t.assigneeId) || 0) + 1);
+        ticketParticipants.add(t.assigneeId);
       }
+
+      // 2. Identify the actual resolver from history events (or fallback to assigneeId if marked resolved/closed)
+      const isResolvedStatus = t.status === 'RESOLVED' || t.status === 'CLOSED';
+      let resolverId: string | null = null;
+
+      // Find the latest RESOLVED or status change event that set ticket to RESOLVED
+      if (t.events && t.events.length > 0) {
+        for (let i = t.events.length - 1; i >= 0; i--) {
+          const ev = t.events[i];
+          if (!ev) continue;
+
+          // Collect participant from all staff actions (assignments, notes, escalations, triage)
+          if (ev.actorId && ev.actorType === 'USER') {
+            ticketParticipants.add(ev.actorId);
+          }
+
+          // Check if event indicates assignee transition
+          if (ev.type === 'ASSIGNED' && ev.metadata && typeof ev.metadata === 'object') {
+            const meta = ev.metadata as Record<string, any>;
+            if (meta.assigneeId) ticketParticipants.add(meta.assigneeId);
+            if (meta.toAssigneeId) ticketParticipants.add(meta.toAssigneeId);
+            if (meta.fromAssigneeId) ticketParticipants.add(meta.fromAssigneeId);
+          }
+
+          // Check if this event resolved the ticket
+          if (
+            !resolverId &&
+            isResolvedStatus &&
+            (ev.type === 'RESOLVED' || (ev.type === 'STATUS_CHANGED' && (ev.toValue === 'RESOLVED' || ev.toValue === 'CLOSED'))) &&
+            ev.actorId &&
+            ev.actorType === 'USER'
+          ) {
+            resolverId = ev.actorId;
+          }
+        }
+      }
+
+      // 3. Comments and internal notes authors are participants
+      if (t.comments && t.comments.length > 0) {
+        t.comments.forEach((c) => {
+          if (c.authorId) {
+            ticketParticipants.add(c.authorId);
+          }
+        });
+      }
+
+      // 4. Attribute resolution to the actual actor who resolved it, or current assignee if no event actor
+      if (isResolvedStatus) {
+        const finalResolverId = resolverId || t.assigneeId;
+        if (finalResolverId) {
+          resolvedMap.set(finalResolverId, (resolvedMap.get(finalResolverId) || 0) + 1);
+
+          if (t.resolvedAt) {
+            const ms = t.resolvedAt.getTime() - t.createdAt.getTime();
+            const current = agentTimeMap.get(finalResolverId) || { totalMs: 0, count: 0 };
+            agentTimeMap.set(finalResolverId, { totalMs: current.totalMs + ms, count: current.count + 1 });
+          }
+        }
+      }
+
+      // 5. Register ticket in every participant's ticket set
+      ticketParticipants.forEach((agId) => {
+        if (!participatedMap.has(agId)) {
+          participatedMap.set(agId, new Set());
+        }
+        participatedMap.get(agId)!.add(ticketId);
+      });
     });
 
     return agents.map((agent) => {
@@ -542,7 +614,8 @@ export class AnalyticsService {
           : null;
       const assigned = assignedMap.get(agent.id) ?? 0;
       const resolved = resolvedMap.get(agent.id) ?? 0;
-      const resolutionRate = assigned > 0 ? Math.round((resolved / assigned) * 100) : 100;
+      const participated = participatedMap.get(agent.id)?.size ?? (assigned > 0 || resolved > 0 ? Math.max(assigned, resolved) : 0);
+      const resolutionRate = assigned > 0 ? Math.round((resolved / assigned) * 100) : (resolved > 0 ? 100 : 100);
       const isOnline = this.presenceProvider
         ? this.presenceProvider.isUserOnline(agent.id)
         : false;
@@ -555,6 +628,7 @@ export class AnalyticsService {
         isOnline,
         assignedCount: assigned,
         resolvedCount: resolved,
+        participatedCount: participated,
         resolutionRate,
         avgResolutionHours: avgHours,
       };

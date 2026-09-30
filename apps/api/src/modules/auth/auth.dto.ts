@@ -153,6 +153,7 @@ export const updatePreferencesSchema = z.object({
     .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'must be a valid hex color')
     .nullable()
     .optional(),
+  docCenterPresets: z.array(z.any()).optional(),
 });
 
 export class UpdatePreferencesDto extends createZodDto(updatePreferencesSchema) {}

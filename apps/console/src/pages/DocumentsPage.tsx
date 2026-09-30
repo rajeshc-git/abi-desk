@@ -36,6 +36,9 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Trash2,
+  Bookmark,
+  BookmarkPlus,
+  Save,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -77,6 +80,17 @@ interface FilterState {
   tiers: string[];
 }
 
+export interface DocCenterFilterPreset {
+  id: string;
+  name: string;
+  createdAt: string;
+  datePreset: FilterState['datePreset'];
+  startDate: string;
+  endDate: string;
+  filters: FilterState;
+  columns?: string[];
+}
+
 interface ColumnDef {
   id: string;
   label: string;
@@ -91,33 +105,35 @@ const AVAILABLE_COLUMNS: ColumnDef[] = [
   { id: 'status', label: 'Current Status', category: 'core', default: true },
   { id: 'priority', label: 'Priority Level', category: 'core', default: true },
   { id: 'tier', label: 'Support Tier', category: 'core', default: true },
-  { id: 'channel', label: 'Inbound Channel', category: 'core', default: true },
+  { id: 'channel', label: 'Channel', category: 'core', default: true },
 
   // People & Teams
   { id: 'requesterName', label: 'Customer Name', category: 'people', default: true },
   { id: 'requesterEmail', label: 'Customer Email', category: 'people', default: true },
   { id: 'assigneeName', label: 'Assigned Agent', category: 'people', default: true },
   { id: 'teamName', label: 'Assigned Team', category: 'people', default: true },
+  { id: 'actionAgents', label: 'Action Team', category: 'people', default: true },
+  { id: 'escalationPath', label: 'Journey', category: 'people', default: true },
 
   // Classification & Hierarchy
   { id: 'organization', label: 'Client Organization', category: 'classification', default: true },
   { id: 'product', label: 'Product / Module', category: 'classification', default: true },
   { id: 'category', label: 'Category', category: 'classification', default: true },
-  { id: 'subcategory', label: 'Subcategory', category: 'classification', default: false },
+  { id: 'subcategory', label: 'Subcategory', category: 'classification', default: true },
   { id: 'tags', label: 'Tags', category: 'classification', default: true },
 
   // SLA & Timestamps
   { id: 'slaStatus', label: 'SLA Status', category: 'metrics', default: true },
   { id: 'createdAt', label: 'Created Date & Time', category: 'metrics', default: true },
-  { id: 'resolvedAt', label: 'Resolved Date & Time', category: 'metrics', default: false },
-  { id: 'closedAt', label: 'Closed Date & Time', category: 'metrics', default: false },
-  { id: 'firstResponseTime', label: 'First Response (Mins)', category: 'metrics', default: false },
-  { id: 'resolutionTime', label: 'Resolution Time (Hours)', category: 'metrics', default: false },
+  { id: 'resolvedAt', label: 'Resolved Date & Time', category: 'metrics', default: true },
+  { id: 'closedAt', label: 'Closed Date & Time', category: 'metrics', default: true },
+  { id: 'firstResponseTime', label: 'First Response (Mins)', category: 'metrics', default: true },
+  { id: 'resolutionTime', label: 'Resolution Time (Hours)', category: 'metrics', default: true },
 
   // Content & Analysis
-  { id: 'rootCause', label: 'Root Cause Analysis', category: 'content', default: false },
-  { id: 'capaNotes', label: 'CAPA Notes', category: 'content', default: false },
-  { id: 'description', label: 'Full Ticket Body / Description', category: 'content', default: false },
+  { id: 'rootCause', label: 'Root Cause Analysis', category: 'content', default: true },
+  { id: 'capaNotes', label: 'CAPA Notes', category: 'content', default: true },
+  { id: 'description', label: 'Full Ticket Body / Description', category: 'content', default: true },
 ];
 
 const ALL_STATUSES = [
@@ -1243,6 +1259,78 @@ const SearchableMultiSelect: React.FC<SearchableMultiSelectProps> = ({
 };
 
 
+// Industry-standard text and HTML sanitizer to clean rich-text/email bodies for CSV and document tables
+export function cleanPlainText(raw: string | null | undefined): string {
+  if (!raw) return '';
+  let str = String(raw);
+
+  // 1. Remove script, style, head, xml, object, embed, svg tags and their contents
+  str = str.replace(/<(script|style|head|xml|object|embed|svg)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
+
+  // 2. Remove HTML comments
+  str = str.replace(/<!--[\s\S]*?-->/g, ' ');
+
+  // 3. Remove inline base64 images and URLs in markdown / text
+  str = str.replace(/data:image\/[a-zA-Z0-9.+_-]+;base64,[A-Za-z0-9+/=]+/gi, ' ');
+  str = str.replace(/!\[[^\]]*\]\([^)]*\)/g, ' '); // markdown images ![alt](url)
+
+  // 4. Remove image tags <img ...>
+  str = str.replace(/<img[^>]*>/gi, ' ');
+
+  // 5. Remove textual image markers like [Image], [image: ...], [Inline image: ...], [cid:...]
+  str = str.replace(/\[\s*image(?::\s*[^\]]+)?\s*\]/gi, ' ');
+  str = str.replace(/\[\s*inline image(?::\s*[^\]]+)?\s*\]/gi, ' ');
+  str = str.replace(/\[\s*cid:[^\]]+\s*\]/gi, ' ');
+
+  // 6. Convert line break HTML tags to spaces
+  str = str.replace(/<\/?(br|p|div|tr|h[1-6]|li|blockquote)[^>]*>/gi, ' ');
+
+  // 7. Strip any remaining HTML tags
+  str = str.replace(/<[^>]*>/g, ' ');
+
+  // 8. Decode HTML entities (run twice to handle accidental double-encoding like &amp;nbsp;)
+  const decodeEntities = (text: string) => {
+    return text
+      .replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+      .replace(/&lt;|&#60;|&#x3c;/gi, '<')
+      .replace(/&gt;|&#62;|&#x3e;/gi, '>')
+      .replace(/&quot;|&#34;|&#x22;/gi, '"')
+      .replace(/&#39;|&apos;|&#x27;/gi, "'")
+      .replace(/&copy;|&#169;|&#xa9;/gi, '©')
+      .replace(/&reg;|&#174;|&#xae;/gi, '®')
+      .replace(/&trade;|&#8482;/gi, '™')
+      .replace(/&bull;|&#8226;/gi, '•')
+      .replace(/&ndash;|&#8211;/gi, '–')
+      .replace(/&mdash;|&#8212;/gi, '—')
+      .replace(/&#(\d+);/g, (_, dec) => {
+        try {
+          return String.fromCharCode(parseInt(dec, 10));
+        } catch {
+          return '';
+        }
+      })
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+        try {
+          return String.fromCharCode(parseInt(hex, 16));
+        } catch {
+          return '';
+        }
+      })
+      .replace(/&amp;|&#38;|&#x26;/gi, '&'); // decode amp last
+  };
+
+  str = decodeEntities(str);
+  if (/&[a-zA-Z0-9#]+;/.test(str)) {
+    str = decodeEntities(str);
+  }
+
+  // 9. Clean up multiple spaces, carriage returns, newlines, and tabs
+  str = str.replace(/[\r\n\t]+/g, ' ');
+  str = str.replace(/\s{2,}/g, ' ');
+
+  return str.trim();
+}
+
 // Helper function for robust CSV parsing (RFC 4180 compliant)
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const cleanText = text.replace(/^\uFEFF/, ''); // Remove UTF-8 BOM if present
@@ -1696,10 +1784,183 @@ export const DocumentsPage: React.FC = () => {
 
   const [filters, setFilters] = useState<FilterState>(initialFilters);
 
-  // Selected Columns State
-  const [selectedColumns, setSelectedColumns] = useState<Set<string>>(
-    () => new Set(AVAILABLE_COLUMNS.filter((c) => c.default).map((c) => c.id)),
-  );
+  // Selected Columns State with LocalStorage Persistence
+  const [selectedColumns, setSelectedColumns] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('abidesk_doc_center_export_columns');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const validIds = new Set(AVAILABLE_COLUMNS.map((c) => c.id));
+          const filtered = parsed.filter((id) => validIds.has(id));
+          if (filtered.length > 0) {
+            return new Set(filtered);
+          }
+        }
+      }
+    } catch {
+      // Ignore storage parse error
+    }
+    // Default: ALL 26 columns selected
+    return new Set(AVAILABLE_COLUMNS.map((c) => c.id));
+  });
+
+  // Auto-persist column selections to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'abidesk_doc_center_export_columns',
+        JSON.stringify(Array.from(selectedColumns)),
+      );
+    } catch {
+      // Ignore storage write error
+    }
+  }, [selectedColumns]);
+
+  // Saved Filter Presets / Templates (Scoped to logged-in user)
+  const [savedPresets, setSavedPresets] = useState<DocCenterFilterPreset[]>(() => {
+    try {
+      const userKey = user?.id ? `abidesk_doc_presets_${user.id}` : 'abidesk_doc_presets_default';
+      const localSaved = localStorage.getItem(userKey);
+      if (localSaved) {
+        const parsed = JSON.parse(localSaved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      if (Array.isArray(user?.preferences?.docCenterPresets)) {
+        return user.preferences.docCenterPresets;
+      }
+    } catch {
+      // Ignore parse error
+    }
+    return [];
+  });
+
+  // Sync with user's preferences on mount / user change
+  useEffect(() => {
+    if (user?.id) {
+      const userKey = `abidesk_doc_presets_${user.id}`;
+      if (Array.isArray(user.preferences?.docCenterPresets) && user.preferences.docCenterPresets.length > 0) {
+        setSavedPresets(user.preferences.docCenterPresets);
+        try {
+          localStorage.setItem(userKey, JSON.stringify(user.preferences.docCenterPresets));
+        } catch {}
+      } else {
+        try {
+          const localSaved = localStorage.getItem(userKey);
+          if (localSaved) {
+            const parsed = JSON.parse(localSaved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setSavedPresets(parsed);
+            }
+          }
+        } catch {}
+      }
+    }
+  }, [user?.id, user?.preferences?.docCenterPresets]);
+
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [showPresetsDropdown, setShowPresetsDropdown] = useState(false);
+  const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
+  const [includeColumnsInSave, setIncludeColumnsInSave] = useState(true);
+  const [isSavingPreset, setIsSavingPreset] = useState(false);
+  const presetsDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close presets dropdown on click outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (
+        showPresetsDropdown &&
+        presetsDropdownRef.current &&
+        !presetsDropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowPresetsDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showPresetsDropdown]);
+
+  // Save new preset
+  const handleSaveCurrentPreset = async () => {
+    if (!newPresetName.trim()) {
+      toast.error('Please enter a name for the preset');
+      return;
+    }
+    setIsSavingPreset(true);
+    try {
+      const newPreset: DocCenterFilterPreset = {
+        id: crypto.randomUUID ? crypto.randomUUID() : `preset_${Date.now()}`,
+        name: newPresetName.trim(),
+        createdAt: new Date().toISOString(),
+        datePreset: filters.datePreset,
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        filters: { ...filters },
+        columns: includeColumnsInSave ? Array.from(selectedColumns) : undefined,
+      };
+
+      const updated = [newPreset, ...savedPresets];
+      setSavedPresets(updated);
+      setActivePresetId(newPreset.id);
+
+      // Local storage persistence scoped to user
+      const userKey = user?.id ? `abidesk_doc_presets_${user.id}` : 'abidesk_doc_presets_default';
+      try {
+        localStorage.setItem(userKey, JSON.stringify(updated));
+      } catch {}
+
+      // Backend user preferences persistence
+      if (user?.id) {
+        await ApiClient.patch('/auth/me/preferences', { docCenterPresets: updated }).catch(() => {});
+      }
+
+      setIsSavePresetModalOpen(false);
+      setNewPresetName('');
+      toast.success(`Filter preset "${newPreset.name}" saved!`);
+    } catch (err: any) {
+      toast.error('Failed to save preset');
+    } finally {
+      setIsSavingPreset(false);
+    }
+  };
+
+  // Apply saved preset
+  const handleApplyPreset = (preset: DocCenterFilterPreset) => {
+    setFilters({
+      ...preset.filters,
+      datePreset: preset.datePreset || preset.filters.datePreset || 'all',
+      startDate: preset.startDate || preset.filters.startDate || '',
+      endDate: preset.endDate || preset.filters.endDate || '',
+    });
+
+    if (preset.columns && Array.isArray(preset.columns) && preset.columns.length > 0) {
+      setSelectedColumns(new Set(preset.columns));
+    }
+
+    setActivePresetId(preset.id);
+    setShowPresetsDropdown(false);
+    toast.success(`Applied preset: ${preset.name}`);
+  };
+
+  // Delete saved preset
+  const handleDeletePreset = async (presetId: string, presetName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedPresets.filter((p) => p.id !== presetId);
+    setSavedPresets(updated);
+    if (activePresetId === presetId) setActivePresetId(null);
+
+    const userKey = user?.id ? `abidesk_doc_presets_${user.id}` : 'abidesk_doc_presets_default';
+    try {
+      localStorage.setItem(userKey, JSON.stringify(updated));
+    } catch {}
+
+    if (user?.id) {
+      await ApiClient.patch('/auth/me/preferences', { docCenterPresets: updated }).catch(() => {});
+    }
+
+    toast.success(`Preset "${presetName}" deleted`);
+  };
 
   // Preview Data & Matching Count
   const [totalMatchCount, setTotalMatchCount] = useState<number>(0);
@@ -2352,6 +2613,7 @@ export const DocumentsPage: React.FC = () => {
 
   const resetAllFilters = () => {
     setFilters(initialFilters);
+    setActivePresetId(null);
     toast.info('All filters have been reset');
   };
 
@@ -2377,7 +2639,7 @@ export const DocumentsPage: React.FC = () => {
       case 'key':
         return t.key || t.number || t.id;
       case 'subject':
-        return t.subject || '';
+        return cleanPlainText(t.subject);
       case 'status':
         return t.status === 'OPEN' ? 'In Progress' : (t.status || '').replace(/_/g, ' ');
       case 'priority':
@@ -2411,6 +2673,151 @@ export const DocumentsPage: React.FC = () => {
         }
         return '';
       }
+      case 'actionTeam': {
+        const teamsSet = new Set<string>();
+        // 1. Current assigned team/tier
+        if (t.team?.name) teamsSet.add(t.team.name);
+        else if (t.tier) teamsSet.add(`${t.tier} Support Team`);
+        
+        // 2. Participating teams from comments and authors
+        if (Array.isArray(t.comments)) {
+          t.comments.forEach((c: any) => {
+            const author = c.author;
+            if (author && (author.kind === 'STAFF' || !author.kind)) {
+              const rName = author.roles?.[0]?.role?.name || author.roleName || author.jobTitle;
+              if (rName) teamsSet.add(rName.includes('Team') || rName.includes('Support') ? rName : `${rName} Team`);
+            }
+          });
+        }
+
+        // 3. Participating teams from ticket events
+        if (Array.isArray(t.events)) {
+          t.events.forEach((ev: any) => {
+            const actor = ev.actor || ev.user;
+            if (actor && (actor.kind === 'STAFF' || !actor.kind)) {
+              const rName = actor.roles?.[0]?.role?.name || actor.roleName || actor.jobTitle;
+              if (rName) teamsSet.add(rName.includes('Team') || rName.includes('Support') ? rName : `${rName} Team`);
+            }
+          });
+        }
+        
+        // 4. Custom field overrides
+        if (t.customFields?.actionTeam) {
+          if (Array.isArray(t.customFields.actionTeam)) t.customFields.actionTeam.forEach((tm: string) => teamsSet.add(tm));
+          else teamsSet.add(String(t.customFields.actionTeam));
+        }
+
+        return Array.from(teamsSet).filter(Boolean).join(', ') || (t.tier ? `${t.tier} Support Team` : 'Support Team');
+      }
+      case 'actionAgents': {
+        const agentsMap = new Map<string, string>();
+        // 1. Current Assignee
+        const currentAssigneeName =
+          t.assignee?.fullName || t.assignee?.displayName || t.assignee?.name || t.assignee?.email;
+        if (currentAssigneeName) {
+          const tierLabel = t.tier ? ` (${t.tier})` : '';
+          agentsMap.set(t.assignee?.id || currentAssigneeName, `${currentAssigneeName}${tierLabel}`);
+        }
+
+        // 2. All contributing agents from comments & internal notes
+        if (Array.isArray(t.comments)) {
+          t.comments.forEach((c: any) => {
+            const author = c.author;
+            if (author && (author.kind === 'STAFF' || !author.kind)) {
+              const name = author.fullName || author.displayName || author.name || author.email;
+              if (name && !name.toLowerCase().includes('customer') && !name.toLowerCase().includes('guest')) {
+                const roleObj = author.roles?.[0]?.role;
+                const tier = roleObj?.tier || author.tier;
+                const rUpper = (roleObj?.name || roleObj?.key || author.roleName || author.jobTitle || '').toUpperCase();
+                let roleLabel = '';
+
+                if (tier) {
+                  roleLabel = ` (${tier})`;
+                } else if (rUpper.includes('L1')) {
+                  roleLabel = ' (L1)';
+                } else if (rUpper.includes('L2')) {
+                  roleLabel = ' (L2)';
+                } else if (rUpper.includes('L3')) {
+                  roleLabel = ' (L3)';
+                } else if (rUpper.includes('DEVOPS')) {
+                  roleLabel = ' (DEVOPS)';
+                } else if (rUpper.includes('DEV') || rUpper.includes('DEVELOPMENT') || rUpper.includes('ENGINEERING')) {
+                  roleLabel = ' (DEV)';
+                } else if (rUpper.includes('QA') || rUpper.includes('TEST') || rUpper.includes('QUALITY')) {
+                  roleLabel = ' (QA)';
+                } else if (rUpper.includes('TENANT_ADMIN') || rUpper.includes('ADMIN')) {
+                  roleLabel = ' (Admin)';
+                } else if (roleObj?.name) {
+                  roleLabel = ` (${roleObj.name})`;
+                } else if (author.roleName) {
+                  roleLabel = ` (${author.roleName})`;
+                }
+
+                const key = (author.id || author.email || name) + roleLabel;
+                if (!agentsMap.has(key)) {
+                  agentsMap.set(key, `${name}${roleLabel}`);
+                }
+              }
+            }
+          });
+        }
+
+        // 3. Contributing agents from ticket events & actions
+        if (Array.isArray(t.events)) {
+          t.events.forEach((ev: any) => {
+            const actor = ev.actor || ev.user;
+            if (actor && (actor.kind === 'STAFF' || !actor.kind)) {
+              const name = actor.fullName || actor.displayName || actor.name || actor.email;
+              if (name && !name.toLowerCase().includes('customer') && !name.toLowerCase().includes('guest')) {
+                const roleObj = actor.roles?.[0]?.role;
+                const tier = roleObj?.tier || actor.tier;
+                const rUpper = (roleObj?.name || roleObj?.key || actor.roleName || actor.jobTitle || '').toUpperCase();
+                let roleLabel = '';
+
+                if (tier) {
+                  roleLabel = ` (${tier})`;
+                } else if (rUpper.includes('L1')) {
+                  roleLabel = ' (L1)';
+                } else if (rUpper.includes('L2')) {
+                  roleLabel = ' (L2)';
+                } else if (rUpper.includes('L3')) {
+                  roleLabel = ' (L3)';
+                } else if (rUpper.includes('DEVOPS')) {
+                  roleLabel = ' (DEVOPS)';
+                } else if (rUpper.includes('DEV') || rUpper.includes('DEVELOPMENT') || rUpper.includes('ENGINEERING')) {
+                  roleLabel = ' (DEV)';
+                } else if (rUpper.includes('QA') || rUpper.includes('TEST') || rUpper.includes('QUALITY')) {
+                  roleLabel = ' (QA)';
+                } else if (rUpper.includes('TENANT_ADMIN') || rUpper.includes('ADMIN')) {
+                  roleLabel = ' (Admin)';
+                } else if (roleObj?.name) {
+                  roleLabel = ` (${roleObj.name})`;
+                }
+
+                const key = (actor.id || actor.email || name) + roleLabel;
+                if (!agentsMap.has(key)) {
+                  agentsMap.set(key, `${name}${roleLabel}`);
+                }
+              }
+            }
+          });
+        }
+
+        return Array.from(agentsMap.values()).join(', ') || currentAssigneeName || '-';
+      }
+      case 'escalationPath': {
+        if (t.customFields?.escalationPath) {
+          return String(t.customFields.escalationPath);
+        }
+        if (t.tier === 'L3') {
+          return 'L1 ➔ L2 ➔ L3 (Resolved)';
+        } else if (t.tier === 'L2') {
+          return 'L1 ➔ L2';
+        } else if (t.tier === 'DEV' || t.tier === 'DEVOPS') {
+          return `L1 ➔ L2 ➔ ${t.tier}`;
+        }
+        return t.tier || 'L1';
+      }
       case 'organization':
         return t.organization || t.customFields?.organization || '';
       case 'product':
@@ -2438,21 +2845,11 @@ export const DocumentsPage: React.FC = () => {
       case 'resolutionTime':
         return t.resolutionTimeHours ? `${t.resolutionTimeHours} hrs` : '';
       case 'rootCause':
-        return t.rootCause || '';
+        return cleanPlainText(t.rootCause);
       case 'capaNotes':
-        return t.capaNotes || '';
+        return cleanPlainText(t.capaNotes);
       case 'description':
-        return t.description
-          ? t.description
-              .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, ' ')
-              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-              .replace(/<xml[^>]*>[\s\S]*?<\/xml>/gi, ' ')
-              .replace(/<!--[\s\S]*?-->/g, ' ')
-              .replace(/<[^>]*>?/gm, '')
-              .replace(/[\r\n]+/g, ' ')
-              .trim()
-          : '';
+        return cleanPlainText(t.description);
       default:
         return String(t[colId] || '');
     }
@@ -2888,21 +3285,21 @@ export const DocumentsPage: React.FC = () => {
             backgroundColor: 'var(--bg-surface, #ffffff)',
             border: '1px solid var(--border-subtle, #e2e8f0)',
             borderRadius: '12px',
-            padding: '24px 28px',
+            padding: '20px 24px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: '20px',
+            gap: '14px',
             boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: '240px', flex: '1 1 auto' }}>
             <div
               style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
+                width: '42px',
+                height: '42px',
+                borderRadius: '10px',
                 backgroundColor: 'rgba(37, 99, 235, 0.1)',
                 border: '1px solid rgba(37, 99, 235, 0.25)',
                 display: 'flex',
@@ -2912,22 +3309,260 @@ export const DocumentsPage: React.FC = () => {
                 flexShrink: 0,
               }}
             >
-              <FileSpreadsheet size={26} />
+              <FileSpreadsheet size={22} />
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h1 style={{ fontSize: '22px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                <h1 style={{ fontSize: '20px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
                   Documents Center
                 </h1>
               </div>
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '2px 0 0', lineHeight: 1.4 }}>
                 Filter, customize, and export any permutation of tickets to Excel CSV, or upload and beautify CSV reports.
               </p>
             </div>
           </div>
 
           {/* Global Action Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
+            {/* Saved Presets / Templates Dropdown */}
+            <div style={{ position: 'relative' }} ref={presetsDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowPresetsDropdown(!showPresetsDropdown)}
+                className="btn btn-secondary"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontSize: '12px',
+                  height: '34px',
+                  padding: '0 11px',
+                  borderRadius: '7px',
+                  fontWeight: 650,
+                  backgroundColor: showPresetsDropdown || activePresetId ? '#ecfdf5' : 'var(--bg-surface)',
+                  color: showPresetsDropdown || activePresetId ? '#047857' : 'var(--text-primary)',
+                  borderColor: showPresetsDropdown || activePresetId ? '#a7f3d0' : 'var(--border-subtle, #e2e8f0)',
+                  transition: 'all 0.15s ease',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Choose a saved filter preset / template"
+              >
+                <Bookmark size={13} style={{ color: '#059669' }} />
+                <span>
+                  {activePresetId
+                    ? savedPresets.find((p) => p.id === activePresetId)?.name || 'Custom Preset'
+                    : `Saved Presets (${savedPresets.length})`}
+                </span>
+                <ChevronDown size={13} style={{ opacity: 0.7 }} />
+              </button>
+
+              {/* Popover list of saved presets */}
+              {showPresetsDropdown && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    left: 0,
+                    width: '320px',
+                    maxWidth: 'calc(100vw - 32px)',
+                    backgroundColor: 'var(--bg-surface, #ffffff)',
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    zIndex: 200,
+                    padding: '8px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 8px 8px',
+                      borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      My Saved Filter Templates ({savedPresets.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPresetsDropdown(false);
+                        setNewPresetName('');
+                        setIsSavePresetModalOpen(true);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#059669',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                      }}
+                    >
+                      <BookmarkPlus size={13} /> + New
+                    </button>
+                  </div>
+
+                  {savedPresets.length === 0 ? (
+                    <div style={{ padding: '20px 12px', textAlign: 'center' }}>
+                      <Bookmark size={24} style={{ color: '#a7f3d0', margin: '0 auto 8px', display: 'block' }} />
+                      <p style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 4px' }}>
+                        No saved presets yet
+                      </p>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                        Configure your Step 2 filters and click "Save Preset" to reuse them anytime.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ maxHeight: '260px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      {savedPresets.map((preset) => {
+                        const isActive = activePresetId === preset.id;
+                        return (
+                          <div
+                            key={preset.id}
+                            onClick={() => handleApplyPreset(preset)}
+                            style={{
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              backgroundColor: isActive ? '#ecfdf5' : 'transparent',
+                              border: isActive ? '1px solid #a7f3d0' : '1px solid transparent',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              transition: 'background-color 0.12s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isActive) e.currentTarget.style.backgroundColor = '#f8fafc';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: '12.5px', fontWeight: 700, color: isActive ? '#047857' : 'var(--text-primary)' }}>
+                                  {preset.name}
+                                </span>
+                                {isActive && (
+                                  <span style={{ fontSize: '9.5px', fontWeight: 800, backgroundColor: '#059669', color: '#fff', padding: '1px 5px', borderRadius: '4px' }}>
+                                    ACTIVE
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {preset.datePreset !== 'all' ? `Date: ${preset.datePreset} • ` : ''}
+                                {preset.filters.statuses.length > 0 ? `${preset.filters.statuses.length} statuses • ` : ''}
+                                {preset.filters.priorities.length > 0 ? `${preset.filters.priorities.length} priorities • ` : ''}
+                                {preset.filters.tiers.length > 0 ? `${preset.filters.tiers.length} tiers • ` : ''}
+                                {preset.columns ? `${preset.columns.length} cols` : 'All cols'}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeletePreset(preset.id, preset.name, e)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#94a3b8',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              title="Delete preset"
+                              onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                              onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div
+                    style={{
+                      borderTop: '1px solid var(--border-subtle, #f1f5f9)',
+                      paddingTop: '6px',
+                      marginTop: '4px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPresetsDropdown(false);
+                        setNewPresetName('');
+                        setIsSavePresetModalOpen(true);
+                      }}
+                      className="btn btn-primary"
+                      style={{
+                        width: '100%',
+                        height: '30px',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '5px',
+                        borderRadius: '6px',
+                        background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                        border: 'none',
+                        color: '#ffffff',
+                      }}
+                    >
+                      <BookmarkPlus size={13} /> Save Current Filter As Preset
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Save Current Preset Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setNewPresetName('');
+                setIsSavePresetModalOpen(true);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '12px',
+                height: '34px',
+                padding: '0 11px',
+                borderRadius: '7px',
+                fontWeight: 650,
+                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                color: '#ffffff',
+                border: 'none',
+                boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                whiteSpace: 'nowrap',
+              }}
+              title="Save current Step 2 filters as a reusable template"
+            >
+              <BookmarkPlus size={14} />
+              <span>Save Preset</span>
+            </button>
+
             <button
               type="button"
               disabled={isRefreshing}
@@ -2936,18 +3571,19 @@ export const DocumentsPage: React.FC = () => {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '7px',
-                fontSize: '13px',
-                height: '38px',
-                padding: '0 14px',
-                borderRadius: '8px',
+                gap: '5px',
+                fontSize: '12px',
+                height: '34px',
+                padding: '0 11px',
+                borderRadius: '7px',
                 fontWeight: 600,
                 cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
               }}
               title="Refresh real-time ticket counts and preview"
             >
               <RefreshCw
-                size={14}
+                size={13}
                 style={{
                   color: 'var(--primary, #2563eb)',
                   animation: isRefreshing ? 'spin 0.8s linear infinite' : 'none',
@@ -2963,15 +3599,16 @@ export const DocumentsPage: React.FC = () => {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
-                fontSize: '13px',
-                height: '38px',
-                padding: '0 14px',
-                borderRadius: '8px',
+                gap: '5px',
+                fontSize: '12px',
+                height: '34px',
+                padding: '0 11px',
+                borderRadius: '7px',
                 fontWeight: 600,
+                whiteSpace: 'nowrap',
               }}
             >
-              <RotateCw size={14} /> Reset Filters
+              <RotateCw size={13} /> Reset Filters
             </button>
 
             <button
@@ -2981,17 +3618,18 @@ export const DocumentsPage: React.FC = () => {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '8px',
-                fontSize: '13px',
+                gap: '6px',
+                fontSize: '12px',
                 fontWeight: 750,
-                height: '38px',
-                padding: '0 16px',
-                borderRadius: '8px',
+                height: '34px',
+                padding: '0 13px',
+                borderRadius: '7px',
                 boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)',
+                whiteSpace: 'nowrap',
               }}
               title="Open Detailed Team & Agent Performance Reports"
             >
-              <BarChart3 size={15} />
+              <BarChart3 size={14} />
               Performance Reports
             </button>
           </div>
@@ -4438,6 +5076,220 @@ export const DocumentsPage: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Save Preset / Template Modal */}
+        {isSavePresetModalOpen && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(15, 23, 42, 0.65)',
+              backdropFilter: 'blur(4px)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px',
+            }}
+          >
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '480px',
+                backgroundColor: 'var(--bg-surface, #ffffff)',
+                borderRadius: '16px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                border: '1px solid var(--border-subtle, #e2e8f0)',
+                overflow: 'hidden',
+                animation: 'modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+              }}
+            >
+              {/* Modal Header */}
+              <div
+                style={{
+                  padding: '18px 20px',
+                  borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#ffffff',
+                      boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
+                    }}
+                  >
+                    <BookmarkPlus size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                      Save Filter Preset
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0' }}>
+                      Save current Step 2 filter parameters to your user profile
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSavePresetModalOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    borderRadius: '6px',
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Preset Name <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={newPresetName}
+                    onChange={(e) => setNewPresetName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveCurrentPreset();
+                    }}
+                    placeholder="e.g. Critical SLA Breaches - L2, Weekly QA Tickets"
+                    className="form-control"
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      fontSize: '13.5px',
+                      borderRadius: '8px',
+                      borderColor: '#a7f3d0',
+                    }}
+                  />
+                </div>
+
+                {/* Filter Summary Snapshot */}
+                <div
+                  style={{
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                  }}
+                >
+                  <span style={{ fontSize: '11px', fontWeight: 750, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Captured Filter Snapshot:
+                  </span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#e0e7ff', color: '#3730a3' }}>
+                      Date: {filters.datePreset !== 'custom' ? filters.datePreset : `${filters.startDate || 'Start'} to ${filters.endDate || 'Now'}`}
+                    </span>
+                    {filters.statuses.length > 0 && (
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#eff6ff', color: '#1d4ed8' }}>
+                        Statuses ({filters.statuses.length})
+                      </span>
+                    )}
+                    {filters.priorities.length > 0 && (
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#fef2f2', color: '#b91c1c' }}>
+                        Priorities ({filters.priorities.length})
+                      </span>
+                    )}
+                    {filters.tiers.length > 0 && (
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#f0fdf4', color: '#15803d' }}>
+                        Tiers ({filters.tiers.length})
+                      </span>
+                    )}
+                    {filters.channels.length > 0 && (
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#fefce8', color: '#854d0e' }}>
+                        Channels ({filters.channels.length})
+                      </span>
+                    )}
+                    {filters.slaBreach !== 'all' && (
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                        SLA: {filters.slaBreach}
+                      </span>
+                    )}
+                    {filters.assignment !== 'all' && (
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#f3e8ff', color: '#6b21a8' }}>
+                        Assignment: {filters.assignment}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Option: Include Column Selection */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={includeColumnsInSave}
+                    onChange={(e) => setIncludeColumnsInSave(e.target.checked)}
+                    style={{ width: '16px', height: '16px', accentColor: '#059669' }}
+                  />
+                  <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                    Include current column selections ({selectedColumns.size} active columns)
+                  </span>
+                </label>
+              </div>
+
+              {/* Modal Footer */}
+              <div
+                style={{
+                  padding: '14px 20px',
+                  borderTop: '1px solid var(--border-subtle, #f1f5f9)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  gap: '10px',
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsSavePresetModalOpen(false)}
+                  className="btn btn-secondary"
+                  style={{ height: '36px', padding: '0 16px', fontSize: '13px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingPreset || !newPresetName.trim()}
+                  onClick={handleSaveCurrentPreset}
+                  className="btn btn-primary"
+                  style={{
+                    height: '36px',
+                    padding: '0 18px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                    border: 'none',
+                    boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Save size={14} />
+                  <span>{isSavingPreset ? 'Saving...' : 'Save Preset'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Full-Width Performance & Productivity Reports Modal */}
         <PerformanceReportsModal

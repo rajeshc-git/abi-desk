@@ -48,9 +48,11 @@ interface AgentPerformance {
   jobTitle?: string;
   roles?: string[];
   teamNames?: string[];
+  actionTeams?: string[];
   isOnline: boolean;
   assignedCount: number;
   resolvedCount: number;
+  participatedCount: number;
   openCount: number;
   resolutionRate: number;
   avgResolutionHours: number | null;
@@ -65,6 +67,7 @@ interface TeamPerformance {
   description?: string;
   assignedCount: number;
   resolvedCount: number;
+  participatedCount: number;
   openCount: number;
   resolutionRate: number;
   avgResolutionHours: number | null;
@@ -195,17 +198,53 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
       if (toIso) params.set('to', toIso);
       const queryStr = params.toString() ? `?${params.toString()}` : '';
 
-      const [agentsRes, queuesRes, teamsRes, usersRes, overviewRes] = await Promise.allSettled([
+      const ticketParams = new URLSearchParams();
+      ticketParams.set('pageSize', '500');
+      if (fromIso) ticketParams.set('createdAfter', fromIso);
+      if (toIso) ticketParams.set('createdBefore', toIso);
+
+      const [agentsRes, queuesRes, teamsRes, usersRes, overviewRes, ticketsRes] = await Promise.allSettled([
         ApiClient.get<any[]>(`/analytics/agents${queryStr}`).catch(() => []),
         ApiClient.get<any[]>('/analytics/queues').catch(() => []),
         ApiClient.get<any[]>('/admin/teams').catch(() => ApiClient.get('/teams').catch(() => [])),
         ApiClient.get<any[]>('/admin/users').catch(() => ApiClient.get('/users').catch(() => [])),
         ApiClient.get<any>(`/analytics/overview${queryStr}`).catch(() => null),
+        ApiClient.get<any>(`/tickets?${ticketParams.toString()}`).catch(() =>
+          ApiClient.get('/tickets?pageSize=500').catch(() => ({ items: [] }))
+        ),
       ]);
 
-      const rawAgents = agentsRes.status === 'fulfilled' && Array.isArray(agentsRes.value) ? agentsRes.value : [];
-      const rawTeams = teamsRes.status === 'fulfilled' && Array.isArray(teamsRes.value) ? teamsRes.value : [];
-      const rawUsers = usersRes.status === 'fulfilled' && Array.isArray(usersRes.value) ? usersRes.value : [];
+      const rawAgentsData = agentsRes.status === 'fulfilled' ? agentsRes.value : [];
+      const rawAgents: any[] = Array.isArray(rawAgentsData)
+        ? rawAgentsData
+        : Array.isArray((rawAgentsData as any)?.items)
+        ? (rawAgentsData as any).items
+        : Array.isArray((rawAgentsData as any)?.data)
+        ? (rawAgentsData as any).data
+        : [];
+
+      const rawTeamsData = teamsRes.status === 'fulfilled' ? teamsRes.value : [];
+      const rawTeams: any[] = Array.isArray(rawTeamsData)
+        ? rawTeamsData
+        : Array.isArray((rawTeamsData as any)?.teams)
+        ? (rawTeamsData as any).teams
+        : Array.isArray((rawTeamsData as any)?.items)
+        ? (rawTeamsData as any).items
+        : Array.isArray((rawTeamsData as any)?.data)
+        ? (rawTeamsData as any).data
+        : [];
+
+      const rawUsersData = usersRes.status === 'fulfilled' ? usersRes.value : [];
+      const rawUsers: any[] = Array.isArray(rawUsersData)
+        ? rawUsersData
+        : Array.isArray((rawUsersData as any)?.users)
+        ? (rawUsersData as any).users
+        : Array.isArray((rawUsersData as any)?.items)
+        ? (rawUsersData as any).items
+        : Array.isArray((rawUsersData as any)?.data)
+        ? (rawUsersData as any).data
+        : [];
+
       const rawQueues = queuesRes.status === 'fulfilled' && Array.isArray(queuesRes.value) ? queuesRes.value : [];
 
       if (overviewRes.status === 'fulfilled') {
@@ -215,48 +254,259 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
       // Build User metadata map
       const userMetaMap = new Map<string, any>();
       rawUsers.forEach((u: any) => {
-        userMetaMap.set(u.id, u);
+        if (u.id) userMetaMap.set(u.id, u);
+        if (u.email) userMetaMap.set(u.email.toLowerCase(), u);
       });
 
-      // Build Team Members map
-      const teamMembersMap = new Map<string, string[]>();
+      // Extract tickets for Zoho Desk Action Team participation analysis
+      const rawTicketsData = ticketsRes.status === 'fulfilled' ? ticketsRes.value : null;
+      const rawTickets: any[] = Array.isArray(rawTicketsData)
+        ? rawTicketsData
+        : Array.isArray(rawTicketsData?.items)
+        ? rawTicketsData.items
+        : Array.isArray(rawTicketsData?.data)
+        ? rawTicketsData.data
+        : [];
+
+      // Map ticket participations for each agent and team
+      const agentParticipationsMap = new Map<string, Set<string>>();
+      const teamParticipationsMap = new Map<string, Set<string>>();
+
+      rawTickets.forEach((t: any) => {
+        const ticketId = t.id || String(Math.random());
+
+        // 1. Assignee participation
+        if (t.assigneeId) {
+          if (!agentParticipationsMap.has(t.assigneeId)) agentParticipationsMap.set(t.assigneeId, new Set());
+          agentParticipationsMap.get(t.assigneeId)!.add(ticketId);
+        }
+        if (t.assignee?.id) {
+          if (!agentParticipationsMap.has(t.assignee.id)) agentParticipationsMap.set(t.assignee.id, new Set());
+          agentParticipationsMap.get(t.assignee.id)!.add(ticketId);
+        }
+        if (t.assignee?.email) {
+          const em = t.assignee.email.toLowerCase();
+          if (!agentParticipationsMap.has(em)) agentParticipationsMap.set(em, new Set());
+          agentParticipationsMap.get(em)!.add(ticketId);
+        }
+        if (t.assignee?.fullName) {
+          const fn = t.assignee.fullName.toLowerCase();
+          if (!agentParticipationsMap.has(fn)) agentParticipationsMap.set(fn, new Set());
+          agentParticipationsMap.get(fn)!.add(ticketId);
+        }
+
+        // 2. Action Team & Contributing agents from comments & internal timeline notes
+        if (Array.isArray(t.comments)) {
+          t.comments.forEach((c: any) => {
+            const author = c.author;
+            if (author) {
+              const aId = c.authorId || author.id;
+              if (aId) {
+                if (!agentParticipationsMap.has(aId)) agentParticipationsMap.set(aId, new Set());
+                agentParticipationsMap.get(aId)!.add(ticketId);
+              }
+              if (author.email) {
+                const em = author.email.toLowerCase();
+                if (!agentParticipationsMap.has(em)) agentParticipationsMap.set(em, new Set());
+                agentParticipationsMap.get(em)!.add(ticketId);
+              }
+              if (author.fullName) {
+                const fn = author.fullName.toLowerCase();
+                if (!agentParticipationsMap.has(fn)) agentParticipationsMap.set(fn, new Set());
+                agentParticipationsMap.get(fn)!.add(ticketId);
+              }
+            }
+          });
+        }
+
+        // 3. Team & Tier participation
+        if (t.teamId) {
+          if (!teamParticipationsMap.has(t.teamId)) teamParticipationsMap.set(t.teamId, new Set());
+          teamParticipationsMap.get(t.teamId)!.add(ticketId);
+        }
+        if (t.team?.name) {
+          const tn = t.team.name.toLowerCase();
+          if (!teamParticipationsMap.has(tn)) teamParticipationsMap.set(tn, new Set());
+          teamParticipationsMap.get(tn)!.add(ticketId);
+        }
+        if (t.tier) {
+          const tr = t.tier.toUpperCase();
+          if (!teamParticipationsMap.has(tr)) teamParticipationsMap.set(tr, new Set());
+          teamParticipationsMap.get(tr)!.add(ticketId);
+        }
+      });
+
+      // Unified Agent Pool: Combine rawAgents analytics + rawUsers + team members
+      const agentMap = new Map<string, any>();
+
+      // 1. Ingest all internal users from rawUsers
+      rawUsers.forEach((u: any) => {
+        const roles = (u.roles || []).map((r: any) => (typeof r === 'string' ? r : r.role?.name || r.role?.key || '')).filter(Boolean);
+        const isCustomer = roles.length > 0 && roles.every((r: string) => r.toLowerCase().includes('customer') || r.toLowerCase().includes('guest'));
+
+        if (!isCustomer) {
+          const userKey = u.id || u.email?.toLowerCase();
+          if (userKey) {
+            agentMap.set(userKey, {
+              agentId: u.id || userKey,
+              fullName: u.fullName || u.email?.split('@')[0] || 'Support Agent',
+              email: u.email || '',
+              jobTitle: u.jobTitle || roles[0] || 'Support Agent',
+              roles,
+              teamNames: (u.teamMembers || []).map((tm: any) => tm.team?.name).filter(Boolean),
+              isOnline: Boolean(u.isOnline || u.isActive),
+              assignedCount: 0,
+              resolvedCount: 0,
+              openCount: 0,
+              resolutionRate: 100,
+              avgResolutionHours: null,
+            });
+          }
+        }
+      });
+
+      // 2. Ingest team roster members from rawTeams
       rawTeams.forEach((t: any) => {
-        const memberNames = (t.members || []).map((m: any) => m.user?.fullName || m.user?.email || 'Agent');
-        teamMembersMap.set(t.id, memberNames);
+        if (Array.isArray(t.members)) {
+          t.members.forEach((m: any) => {
+            const user = m.user || m;
+            const userKey = user.id || user.email?.toLowerCase();
+            if (userKey) {
+              const existing = agentMap.get(userKey) || {};
+              const teams = existing.teamNames ? Array.from(new Set([...existing.teamNames, t.name])) : [t.name];
+              agentMap.set(userKey, {
+                agentId: user.id || userKey,
+                fullName: user.fullName || existing.fullName || user.email?.split('@')[0] || 'Support Agent',
+                email: user.email || existing.email || '',
+                jobTitle: user.jobTitle || existing.jobTitle || 'Support Agent',
+                roles: existing.roles || [],
+                teamNames: teams,
+                isOnline: Boolean(user.isOnline || user.isActive || existing.isOnline),
+                assignedCount: existing.assignedCount || 0,
+                resolvedCount: existing.resolvedCount || 0,
+                openCount: existing.openCount || 0,
+                resolutionRate: existing.resolutionRate ?? 100,
+                avgResolutionHours: existing.avgResolutionHours ?? null,
+              });
+            }
+          });
+        }
       });
 
-      // Enrich Agent Data
-      const enrichedAgents: AgentPerformance[] = rawAgents.map((ag: any) => {
-        const u = userMetaMap.get(ag.agentId);
-        const roles = u?.roles?.map((r: any) => r.role?.name || r.role?.key || r) || [];
-        const teamNames = u?.teamMembers?.map((tm: any) => tm.team?.name) || [];
+      // 3. Ingest assignees from rawTickets
+      rawTickets.forEach((t: any) => {
+        if (t.assignee) {
+          const a = t.assignee;
+          const userKey = a.id || a.email?.toLowerCase();
+          if (userKey && !agentMap.has(userKey)) {
+            agentMap.set(userKey, {
+              agentId: a.id || userKey,
+              fullName: a.fullName || a.email?.split('@')[0] || 'Support Agent',
+              email: a.email || '',
+              jobTitle: a.jobTitle || 'Support Agent',
+              roles: [],
+              teamNames: t.team?.name ? [t.team.name] : [],
+              isOnline: false,
+              assignedCount: 0,
+              resolvedCount: 0,
+              openCount: 0,
+              resolutionRate: 100,
+              avgResolutionHours: null,
+            });
+          }
+        }
+      });
+
+      // 4. Ingest / Overlay analytics from rawAgents
+      rawAgents.forEach((ag: any) => {
+        const u = userMetaMap.get(ag.agentId) || userMetaMap.get(ag.email?.toLowerCase());
+        const roles = (u?.roles || []).map((r: any) => (typeof r === 'string' ? r : r.role?.name || r.role?.key || '')).filter(Boolean);
+        const teamNames = (u?.teamMembers || []).map((tm: any) => tm.team?.name).filter(Boolean);
         const open = Math.max(0, (ag.assignedCount || 0) - (ag.resolvedCount || 0));
+        const userKey = ag.agentId || ag.email?.toLowerCase() || String(Math.random());
+
+        const prev = agentMap.get(userKey) || {};
+        agentMap.set(userKey, {
+          ...prev,
+          agentId: ag.agentId || prev.agentId || userKey,
+          fullName: ag.fullName || u?.fullName || prev.fullName || 'Support Agent',
+          email: ag.email || u?.email || prev.email || '',
+          jobTitle: ag.jobTitle || u?.jobTitle || prev.jobTitle || roles[0] || 'Support Agent',
+          roles: roles.length > 0 ? roles : prev.roles || [],
+          teamNames: teamNames.length > 0 ? teamNames : prev.teamNames || [],
+          isOnline: Boolean(ag.isOnline || u?.isOnline || prev.isOnline),
+          assignedCount: ag.assignedCount || 0,
+          resolvedCount: ag.resolvedCount || 0,
+          participatedCount: ag.participatedCount,
+          openCount: open,
+          resolutionRate: typeof ag.resolutionRate === 'number' ? ag.resolutionRate : (ag.assignedCount > 0 ? Math.round((ag.resolvedCount / ag.assignedCount) * 100) : 100),
+          avgResolutionHours: ag.avgResolutionHours ?? null,
+        });
+      });
+
+      // 5. Enrich each agent with Zoho Desk Action Teams
+      const enrichedAgents: AgentPerformance[] = Array.from(agentMap.values()).map((ag: any) => {
+        const agentParticipatedSet = new Set<string>();
+        if (ag.agentId && agentParticipationsMap.has(ag.agentId)) {
+          agentParticipationsMap.get(ag.agentId)!.forEach((id) => agentParticipatedSet.add(id));
+        }
+        if (ag.email && agentParticipationsMap.has(ag.email.toLowerCase())) {
+          agentParticipationsMap.get(ag.email.toLowerCase())!.forEach((id) => agentParticipatedSet.add(id));
+        }
+        if (ag.fullName && agentParticipationsMap.has(ag.fullName.toLowerCase())) {
+          agentParticipationsMap.get(ag.fullName.toLowerCase())!.forEach((id) => agentParticipatedSet.add(id));
+        }
+
+        const participatedCount = typeof ag.participatedCount === 'number'
+          ? Math.max(ag.participatedCount, agentParticipatedSet.size)
+          : Math.max(
+              agentParticipatedSet.size,
+              ag.assignedCount || 0,
+              ag.resolvedCount || 0
+            );
+
+        const rolesList = Array.isArray(ag.roles) ? ag.roles : [];
+        const teamNamesList = Array.isArray(ag.teamNames) ? ag.teamNames : [];
+
+        // Build distinct Action Teams (e.g. L1 Support, L2 Support, L3 Support)
+        const actionTeams = Array.from(
+          new Set([
+            ...teamNamesList,
+            ...rolesList
+              .filter((r: string) => r && !r.toLowerCase().includes('customer') && !r.toLowerCase().includes('client'))
+              .map((r: string) => (r.includes('Team') || r.includes('Support') ? r : `${r} Support Team`)),
+          ])
+        );
 
         return {
           agentId: ag.agentId,
-          fullName: ag.fullName || u?.fullName || 'Support Agent',
-          email: ag.email || u?.email || '',
-          jobTitle: ag.jobTitle || u?.jobTitle || '',
-          roles: Array.isArray(roles) ? roles : [],
-          teamNames: Array.isArray(teamNames) ? teamNames : [],
+          fullName: ag.fullName,
+          email: ag.email,
+          jobTitle: ag.jobTitle || rolesList[0] || 'Support Agent',
+          roles: rolesList,
+          teamNames: teamNamesList.length > 0 ? teamNamesList : ['General Support Queue'],
+          actionTeams: actionTeams.length > 0 ? actionTeams : ['General Support Team'],
           isOnline: Boolean(ag.isOnline),
           assignedCount: ag.assignedCount || 0,
           resolvedCount: ag.resolvedCount || 0,
-          openCount: open,
-          resolutionRate: typeof ag.resolutionRate === 'number' ? ag.resolutionRate : (ag.assignedCount > 0 ? Math.round((ag.resolvedCount / ag.assignedCount) * 100) : 100),
+          participatedCount,
+          openCount: ag.openCount || 0,
+          resolutionRate: ag.resolutionRate,
           avgResolutionHours: ag.avgResolutionHours ?? null,
         };
       });
 
       setAgents(enrichedAgents);
 
-      // Build Team Performance Data
+      // 6. Build Comprehensive Team Performance Data & Member Rosters
       const teamPerfList: TeamPerformance[] = rawTeams.map((team: any) => {
-        // Match member performance from assigned agents or user teamMemberships
+        // Link all members of this team
         const teamAgents = enrichedAgents.filter((a) => {
-          if (a.teamNames?.includes(team.name)) return true;
-          const u = userMetaMap.get(a.agentId);
-          return u?.teamMembers?.some((tm: any) => tm.teamId === team.id || tm.team?.id === team.id || tm.team?.name === team.name);
+          if (a.teamNames?.some((tn) => tn.toLowerCase() === team.name?.toLowerCase())) return true;
+          const u = userMetaMap.get(a.agentId) || userMetaMap.get(a.email.toLowerCase());
+          if (u?.teamMembers?.some((tm: any) => tm.teamId === team.id || tm.team?.id === team.id || tm.team?.name?.toLowerCase() === team.name?.toLowerCase())) return true;
+          if (team.members?.some((tm: any) => tm.userId === a.agentId || tm.user?.id === a.agentId || tm.user?.email?.toLowerCase() === a.email.toLowerCase())) return true;
+          return false;
         });
 
         const memberList = teamAgents.map((a) => a.fullName || a.email);
@@ -267,6 +517,32 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
         const avgHours = avgHoursList.length > 0 ? Math.round((avgHoursList.reduce((a, b) => a + b, 0) / avgHoursList.length) * 10) / 10 : null;
         const rate = totalAssigned > 0 ? Math.round((totalResolved / totalAssigned) * 100) : 100;
 
+        // Calculate team participated count
+        const teamParticipatedSet = new Set<string>();
+        if (team.id && teamParticipationsMap.has(team.id)) {
+          teamParticipationsMap.get(team.id)!.forEach((id) => teamParticipatedSet.add(id));
+        }
+        if (team.name && teamParticipationsMap.has(team.name.toLowerCase())) {
+          teamParticipationsMap.get(team.name.toLowerCase())!.forEach((id) => teamParticipatedSet.add(id));
+        }
+        if (team.tier && teamParticipationsMap.has(team.tier.toUpperCase())) {
+          teamParticipationsMap.get(team.tier.toUpperCase())!.forEach((id) => teamParticipatedSet.add(id));
+        }
+        teamAgents.forEach((a) => {
+          if (agentParticipationsMap.has(a.agentId)) {
+            agentParticipationsMap.get(a.agentId)!.forEach((id) => teamParticipatedSet.add(id));
+          }
+          if (agentParticipationsMap.has(a.email.toLowerCase())) {
+            agentParticipationsMap.get(a.email.toLowerCase())!.forEach((id) => teamParticipatedSet.add(id));
+          }
+        });
+
+        const totalParticipated = Math.max(
+          teamParticipatedSet.size,
+          totalAssigned,
+          totalResolved
+        );
+
         return {
           teamId: team.id,
           name: team.name,
@@ -275,10 +551,11 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           description: team.description,
           assignedCount: totalAssigned,
           resolvedCount: totalResolved,
+          participatedCount: totalParticipated,
           openCount: totalOpen,
           resolutionRate: rate,
           avgResolutionHours: avgHours,
-          memberCount: teamAgents.length || team.members?.length || memberList.length,
+          memberCount: teamAgents.length || (team.members ? team.members.length : memberList.length),
           memberNames: memberList,
           members: teamAgents,
         };
@@ -380,30 +657,42 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
     return list;
   }, [teams, searchQuery, tierFilter, teamSortField, teamSortDir]);
 
-  // Summary Metrics
+  // Summary Metrics dynamically adjusting based on active tab
   const summaryKpis = useMemo(() => {
-    const totalAssigned = agents.reduce((sum, a) => sum + a.assignedCount, 0);
-    const totalResolved = agents.reduce((sum, a) => sum + a.resolvedCount, 0);
-    const totalOpen = agents.reduce((sum, a) => sum + a.openCount, 0);
-    const onlineCount = agents.filter((a) => a.isOnline).length;
+    if (activeTab === 'teams') {
+      const totalAssigned = filteredTeams.reduce((sum, t) => sum + t.assignedCount, 0);
+      const totalResolved = filteredTeams.reduce((sum, t) => sum + t.resolvedCount, 0);
+      const totalParticipated = filteredTeams.reduce((sum, t) => sum + t.participatedCount, 0);
+      const avgVelocity = totalAssigned > 0 ? Math.round((totalResolved / totalAssigned) * 100) : 100;
+      const topTeam = [...filteredTeams].sort((a, b) => b.resolvedCount - a.resolvedCount)[0];
+
+      return {
+        totalAssigned,
+        totalResolved,
+        totalParticipated,
+        avgVelocity,
+        topPerformerName: topTeam && topTeam.resolvedCount > 0 ? topTeam.name : null,
+        topPerformerResolved: topTeam && topTeam.resolvedCount > 0 ? topTeam.resolvedCount : 0,
+        topPerformerLabel: 'Top Team Performer',
+      };
+    }
+
+    const totalAssigned = filteredAgents.reduce((sum, a) => sum + a.assignedCount, 0);
+    const totalResolved = filteredAgents.reduce((sum, a) => sum + a.resolvedCount, 0);
+    const totalParticipated = filteredAgents.reduce((sum, a) => sum + a.participatedCount, 0);
     const avgVelocity = totalAssigned > 0 ? Math.round((totalResolved / totalAssigned) * 100) : 100;
-
-    const topPerformer = [...agents].sort((a, b) => b.resolvedCount - a.resolvedCount)[0];
-
-    const validHours = agents.map((a) => a.avgResolutionHours).filter((h): h is number => h !== null);
-    const avgHours = validHours.length > 0 ? Math.round((validHours.reduce((a, b) => a + b, 0) / validHours.length) * 10) / 10 : null;
+    const topAgent = [...filteredAgents].sort((a, b) => b.resolvedCount - a.resolvedCount)[0];
 
     return {
-      totalStaff: agents.length,
-      onlineStaff: onlineCount,
       totalAssigned,
       totalResolved,
-      totalOpen,
+      totalParticipated,
       avgVelocity,
-      avgHours,
-      topPerformer: topPerformer && topPerformer.resolvedCount > 0 ? topPerformer : null,
+      topPerformerName: topAgent && topAgent.resolvedCount > 0 ? topAgent.fullName : null,
+      topPerformerResolved: topAgent && topAgent.resolvedCount > 0 ? topAgent.resolvedCount : 0,
+      topPerformerLabel: 'Top Agent Performer',
     };
-  }, [agents]);
+  }, [activeTab, filteredAgents, filteredTeams]);
 
   // Export Agent Report to CSV
   const exportAgentReportCsv = () => {
@@ -413,12 +702,12 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
     }
 
     const headers = [
-      'Staff Name',
+      'Agent Name',
       'Email',
       'Job Title / Role',
-      'Assigned Teams',
       'Tickets Assigned',
       'Tickets Resolved',
+      'Action Credits',
       'Unresolved Tickets',
       'Resolution Velocity (%)',
       'Avg Resolution Time (Hours)',
@@ -428,9 +717,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
       `"${a.fullName.replace(/"/g, '""')}"`,
       `"${a.email}"`,
       `"${(a.jobTitle || a.roles?.join(', ') || 'Support Agent').replace(/"/g, '""')}"`,
-      `"${(a.teamNames?.join(', ') || 'General Queue').replace(/"/g, '""')}"`,
       a.assignedCount,
       a.resolvedCount,
+      a.participatedCount,
       a.openCount,
       `${a.resolutionRate}%`,
       a.avgResolutionHours !== null ? a.avgResolutionHours : 'N/A',
@@ -447,7 +736,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast.success(`Agent Performance CSV exported (${filteredAgents.length} staff members)!`);
+    toast.success(`Agent Performance CSV exported (${filteredAgents.length} agents)!`);
   };
 
   // Export Team Report to CSV
@@ -460,10 +749,11 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
     const headers = [
       'Team Name',
       'Support Tier',
-      'Staff Member Count',
+      'Agent Count',
       'Team Members',
       'Tickets Assigned',
       'Tickets Resolved',
+      'Action Credits',
       'Unresolved Tickets',
       'Team Resolution Rate (%)',
       'Avg Resolution Time (Hours)',
@@ -476,6 +766,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
       `"${(t.memberNames?.join('; ') || '').replace(/"/g, '""')}"`,
       t.assignedCount,
       t.resolvedCount,
+      t.participatedCount,
       t.openCount,
       `${t.resolutionRate}%`,
       t.avgResolutionHours !== null ? t.avgResolutionHours : 'N/A',
@@ -517,7 +808,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
       <style>{`
         .perf-modal-window {
           width: 100%;
-          max-width: 1280px;
+          max-width: min(1620px, 97vw);
           max-height: 94vh;
           height: 92vh;
           background-color: var(--bg-surface, #ffffff);
@@ -529,7 +820,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           flex-direction: column;
         }
         .perf-modal-header {
-          padding: 18px 24px;
+          padding: 16px 24px;
           border-bottom: 1px solid var(--border-subtle, #e2e8f0);
           display: flex;
           align-items: center;
@@ -561,15 +852,24 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
         .perf-close-btn-mobile {
           display: none;
         }
+        .perf-filter-toolbar {
+          padding: 10px 24px;
+          border-bottom: 1px solid var(--border-subtle, #e2e8f0);
+          background-color: var(--bg-surface, #ffffff);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          flex-shrink: 0;
+        }
         .perf-presets-scroll {
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 5px;
           overflow-x: auto;
           overflow-y: hidden;
-          width: 100%;
-          max-width: 100%;
           min-width: 0;
+          flex: 1;
           -webkit-overflow-scrolling: touch;
           scrollbar-width: none;
         }
@@ -579,46 +879,71 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
         .perf-preset-btn {
           padding: 5px 11px;
           border-radius: 6px;
-          font-size: 12px;
+          font-size: 11.5px;
+          font-weight: 600;
           flex-shrink: 0;
           white-space: nowrap;
           cursor: pointer;
           transition: all 0.15s ease;
         }
+        .perf-filter-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-shrink: 0;
+        }
         .perf-tier-select {
-          height: 34px;
-          font-size: 13px;
-          font-weight: 600;
+          height: 32px;
+          font-size: 12px;
+          font-weight: 650;
           padding: 0 10px;
           border-radius: 8px;
-          border: 1px solid var(--border-medium, #e2e8f0);
+          border: 1px solid var(--border-medium, #cbd5e1);
           background-color: var(--bg-surface, #ffffff);
-          color: var(--text-primary);
+          color: var(--text-primary, #0f172a);
           cursor: pointer;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .perf-tier-select:focus {
+          outline: none;
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
         }
         .perf-tier-select option {
-          font-size: 14px;
+          font-size: 13px;
           padding: 6px 10px;
           color: #0f172a;
           background-color: #ffffff;
         }
         .perf-refresh-btn {
-          height: 34px;
+          height: 32px;
           padding: 0 12px;
           border-radius: 8px;
-          border: 1px solid var(--border-medium, #e2e8f0);
-          background-color: var(--bg-surface, #ffffff);
-          color: var(--text-primary);
-          font-size: 12px;
-          font-weight: 600;
+          border: 1px solid #93c5fd;
+          background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+          color: #1d4ed8;
+          font-size: 11.5px;
+          font-weight: 750;
           display: inline-flex;
           align-items: center;
-          gap: 5px;
+          gap: 6px;
           cursor: pointer;
           flex-shrink: 0;
+          box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .perf-refresh-btn:hover {
+          background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+          color: #ffffff;
+          border-color: #1d4ed8;
+          box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+          transform: translateY(-1px);
+        }
+        .perf-refresh-btn:active {
+          transform: translateY(0px);
         }
         .perf-kpi-grid {
-          padding: 14px 24px;
+          padding: 12px 24px;
           background-color: var(--bg-surface-elevated, #f8fafc);
           border-bottom: 1px solid var(--border-subtle, #e2e8f0);
           display: grid;
@@ -649,9 +974,25 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           -webkit-overflow-scrolling: touch;
           width: 100%;
         }
+        .perf-table-wrapper table {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+        }
         .perf-table-wrapper table th,
         .perf-table-wrapper table td {
           white-space: nowrap;
+        }
+        .perf-sticky-col {
+          position: sticky;
+          left: 0;
+          z-index: 4;
+          background-color: var(--bg-surface, #ffffff);
+          box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.08);
+        }
+        th.perf-sticky-col {
+          z-index: 10;
+          background-color: var(--bg-surface-elevated, #f8fafc) !important;
         }
         .perf-content-area {
           flex: 1;
@@ -1116,7 +1457,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 
         {/* Executive KPI Scorecards */}
         <div className="perf-kpi-grid">
-          {/* Card 1: Active Staff */}
+          {/* Card 1: Action Credits */}
           <div
             style={{
               padding: '10px 14px',
@@ -1133,63 +1474,25 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                 width: '36px',
                 height: '36px',
                 borderRadius: '8px',
-                backgroundColor: '#eff6ff',
-                color: '#2563eb',
+                backgroundColor: '#e0f2fe',
+                color: '#0284c7',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
               }}
             >
-              <Users size={18} />
+              <Layers size={18} />
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Active Staff Roster</div>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {summaryKpis.totalStaff}{' '}
-                <span style={{ fontSize: '10.5px', color: '#10b981', fontWeight: 600 }}>
-                  ({summaryKpis.onlineStaff} Online)
-                </span>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Action Credits</div>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: '#0369a1' }}>
+                {summaryKpis.totalParticipated.toLocaleString()}
               </div>
             </div>
           </div>
 
-          {/* Card 2: Total Assigned */}
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: '10px',
-              backgroundColor: 'var(--bg-surface, #ffffff)',
-              border: '1px solid var(--border-subtle, #e2e8f0)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-            }}
-          >
-            <div
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
-                backgroundColor: '#f5f3ff',
-                color: '#7c3aed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <Activity size={18} />
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Period Workload Assigned</div>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                {summaryKpis.totalAssigned.toLocaleString()}
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Total Resolved */}
+          {/* Card 2: Total Resolved */}
           <div
             style={{
               padding: '10px 14px',
@@ -1224,7 +1527,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
             </div>
           </div>
 
-          {/* Card 4: Avg Resolution Velocity */}
+          {/* Card 3: Avg Resolution Rate */}
           <div
             style={{
               padding: '10px 14px',
@@ -1259,7 +1562,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
             </div>
           </div>
 
-          {/* Card 5: Top Resolution Agent (Spans full width on mobile) */}
+          {/* Card 4: Top Performer */}
           <div
             className="perf-kpi-card-wide"
             style={{
@@ -1288,13 +1591,13 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
               <Award size={18} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>Top Performer</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>{summaryKpis.topPerformerLabel}</div>
               <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {summaryKpis.topPerformer ? summaryKpis.topPerformer.fullName : 'N/A'}
+                {summaryKpis.topPerformerName || 'N/A'}
               </div>
-              {summaryKpis.topPerformer && (
+              {summaryKpis.topPerformerName && (
                 <div style={{ fontSize: '10.5px', color: '#10b981', fontWeight: 600 }}>
-                  {summaryKpis.topPerformer.resolvedCount} tickets resolved
+                  {summaryKpis.topPerformerResolved} tickets resolved
                 </div>
               )}
             </div>
@@ -1405,7 +1708,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
               <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                 <User size={36} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
                 <h4 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 4px', color: 'var(--text-primary)' }}>
-                  No Matching Staff Members Found
+                  No Matching Agents Found
                 </h4>
                 <p style={{ fontSize: '12.5px', margin: 0 }}>Try clearing your search query or adjusting the date range filters.</p>
               </div>
@@ -1433,11 +1736,12 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       }}
                     >
                       <th
+                        className="perf-sticky-col"
                         onClick={() => handleAgentSort('fullName')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', userSelect: 'none', minWidth: '200px', whiteSpace: 'nowrap' }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          Staff Member
+                          Support Agent
                           {agentSortField === 'fullName' ? (
                             agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                           ) : (
@@ -1445,13 +1749,12 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                           )}
                         </div>
                       </th>
-                      <th style={{ padding: '10px 14px' }}>Roles & Teams</th>
-                      <th style={{ padding: '10px 14px', textAlign: 'center' }}>Live Status</th>
+                      <th style={{ padding: '10px 14px', minWidth: '130px', whiteSpace: 'nowrap' }}>Job Title / Role</th>
                       <th
                         onClick={() => handleAgentSort('assignedCount')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '85px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Assigned
                           {agentSortField === 'assignedCount' ? (
                             agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
@@ -1462,9 +1765,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       </th>
                       <th
                         onClick={() => handleAgentSort('resolvedCount')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '85px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Resolved
                           {agentSortField === 'resolvedCount' ? (
                             agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
@@ -1474,10 +1777,24 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                         </div>
                       </th>
                       <th
-                        onClick={() => handleAgentSort('openCount')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        onClick={() => handleAgentSort('participatedCount')}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '110px', whiteSpace: 'nowrap' }}
+                        title="Action Credits: Total tickets collaborated on, triaged, or contributed on across all tiers"
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          Action Credits
+                          {agentSortField === 'participatedCount' ? (
+                            agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+                          ) : (
+                            <ArrowUpDown size={11} style={{ opacity: 0.4 }} />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleAgentSort('openCount')}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '95px', whiteSpace: 'nowrap' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Unresolved
                           {agentSortField === 'openCount' ? (
                             agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
@@ -1488,10 +1805,10 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       </th>
                       <th
                         onClick={() => handleAgentSort('resolutionRate')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', userSelect: 'none', width: '170px' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '130px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          Resolution Velocity
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          Velocity
                           {agentSortField === 'resolutionRate' ? (
                             agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                           ) : (
@@ -1501,10 +1818,10 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       </th>
                       <th
                         onClick={() => handleAgentSort('avgResolutionHours')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '105px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-                          Avg Resolution Time
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          Avg Resolution
                           {agentSortField === 'avgResolutionHours' ? (
                             agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                           ) : (
@@ -1517,6 +1834,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                   <tbody>
                     {filteredAgents.map((agent, index) => {
                       const isTop = index === 0 && agent.resolvedCount > 0 && agentSortField === 'resolvedCount';
+
                       return (
                         <tr
                           key={agent.agentId}
@@ -1526,18 +1844,25 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                             transition: 'background-color 0.15s ease',
                           }}
                         >
-                          {/* Staff Info */}
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          {/* Agent Info */}
+                          <td
+                            className="perf-sticky-col"
+                            style={{
+                              padding: '12px 14px',
+                              minWidth: '200px',
+                              backgroundColor: isTop ? '#f0fdf4' : 'var(--bg-surface, #ffffff)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <div
                                 style={{
-                                  width: '32px',
-                                  height: '32px',
+                                  width: '30px',
+                                  height: '30px',
                                   borderRadius: '50%',
                                   backgroundColor: 'var(--primary-subtle, #e0e7ff)',
                                   color: 'var(--primary, #2563eb)',
                                   fontWeight: 700,
-                                  fontSize: '12px',
+                                  fontSize: '11px',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
@@ -1546,8 +1871,8 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                               >
                                 {agent.fullName.substring(0, 2).toUpperCase()}
                               </div>
-                              <div>
-                                <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                                   {agent.fullName}
                                   {isTop && (
                                     <span
@@ -1565,98 +1890,77 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                     </span>
                                   )}
                                 </div>
-                                <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>{agent.email}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {agent.email}
+                                </div>
                               </div>
                             </div>
                           </td>
 
-                          {/* Roles & Teams */}
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                              {agent.teamNames && agent.teamNames.length > 0 ? (
-                                agent.teamNames.map((tm) => (
-                                  <span
-                                    key={tm}
-                                    style={{
-                                      fontSize: '10.5px',
-                                      fontWeight: 600,
-                                      padding: '1px 6px',
-                                      borderRadius: '4px',
-                                      backgroundColor: '#f1f5f9',
-                                      color: '#334155',
-                                    }}
-                                  >
-                                    {tm}
-                                  </span>
-                                ))
-                              ) : (
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>General Staff</span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Online Status */}
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            {agent.isOnline ? (
-                              <span
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '2px 8px',
-                                  borderRadius: '12px',
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  backgroundColor: '#ecfdf5',
-                                  color: '#059669',
-                                  border: '1px solid #a7f3d0',
-                                }}
-                              >
-                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} />
-                                Online
-                              </span>
-                            ) : (
-                              <span
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '2px 8px',
-                                  borderRadius: '12px',
-                                  fontSize: '11px',
-                                  fontWeight: 500,
-                                  backgroundColor: '#f1f5f9',
-                                  color: '#64748b',
-                                  border: '1px solid #e2e8f0',
-                                }}
-                              >
-                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#94a3b8' }} />
-                                Offline
-                              </span>
-                            )}
+                          {/* Job Title / Role */}
+                          <td style={{ padding: '12px 14px', minWidth: '130px', whiteSpace: 'nowrap' }}>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 650,
+                                color: 'var(--text-secondary, #334155)',
+                                backgroundColor: '#f8fafc',
+                                border: '1px solid #e2e8f0',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {agent.jobTitle || (agent.roles && agent.roles[0]) || 'Support Agent'}
+                            </span>
                           </td>
 
                           {/* Assigned Count */}
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', minWidth: '85px', whiteSpace: 'nowrap' }}>
                             {agent.assignedCount}
                           </td>
 
                           {/* Resolved Count */}
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
+                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 800, color: '#059669', minWidth: '85px', whiteSpace: 'nowrap' }}>
                             {agent.resolvedCount}
                           </td>
 
+                          {/* Action Credits Participated Count */}
+                          <td style={{ padding: '12px 14px', textAlign: 'center', minWidth: '135px', whiteSpace: 'nowrap' }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '3px 9px',
+                                borderRadius: '12px',
+                                fontSize: '11.5px',
+                                fontWeight: 750,
+                                backgroundColor: '#e0f2fe',
+                                color: '#0369a1',
+                                border: '1px solid #bae6fd',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={`Action Credits: ${agent.participatedCount}`}
+                            >
+                              <Layers size={11} />
+                              {agent.participatedCount}
+                            </span>
+                          </td>
+
                           {/* Open Count */}
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 600, color: agent.openCount > 0 ? '#2563eb' : 'var(--text-muted)' }}>
+                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: agent.openCount > 0 ? '#2563eb' : 'var(--text-muted)', minWidth: '95px', whiteSpace: 'nowrap' }}>
                             {agent.openCount}
                           </td>
 
                           {/* Resolution Velocity Bar */}
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <td style={{ padding: '12px 14px', minWidth: '130px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                               <div
                                 style={{
-                                  flex: 1,
+                                  width: '60px',
                                   height: '7px',
                                   backgroundColor: 'var(--border-subtle, #e2e8f0)',
                                   borderRadius: '4px',
@@ -1672,14 +1976,14 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                   }}
                                 />
                               </div>
-                              <span style={{ fontSize: '11.5px', fontWeight: 750, color: 'var(--text-primary)', width: '36px', textAlign: 'right' }}>
+                              <span style={{ fontSize: '11.5px', fontWeight: 750, color: 'var(--text-primary)', width: '36px', textAlign: 'left' }}>
                                 {agent.resolutionRate}%
                               </span>
                             </div>
                           </td>
 
                           {/* Avg Resolution Hours */}
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                          <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', minWidth: '105px', whiteSpace: 'nowrap' }}>
                             {agent.avgResolutionHours !== null ? `${agent.avgResolutionHours} hrs` : 'N/A'}
                           </td>
                         </tr>
@@ -1725,8 +2029,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       }}
                     >
                       <th
+                        className="perf-sticky-col"
                         onClick={() => handleTeamSort('name')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', userSelect: 'none', minWidth: '200px', whiteSpace: 'nowrap' }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           Team Name
@@ -1737,13 +2042,13 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                           )}
                         </div>
                       </th>
-                      <th style={{ padding: '10px 14px' }}>Support Tier</th>
+                      <th style={{ padding: '10px 14px', minWidth: '100px', whiteSpace: 'nowrap' }}>Support Tier</th>
                       <th
                         onClick={() => handleTeamSort('memberCount')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '120px', whiteSpace: 'nowrap' }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                          Staff Roster
+                          Agent Roster
                           {teamSortField === 'memberCount' ? (
                             teamSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                           ) : (
@@ -1753,12 +2058,12 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       </th>
                       <th
                         onClick={() => handleTeamSort('assignedCount')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '95px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Tickets Routed
                           {teamSortField === 'assignedCount' ? (
-                            teamSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+                            agentSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                           ) : (
                             <ArrowUpDown size={11} style={{ opacity: 0.4 }} />
                           )}
@@ -1766,9 +2071,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       </th>
                       <th
                         onClick={() => handleTeamSort('resolvedCount')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '95px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Tickets Resolved
                           {teamSortField === 'resolvedCount' ? (
                             teamSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
@@ -1778,10 +2083,24 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                         </div>
                       </th>
                       <th
-                        onClick={() => handleTeamSort('openCount')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        onClick={() => handleTeamSort('participatedCount')}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '110px', whiteSpace: 'nowrap' }}
+                        title="Action Credits: Total tickets collaborated on across team members"
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          Action Credits
+                          {teamSortField === 'participatedCount' ? (
+                            teamSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+                          ) : (
+                            <ArrowUpDown size={11} style={{ opacity: 0.4 }} />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleTeamSort('openCount')}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '95px', whiteSpace: 'nowrap' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Unresolved
                           {teamSortField === 'openCount' ? (
                             teamSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
@@ -1792,9 +2111,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       </th>
                       <th
                         onClick={() => handleTeamSort('resolutionRate')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', userSelect: 'none', width: '170px' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '130px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Team Velocity
                           {teamSortField === 'resolutionRate' ? (
                             teamSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
@@ -1805,9 +2124,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                       </th>
                       <th
                         onClick={() => handleTeamSort('avgResolutionHours')}
-                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'right', userSelect: 'none' }}
+                        style={{ padding: '10px 14px', cursor: 'pointer', textAlign: 'center', userSelect: 'none', minWidth: '105px', whiteSpace: 'nowrap' }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           Avg Resolution Time
                           {teamSortField === 'avgResolutionHours' ? (
                             teamSortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
@@ -1819,22 +2138,31 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTeams.map((team) => {
+                    {filteredTeams.map((team, index) => {
                       const isExpanded = expandedTeamIds.has(team.teamId);
+                      const isTop = index === 0 && team.resolvedCount > 0 && teamSortField === 'resolvedCount';
+
                       return (
                         <React.Fragment key={team.teamId}>
                           <tr
                             onClick={() => toggleTeamExpand(team.teamId)}
                             style={{
                               borderBottom: isExpanded ? 'none' : '1px solid var(--border-subtle, #f1f5f9)',
-                              backgroundColor: isExpanded ? 'var(--bg-surface-elevated, #f8fafc)' : 'transparent',
+                              backgroundColor: isExpanded ? 'var(--bg-surface-elevated, #f8fafc)' : (isTop ? '#f0fdf4' : 'transparent'),
                               cursor: 'pointer',
                               transition: 'background-color 0.15s ease',
                             }}
                             title="Click to view all agents in this team"
                           >
                             {/* Team Name with Expand Arrow */}
-                            <td style={{ padding: '12px 14px' }}>
+                            <td
+                              className="perf-sticky-col"
+                              style={{
+                                padding: '12px 14px',
+                                minWidth: '200px',
+                                backgroundColor: isExpanded ? 'var(--bg-surface-elevated, #f8fafc)' : (isTop ? '#f0fdf4' : 'var(--bg-surface, #ffffff)'),
+                              }}
+                            >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span
                                   style={{
@@ -1858,11 +2186,26 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                   />
                                 </span>
                                 <div>
-                                  <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)' }}>
+                                  <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                                     {team.name}
+                                    {isTop && (
+                                      <span
+                                        style={{
+                                          fontSize: '9.5px',
+                                          backgroundColor: '#16a34a',
+                                          color: '#ffffff',
+                                          padding: '1px 5px',
+                                          borderRadius: '4px',
+                                          fontWeight: 800,
+                                          letterSpacing: '0.03em',
+                                        }}
+                                      >
+                                        #TOP
+                                      </span>
+                                    )}
                                   </div>
                                   {team.description && (
-                                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', whiteSpace: 'nowrap' }}>
                                       {team.description}
                                     </div>
                                   )}
@@ -1871,7 +2214,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                             </td>
 
                             {/* Tier */}
-                            <td style={{ padding: '12px 14px' }}>
+                            <td style={{ padding: '12px 14px', minWidth: '100px', whiteSpace: 'nowrap' }}>
                               <span
                                 style={{
                                   fontSize: '11px',
@@ -1880,6 +2223,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                   borderRadius: '6px',
                                   backgroundColor: 'var(--primary-subtle, #e0e7ff)',
                                   color: 'var(--primary, #2563eb)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  whiteSpace: 'nowrap',
                                 }}
                               >
                                 {team.tier || 'L1'}
@@ -1887,7 +2233,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                             </td>
 
                             {/* Staff Count Badge (Interactive) */}
-                            <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', minWidth: '120px', whiteSpace: 'nowrap' }}>
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -1907,6 +2253,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                   fontWeight: 700,
                                   cursor: 'pointer',
                                   transition: 'all 0.15s ease',
+                                  whiteSpace: 'nowrap',
                                 }}
                                 title="Click to expand/collapse member roster"
                               >
@@ -1923,26 +2270,56 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                             </td>
 
                             {/* Routed / Assigned Count */}
-                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', minWidth: '95px', whiteSpace: 'nowrap' }}>
                               {team.assignedCount}
                             </td>
 
                             {/* Resolved Count */}
-                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 800, color: '#059669', minWidth: '95px', whiteSpace: 'nowrap' }}>
                               {team.resolvedCount}
                             </td>
 
+                            {/* Action Credits Participations */}
+                            <td style={{ padding: '12px 14px', textAlign: 'center', minWidth: '140px', whiteSpace: 'nowrap' }}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleTeamExpand(team.teamId);
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 9px',
+                                  borderRadius: '12px',
+                                  fontSize: '11.5px',
+                                  fontWeight: 750,
+                                  backgroundColor: '#e0f2fe',
+                                  color: '#0369a1',
+                                  border: '1px solid #bae6fd',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={`Action Credits: Click to view member collaboration breakdown for ${team.name}`}
+                              >
+                                <Layers size={11} />
+                                {team.participatedCount}
+                              </button>
+                            </td>
+
                             {/* Unresolved */}
-                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 600, color: team.openCount > 0 ? '#2563eb' : 'var(--text-muted)' }}>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 600, color: team.openCount > 0 ? '#2563eb' : 'var(--text-muted)', minWidth: '95px', whiteSpace: 'nowrap' }}>
                               {team.openCount}
                             </td>
 
                             {/* Resolution Velocity Bar */}
-                            <td style={{ padding: '12px 14px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <td style={{ padding: '12px 14px', minWidth: '130px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                 <div
                                   style={{
-                                    flex: 1,
+                                    width: '60px',
                                     height: '7px',
                                     backgroundColor: 'var(--border-subtle, #e2e8f0)',
                                     borderRadius: '4px',
@@ -1958,35 +2335,37 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                     }}
                                   />
                                 </div>
-                                <span style={{ fontSize: '11.5px', fontWeight: 750, color: 'var(--text-primary)', width: '36px', textAlign: 'right' }}>
+                                <span style={{ fontSize: '11.5px', fontWeight: 750, color: 'var(--text-primary)', width: '36px', textAlign: 'left' }}>
                                   {team.resolutionRate}%
                                 </span>
                               </div>
                             </td>
 
                             {/* Avg Resolution Hours */}
-                            <td style={{ padding: '12px 14px', textAlign: 'right', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', minWidth: '105px', whiteSpace: 'nowrap' }}>
                               {team.avgResolutionHours !== null ? `${team.avgResolutionHours} hrs` : 'N/A'}
                             </td>
                           </tr>
 
-                          {/* Expanded Sub-Table: Team Member Agents */}
+                          {/* Expanded Sub-Table: Clean Responsive Team Member Agents */}
                           {isExpanded && (
                             <tr style={{ backgroundColor: 'var(--bg-surface-elevated, #f8fafc)' }}>
                               <td
-                                colSpan={8}
+                                colSpan={9}
                                 style={{
-                                  padding: '0 16px 16px 36px',
+                                  padding: '8px 16px 16px 16px',
                                   borderBottom: '1px solid var(--border-medium, #e2e8f0)',
                                 }}
                               >
                                 <div
                                   style={{
+                                    width: '100%',
                                     backgroundColor: 'var(--bg-surface, #ffffff)',
                                     border: '1px solid var(--border-medium, #e2e8f0)',
                                     borderRadius: '10px',
-                                    padding: '12px 16px',
-                                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.02)',
+                                    padding: '14px 16px',
+                                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.04)',
+                                    boxSizing: 'border-box',
                                   }}
                                 >
                                   <div
@@ -1997,6 +2376,8 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                       marginBottom: '10px',
                                       paddingBottom: '8px',
                                       borderBottom: '1px solid var(--border-subtle, #f1f5f9)',
+                                      flexWrap: 'wrap',
+                                      gap: '8px',
                                     }}
                                   >
                                     <div
@@ -2027,10 +2408,10 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                         textAlign: 'center',
                                       }}
                                     >
-                                      No individual staff members are currently mapped to this team in the roster.
+                                      No individual agents are currently mapped to this team in the roster.
                                     </div>
                                   ) : (
-                                    <div style={{ overflowX: 'auto' }}>
+                                    <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px' }}>
                                         <thead>
                                           <tr
@@ -2043,14 +2424,14 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                               letterSpacing: '0.04em',
                                             }}
                                           >
-                                            <th style={{ padding: '6px 10px' }}>Staff Agent</th>
-                                            <th style={{ padding: '6px 10px' }}>Email & Role</th>
-                                            <th style={{ padding: '6px 10px', textAlign: 'center' }}>Live Status</th>
-                                            <th style={{ padding: '6px 10px', textAlign: 'right' }}>Assigned</th>
-                                            <th style={{ padding: '6px 10px', textAlign: 'right' }}>Resolved</th>
-                                            <th style={{ padding: '6px 10px', textAlign: 'right' }}>Unresolved</th>
-                                            <th style={{ padding: '6px 10px', width: '140px' }}>Velocity</th>
-                                            <th style={{ padding: '6px 10px', textAlign: 'right' }}>Avg Resolution Time</th>
+                                            <th style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>Support Agent</th>
+                                            <th style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>Email & Role</th>
+                                            <th style={{ padding: '6px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>Assigned</th>
+                                            <th style={{ padding: '6px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>Resolved</th>
+                                            <th style={{ padding: '6px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>Action Credits</th>
+                                            <th style={{ padding: '6px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>Unresolved</th>
+                                            <th style={{ padding: '6px 10px', textAlign: 'center', width: '130px', whiteSpace: 'nowrap' }}>Velocity</th>
+                                            <th style={{ padding: '6px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>Avg Resolution Time</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -2063,7 +2444,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                               }}
                                             >
                                               {/* Agent Name with Avatar Disc */}
-                                              <td style={{ padding: '8px 10px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                              <td style={{ padding: '8px 10px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                   <div
                                                     style={{
@@ -2088,69 +2469,50 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 
                                               {/* Email & Role */}
                                               <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{m.email}</div>
+                                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{m.email}</div>
                                                 {m.jobTitle && (
-                                                  <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{m.jobTitle}</div>
-                                                )}
-                                              </td>
-
-                                              {/* Live Status */}
-                                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                                {m.isOnline ? (
-                                                  <span
-                                                    style={{
-                                                      display: 'inline-flex',
-                                                      alignItems: 'center',
-                                                      gap: '3px',
-                                                      fontSize: '10.5px',
-                                                      fontWeight: 700,
-                                                      color: '#059669',
-                                                      backgroundColor: '#ecfdf5',
-                                                      padding: '1px 6px',
-                                                      borderRadius: '10px',
-                                                      border: '1px solid #a7f3d0',
-                                                    }}
-                                                  >
-                                                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#10b981' }} />
-                                                    Online
-                                                  </span>
-                                                ) : (
-                                                  <span
-                                                    style={{
-                                                      display: 'inline-flex',
-                                                      alignItems: 'center',
-                                                      gap: '3px',
-                                                      fontSize: '10px',
-                                                      fontWeight: 500,
-                                                      color: '#64748b',
-                                                      backgroundColor: '#f1f5f9',
-                                                      padding: '1px 6px',
-                                                      borderRadius: '10px',
-                                                    }}
-                                                  >
-                                                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#94a3b8' }} />
-                                                    Offline
-                                                  </span>
+                                                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{m.jobTitle}</div>
                                                 )}
                                               </td>
 
                                               {/* Workload Stats */}
-                                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                                                 {m.assignedCount}
                                               </td>
-                                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
+                                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: '#059669', whiteSpace: 'nowrap' }}>
                                                 {m.resolvedCount}
                                               </td>
-                                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: m.openCount > 0 ? '#2563eb' : 'var(--text-muted)' }}>
+                                              <td style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                                <span
+                                                  style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '3px',
+                                                    padding: '1px 6px',
+                                                    borderRadius: '10px',
+                                                    fontSize: '10.5px',
+                                                    fontWeight: 750,
+                                                    backgroundColor: '#e0f2fe',
+                                                    color: '#0369a1',
+                                                    border: '1px solid #bae6fd',
+                                                    whiteSpace: 'nowrap',
+                                                  }}
+                                                  title={`Action Credits: ${m.fullName} contributed to ${m.participatedCount} tickets`}
+                                                >
+                                                  <Layers size={10} />
+                                                  {m.participatedCount}
+                                                </span>
+                                              </td>
+                                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600, color: m.openCount > 0 ? '#2563eb' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                                                 {m.openCount}
                                               </td>
 
                                               {/* Velocity */}
                                               <td style={{ padding: '8px 10px' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                                                   <div
                                                     style={{
-                                                      flex: 1,
+                                                      width: '50px',
                                                       height: '5px',
                                                       backgroundColor: 'var(--border-subtle, #e2e8f0)',
                                                       borderRadius: '3px',
@@ -2165,14 +2527,14 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                                       }}
                                                     />
                                                   </div>
-                                                  <span style={{ fontSize: '10.5px', fontWeight: 700, width: '32px', textAlign: 'right' }}>
+                                                  <span style={{ fontSize: '10.5px', fontWeight: 750, width: '32px', textAlign: 'left' }}>
                                                     {m.resolutionRate}%
                                                   </span>
                                                 </div>
                                               </td>
 
                                               {/* Avg Resolution Time */}
-                                              <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                              <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                                                 {m.avgResolutionHours !== null ? `${m.avgResolutionHours} hrs` : 'N/A'}
                                               </td>
                                             </tr>
@@ -2212,7 +2574,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
         >
           <div>
             Showing <strong style={{ color: 'var(--text-primary)' }}>{activeTab === 'agents' ? filteredAgents.length : filteredTeams.length}</strong>{' '}
-            {activeTab === 'agents' ? 'staff performance entries' : 'teams'} for time window:{' '}
+            {activeTab === 'agents' ? 'agent performance entries' : 'teams'} for time window:{' '}
             <strong style={{ color: 'var(--primary, #2563eb)' }}>
               {preset.replace('_', ' ').toUpperCase()} {startDate && endDate ? `(${startDate} ~ ${endDate})` : ''}
             </strong>

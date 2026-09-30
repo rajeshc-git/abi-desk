@@ -49,6 +49,7 @@ const TICKET_LIST_SELECT = {
   brandId: true,
   queueId: true,
   teamId: true,
+  team: { select: { id: true, name: true, tier: true } },
   createdAt: true,
   updatedAt: true,
   lastActivityAt: true,
@@ -65,6 +66,24 @@ const TICKET_LIST_SELECT = {
   assignee: { select: { id: true, fullName: true, email: true } },
   brand: { select: { id: true, name: true, slug: true, supportEmail: true } },
   tags: { select: { tag: { select: { name: true, slug: true, color: true } } } },
+  comments: {
+    select: {
+      id: true,
+      author: {
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          kind: true,
+          roles: {
+            include: {
+              role: { select: { id: true, name: true, key: true, tier: true } },
+            },
+          },
+        },
+      },
+    },
+  },
   customFields: true,
 } satisfies Prisma.TicketSelect;
 
