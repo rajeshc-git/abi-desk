@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ShieldAlert, ArrowRight, X, Lock } from 'lucide-react';
 import { TierBadge } from '../common/Badge';
 import { ActionNoteBox } from '../common/ActionNoteBox';
@@ -40,7 +41,7 @@ export const TransferTierModal: React.FC<TransferTierModalProps> = ({
     }
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -192,6 +193,7 @@ export const TransferTierModal: React.FC<TransferTierModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

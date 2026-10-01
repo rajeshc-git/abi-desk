@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Download,
@@ -788,7 +789,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
       className="perf-modal-overlay"
       style={{
@@ -2591,6 +2592,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

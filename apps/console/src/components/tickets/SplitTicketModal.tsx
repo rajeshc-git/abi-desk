@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Scissors,
   X,
@@ -261,7 +262,7 @@ export const SplitTicketModal: React.FC<SplitTicketModalProps> = ({
     parentTicket.requester?.email ||
     'Customer';
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -1353,6 +1354,7 @@ export const SplitTicketModal: React.FC<SplitTicketModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

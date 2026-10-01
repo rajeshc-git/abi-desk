@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowRight, X, Lock, CheckCircle2 } from 'lucide-react';
 import { getStatusMeta } from './StatusPopover';
 import { ActionNoteBox } from '../common/ActionNoteBox';
@@ -45,7 +46,7 @@ export const StatusTransitionModal: React.FC<StatusTransitionModalProps> = ({
     }
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -237,6 +238,7 @@ export const StatusTransitionModal: React.FC<StatusTransitionModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

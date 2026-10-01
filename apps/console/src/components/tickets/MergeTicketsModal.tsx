@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { GitMerge, X, Check, AlertCircle } from 'lucide-react';
 import { StatusBadge, PriorityPill, TierBadge } from '../common/Badge';
 import { ActionNoteBox } from '../common/ActionNoteBox';
@@ -56,7 +57,7 @@ export const MergeTicketsModal: React.FC<MergeTicketsModalProps> = ({
     }
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -351,6 +352,7 @@ export const MergeTicketsModal: React.FC<MergeTicketsModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
