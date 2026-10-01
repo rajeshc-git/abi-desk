@@ -1335,6 +1335,7 @@ export class WidgetUI {
       ESCALATED_L2: { bg: '#fdf2f8', text: '#be185d' },
       ESCALATED_L3: { bg: '#fdf4ff', text: '#a21caf' },
       IN_DEVELOPMENT: { bg: '#eef2ff', text: '#4338ca' },
+      IN_DEV: { bg: '#eef2ff', text: '#4338ca' },
       IN_QA: { bg: '#f5f3ff', text: '#6d28d9' },
       PENDING_RELEASE: { bg: '#fff7ed', text: '#c2410c' },
       RELEASED: { bg: '#ecfeff', text: '#0e7490' },
@@ -1360,8 +1361,28 @@ export class WidgetUI {
   }
 
   private formatStatus(status: string): string {
-    if (status === 'OPEN') return 'In Progress';
-    return status.replace(/_/g, ' ').replace(/L(\d)/g, 'L$1');
+    const map: Record<string, string> = {
+      NEW: 'New',
+      TRIAGE: 'Triage',
+      OPEN: 'Open',
+      IN_PROGRESS: 'In Progress',
+      PENDING_CUSTOMER: 'Pending Customer',
+      ON_HOLD: 'On Hold',
+      ESCALATED_L2: 'Escalated L2',
+      ESCALATED_L3: 'Escalated L3',
+      IN_DEVELOPMENT: 'In Development',
+      IN_DEV: 'In Development',
+      IN_QA: 'In QA',
+      PENDING_RELEASE: 'Pending Release',
+      RELEASED: 'Released',
+      PENDING_VERIFICATION: 'Pending Verification',
+      AWAITING_CUSTOMER_CONFIRMATION: 'Awaiting Confirmation',
+      RESOLVED: 'Resolved',
+      CLOSED: 'Closed',
+      REOPENED: 'Reopened',
+      CANCELLED: 'Cancelled',
+    };
+    return map[status] || (status || '').replace(/_/g, ' ').replace(/L(\d)/g, 'L$1');
   }
 
   private timeAgo(dateStr: string): string {
