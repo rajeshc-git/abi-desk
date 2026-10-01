@@ -74,7 +74,7 @@ export class WidgetUI {
       position: 'bottom-right',
       primaryColor: '#2563EB',
       accentColor: '#1E40AF',
-      brandName: 'ABI Desk Widget',
+      brandName: 'ABI Desk Helpdesk',
       launcherLabel: 'Support',
       widgetEnabled: true,
       isAdminConsole: false,
@@ -128,9 +128,14 @@ export class WidgetUI {
       if (!res.ok) throw new Error('Failed to fetch widget config');
       const remote = await res.json();
 
+      let resolvedBrand = remote.brandName || this.config.brandName;
+      if (resolvedBrand === 'ABI-Health Helpdesk' || resolvedBrand === 'ABI Desk Widget') {
+        resolvedBrand = 'ABI Desk Helpdesk';
+      }
+
       this.config = {
         ...this.config,
-        brandName: remote.brandName || this.config.brandName,
+        brandName: resolvedBrand || 'ABI Desk Helpdesk',
         primaryColor: remote.primaryColor || this.config.primaryColor,
         accentColor: remote.accentColor || this.config.accentColor,
         position: remote.launcherPosition?.toLowerCase().replace('_', '-') || this.config.position,
@@ -320,6 +325,7 @@ export class WidgetUI {
 
     return `
       <form id="abi-ticket-form">
+        <div id="abi-ticket-form-error" class="abi-form-error-banner" style="display: none;"></div>
         ${
           !this.config.userToken
             ? `
@@ -336,7 +342,8 @@ export class WidgetUI {
 
         <div class="abi-form-group">
           <label class="abi-label">Subject</label>
-          <input type="text" class="abi-input" id="abi-ticket-subject" placeholder="What can we help you with?" value="${this.escapeHtml(this.ticketDraft.subject)}" required />
+          <input type="text" class="abi-input" id="abi-ticket-subject" placeholder="What can we help you with? (min 3 chars)" value="${this.escapeHtml(this.ticketDraft.subject)}" required />
+          <div class="abi-field-error" id="abi-subject-error" style="display: none;"></div>
         </div>
 
         <!-- Hidden inputs for organization and product -->
@@ -345,7 +352,8 @@ export class WidgetUI {
 
         <div class="abi-form-group">
           <label class="abi-label">Description</label>
-          <textarea class="abi-textarea" id="abi-ticket-desc" rows="4" placeholder="Please describe the issue in detail..." required>${this.escapeHtml(this.ticketDraft.description)}</textarea>
+          <textarea class="abi-textarea" id="abi-ticket-desc" rows="4" placeholder="Please describe the issue in detail... (min 5 chars)" required>${this.escapeHtml(this.ticketDraft.description)}</textarea>
+          <div class="abi-field-error" id="abi-desc-error" style="display: none;"></div>
         </div>
 
         <div class="abi-form-group">
@@ -1864,11 +1872,39 @@ export class WidgetUI {
       });
     });
 
-    // Ticket Form Input State Tracking
+    // Ticket Form Input State Tracking & Real-Time Validation
     const ticketForm = this.shadow.querySelector('#abi-ticket-form');
     if (ticketForm) {
       ticketForm.addEventListener('input', () => this.saveTicketDraftFromDOM());
       ticketForm.addEventListener('change', () => this.saveTicketDraftFromDOM());
+
+      const subjectInput = this.shadow.querySelector('#abi-ticket-subject') as HTMLInputElement | null;
+      const descInput = this.shadow.querySelector('#abi-ticket-desc') as HTMLTextAreaElement | null;
+      const subjectErr = this.shadow.querySelector('#abi-subject-error') as HTMLElement | null;
+      const descErr = this.shadow.querySelector('#abi-desc-error') as HTMLElement | null;
+      const formErr = this.shadow.querySelector('#abi-ticket-form-error') as HTMLElement | null;
+
+      if (subjectInput) {
+        subjectInput.addEventListener('input', () => {
+          const val = subjectInput.value.trim();
+          if (val.length >= 3) {
+            subjectInput.classList.remove('error');
+            if (subjectErr) subjectErr.style.display = 'none';
+          }
+          if (formErr) formErr.style.display = 'none';
+        });
+      }
+
+      if (descInput) {
+        descInput.addEventListener('input', () => {
+          const val = descInput.value.trim();
+          if (val.length >= 5) {
+            descInput.classList.remove('error');
+            if (descErr) descErr.style.display = 'none';
+          }
+          if (formErr) formErr.style.display = 'none';
+        });
+      }
     }
 
 
@@ -2404,13 +2440,54 @@ export class WidgetUI {
     if (!this.config.userToken) {
       emailValue = localStorage.getItem('abi-widget-user-email') || '';
       if (!emailValue) {
-        alert('Email verification is required.');
+        const formErr = this.shadow.querySelector('#abi-ticket-form-error') as HTMLElement | null;
+        if (formErr) {
+          formErr.textContent = '⚠️ Email verification is required before submitting.';
+          formErr.style.display = 'flex';
+        } else {
+          alert('Email verification is required.');
+        }
         return;
       }
     }
 
-    if (!subjectValue.trim() || !descValue.trim()) {
-      alert('Please fill in both Subject and Description.');
+    const formErr = this.shadow.querySelector('#abi-ticket-form-error') as HTMLElement | null;
+    const subjectErr = this.shadow.querySelector('#abi-subject-error') as HTMLElement | null;
+    const descErr = this.shadow.querySelector('#abi-desc-error') as HTMLElement | null;
+
+    if (formErr) formErr.style.display = 'none';
+
+    let isValid = true;
+    if (!subjectValue.trim() || subjectValue.trim().length < 3) {
+      isValid = false;
+      subjectInput?.classList.add('error');
+      if (subjectErr) {
+        subjectErr.textContent = 'Subject must be at least 3 characters.';
+        subjectErr.style.display = 'flex';
+      }
+    } else {
+      subjectInput?.classList.remove('error');
+      if (subjectErr) subjectErr.style.display = 'none';
+    }
+
+    if (!descValue.trim() || descValue.trim().length < 5) {
+      isValid = false;
+      descInput?.classList.add('error');
+      if (descErr) {
+        descErr.textContent = 'Description must be at least 5 characters.';
+        descErr.style.display = 'flex';
+      }
+    } else {
+      descInput?.classList.remove('error');
+      if (descErr) descErr.style.display = 'none';
+    }
+
+    if (!isValid) {
+      if (subjectValue.trim().length < 3) {
+        subjectInput?.focus();
+      } else {
+        descInput?.focus();
+      }
       return;
     }
 
@@ -2451,7 +2528,18 @@ export class WidgetUI {
       });
 
       if (!res.ok) {
-        throw new Error(await res.text());
+        const resText = await res.text();
+        let errorMsg = 'Failed to submit ticket. Please try again.';
+        try {
+          const errJson = JSON.parse(resText);
+          if (errJson.message) errorMsg = errJson.message;
+          if (Array.isArray(errJson.details) && errJson.details.length > 0) {
+            errorMsg = errJson.details.map((d: any) => `${d.path ? d.path + ': ' : ''}${d.message}`).join(', ');
+          }
+        } catch {
+          if (resText && !resText.includes('<html')) errorMsg = resText;
+        }
+        throw new Error(errorMsg);
       }
 
       const ticket = await res.json();
@@ -2483,7 +2571,14 @@ export class WidgetUI {
         setTimeout(() => banner.remove(), 6000);
       }
     } catch (err) {
-      alert(`Failed to submit ticket: ${err instanceof Error ? err.message : String(err)}`);
+      const formErrEl = this.shadow.querySelector('#abi-ticket-form-error') as HTMLElement | null;
+      if (formErrEl) {
+        formErrEl.textContent = `⚠️ ${err instanceof Error ? err.message : String(err)}`;
+        formErrEl.style.display = 'flex';
+        formErrEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else {
+        alert(`Failed to submit ticket: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
       // Re-enable submit button (may have been re-rendered, so re-query)
       const btn = this.shadow.querySelector('#abi-submit-ticket-btn') as HTMLButtonElement;

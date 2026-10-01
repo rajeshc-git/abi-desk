@@ -190,6 +190,36 @@ export function getWidgetStyles(
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
+.abi-input.error, .abi-textarea.error {
+  border-color: #ef4444 !important;
+  background-color: #fef2f2 !important;
+}
+
+.abi-field-error {
+  font-size: 11px;
+  color: #ef4444;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+
+.abi-form-error-banner {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
 /* Organization & Product Grouped Card (Matching Main App Console Design) */
 .abi-org-prod-card {
   display: flex;
