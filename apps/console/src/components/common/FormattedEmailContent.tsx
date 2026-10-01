@@ -894,28 +894,34 @@ function renderTextWithLinks(text: string, keyPrefix: string): React.ReactNode {
         </a>,
       );
     } else if (mentionTag) {
-      parts.push(
-        <span
-          key={matchKey}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '3px',
-            backgroundColor: 'rgba(37, 99, 235, 0.1)',
-            color: 'var(--primary, #2563eb)',
-            fontWeight: 600,
-            fontSize: '12px',
-            padding: '1px 6px',
-            borderRadius: '4px',
-            border: '1px solid rgba(37, 99, 235, 0.25)',
-            verticalAlign: 'baseline',
-            margin: '0 2px',
-          }}
-        >
-          <AtSign size={11} style={{ opacity: 0.85 }} />
-          <span>{mentionTag.replace(/^@/, '')}</span>
-        </span>,
-      );
+      const cleanTag = mentionTag.replace(/^@/, '').trim();
+      // Guard: If it looks like an email domain (e.g. gmail.com, company.org), don't render as a mention badge
+      if (/\.[a-zA-Z]{2,}$/.test(cleanTag)) {
+        parts.push(mentionTag);
+      } else {
+        parts.push(
+          <span
+            key={matchKey}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              backgroundColor: 'rgba(37, 99, 235, 0.1)',
+              color: 'var(--primary, #2563eb)',
+              fontWeight: 600,
+              fontSize: '12px',
+              padding: '1px 6px',
+              borderRadius: '4px',
+              border: '1px solid rgba(37, 99, 235, 0.25)',
+              verticalAlign: 'baseline',
+              margin: '0 2px',
+            }}
+          >
+            <AtSign size={11} style={{ opacity: 0.85 }} />
+            <span>{cleanTag}</span>
+          </span>,
+        );
+      }
     } else if (mailtoUrl) {
       parts.push(
         <a

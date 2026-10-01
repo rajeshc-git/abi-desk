@@ -601,6 +601,16 @@ export const AdminPage: React.FC = () => {
   const [queueRouting, setQueueRouting] = useState('LEAST_LOADED');
   const [queueIsDefault, setQueueIsDefault] = useState(false);
 
+  // Edit Queue Form
+  const [isEditQueueOpen, setIsEditQueueOpen] = useState(false);
+  const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
+  const [editQueueName, setEditQueueName] = useState('');
+  const [editQueueTier, setEditQueueTier] = useState('L1');
+  const [editQueueTeamId, setEditQueueTeamId] = useState('');
+  const [editQueueBrandId, setEditQueueBrandId] = useState('');
+  const [editQueueRouting, setEditQueueRouting] = useState('LEAST_LOADED');
+  const [editQueueIsDefault, setEditQueueIsDefault] = useState(false);
+
   // Invite User Form
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteFullName, setInviteFullName] = useState('');
@@ -1926,13 +1936,18 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
     }
   };
 
-  // Create Queue Submit
+  // Create Queue Submit (with auto-generated slug)
   const handleCreateQueue = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!queueName.trim()) {
+      toast.warning('Please enter a Queue Name.');
+      return;
+    }
+    const autoSlug = queueName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'queue';
     try {
       await ApiClient.post('/admin/queues', {
-        name: queueName,
-        slug: queueSlug.toLowerCase(),
+        name: queueName.trim(),
+        slug: autoSlug,
         tier: queueTier,
         brandId: queueBrandId || undefined,
         teamId: queueTeamId || undefined,
@@ -1943,10 +1958,73 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       setIsCreateQueueOpen(false);
       setQueueName('');
       setQueueSlug('');
+      setQueueTier('L1');
+      setQueueTeamId('');
+      setQueueBrandId('');
+      setQueueRouting('LEAST_LOADED');
+      setQueueIsDefault(false);
       loadData();
-      toast.success('Queue created successfully!');
+      toast.success('Routing queue created successfully!');
     } catch (err: any) {
       toast.error(`Failed to create queue: ${err.message}`);
+    }
+  };
+
+  // Open Edit Queue Modal
+  const openEditQueueModal = (q: any) => {
+    setEditingQueueId(q.id);
+    setEditQueueName(q.name || '');
+    setEditQueueTier(q.tier || 'L1');
+    setEditQueueTeamId(q.teamId || q.team?.id || '');
+    setEditQueueBrandId(q.brandId || q.brand?.id || '');
+    setEditQueueRouting(q.routing || 'LEAST_LOADED');
+    setEditQueueIsDefault(Boolean(q.isDefault));
+    setIsEditQueueOpen(true);
+  };
+
+  // Update Queue Submit
+  const handleUpdateQueue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingQueueId || !editQueueName.trim()) {
+      toast.warning('Please enter a Queue Name.');
+      return;
+    }
+    const autoSlug = editQueueName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'queue';
+    try {
+      await ApiClient.patch(`/admin/queues/${editingQueueId}`, {
+        name: editQueueName.trim(),
+        slug: autoSlug,
+        tier: editQueueTier,
+        brandId: editQueueBrandId || null,
+        teamId: editQueueTeamId || null,
+        routing: editQueueRouting,
+        isDefault: editQueueIsDefault,
+        isActive: true,
+      });
+      setIsEditQueueOpen(false);
+      setEditingQueueId(null);
+      loadData();
+      toast.success('Routing queue updated successfully!');
+    } catch (err: any) {
+      toast.error(`Failed to update queue: ${err.message}`);
+    }
+  };
+
+  // Delete Queue Handler
+  const handleDeleteQueue = async (q: any) => {
+    if (q.isDefault) {
+      toast.error('Cannot delete the default queue. Set another queue as default first.');
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete the routing queue "${q.name}"?`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/admin/queues/${q.id}`);
+      toast.success(`Routing queue "${q.name}" deleted successfully.`);
+      loadData();
+    } catch (err: any) {
+      toast.error(`Failed to delete queue: ${err.message}`);
     }
   };
 
@@ -5776,22 +5854,91 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          padding: '10px 14px',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--bg-surface-elevated)',
+                          padding: '14px 16px',
+                          borderRadius: 'var(--radius-lg, 10px)',
+                          backgroundColor: 'var(--bg-surface-elevated, #ffffff)',
+                          border: '1px solid var(--border-subtle, #e2e8f0)',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
                         }}
                       >
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600 }}>
-                            {q.name} (Slug: {q.slug})
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {q.name}
+                            </span>
+                            {q.isDefault && (
+                              <span className="badge badge-open" style={{ fontSize: '11px', padding: '2px 8px' }}>
+                                Default
+                              </span>
+                            )}
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-full, 9999px)',
+                                backgroundColor: q.routing === 'ROUND_ROBIN' ? '#e0e7ff' : q.routing === 'LEAST_LOADED' ? '#dcfce7' : '#f1f5f9',
+                                color: q.routing === 'ROUND_ROBIN' ? '#3730a3' : q.routing === 'LEAST_LOADED' ? '#166534' : '#475569',
+                              }}
+                            >
+                              {q.routing === 'ROUND_ROBIN' ? 'Round Robin' : q.routing === 'LEAST_LOADED' ? 'Least Loaded' : 'Manual Triage'}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-full, 9999px)',
+                                backgroundColor: 'var(--bg-surface, #f8fafc)',
+                                color: 'var(--text-secondary, #64748b)',
+                                border: '1px solid var(--border-subtle, #e2e8f0)',
+                              }}
+                            >
+                              {q.tier} Tier
+                            </span>
                           </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Strategy: {q.routing} | Tier: {q.tier} | Brand: {q.brand?.name || 'All'}{' '}
-                            | Team: {q.team?.name || 'Unassigned'}
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span><strong>Brand:</strong> {q.brand?.name || 'All Brands'}</span>
+                            <span>•</span>
+                            <span><strong>Team:</strong> {q.team?.name || 'No Team Assigned'}</span>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          {q.isDefault && <span className="badge badge-open">Default</span>}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                          <button
+                            onClick={() => openEditQueueModal(q)}
+                            className="btn btn-secondary btn-sm"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              whiteSpace: 'nowrap',
+                              height: '32px',
+                              padding: '0 12px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                            }}
+                            title="Edit Queue"
+                          >
+                            <Edit size={13} /> Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteQueue(q)}
+                            className="btn btn-ghost btn-sm"
+                            style={{
+                              color: q.isDefault ? '#94a3b8' : '#dc2626',
+                              height: '32px',
+                              width: '32px',
+                              padding: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: q.isDefault ? 'not-allowed' : 'pointer',
+                            }}
+                            title={q.isDefault ? 'Cannot delete default queue' : 'Delete Queue'}
+                            disabled={q.isDefault}
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
                       </div>
                     ))
@@ -7595,6 +7742,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         onClose={() => setSelectedTeamForMembers(null)}
         title={`Manage Members · ${selectedTeamForMembers?.name || 'Support Team'}`}
         maxWidth="940px"
+        className="modal-manage-members"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Header Team Summary */}
@@ -7622,7 +7770,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
           </div>
 
           {/* Dual-Column Interactive Wizard */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 330px) 1fr', gap: '16px', minHeight: '430px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 330px) 1fr', gap: '16px', height: 'min(520px, 68vh)', minHeight: '280px' }}>
             {/* Left Column: Available Staff Directory (Draggable Source) */}
             <div
               style={{
@@ -7631,11 +7779,12 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 borderRadius: '10px',
                 display: 'flex',
                 flexDirection: 'column',
+                height: '100%',
                 overflow: 'hidden',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
               }}
             >
-              <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid var(--border-subtle)' }}>
+              <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '12.5px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Users size={14} style={{ color: 'var(--primary)' }} />
@@ -7661,7 +7810,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               </div>
 
               {/* Draggable Staff Cards List */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '350px' }} className="custom-scrollbar">
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }} className="custom-scrollbar">
                 {availableStaff.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '36px 12px', color: 'var(--text-muted)', fontSize: '12px' }}>
                     <UserCheck size={24} style={{ color: 'var(--border-strong)', margin: '0 auto 6px', display: 'block' }} />
@@ -7722,7 +7871,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 )}
               </div>
 
-              <div style={{ padding: '8px 12px', background: '#f8fafc', borderTop: '1px solid var(--border-subtle)', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>
+              <div style={{ padding: '8px 12px', background: '#f8fafc', borderTop: '1px solid var(--border-subtle)', fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', flexShrink: 0 }}>
                 💡 Drag card &rarr; drop into team or click <b>+ Add</b>
               </div>
             </div>
@@ -7746,12 +7895,13 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 borderRadius: '10px',
                 display: 'flex',
                 flexDirection: 'column',
+                height: '100%',
                 overflow: 'hidden',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
                 transition: 'all 0.15s ease',
               }}
             >
-              <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
                 <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <UserCheck size={15} style={{ color: '#16a34a' }} />
                   Assigned Team Members ({(selectedTeamForMembers?.members || []).length})
@@ -7762,7 +7912,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               </div>
 
               {/* Assigned Members List */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '350px' }} className="custom-scrollbar">
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }} className="custom-scrollbar">
                 {(!selectedTeamForMembers?.members || selectedTeamForMembers.members.length === 0) ? (
                   <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-muted)', border: '1px dashed var(--border-medium)', borderRadius: '8px', background: '#fafbfc' }}>
                     <Users size={32} style={{ color: 'var(--border-strong)', margin: '0 auto 8px', display: 'block' }} />
@@ -7903,13 +8053,13 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       >
         <form
           onSubmit={handleCreateQueue}
-          style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
         >
           <div>
             <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
+              style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
             >
-              Queue Name *
+              Queue Name <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
             </label>
             <input
               type="text"
@@ -7919,40 +8069,46 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               className="form-control"
               style={{
                 width: '100%',
-                padding: '8px',
+                padding: '9px 12px',
                 border: '1px solid var(--border-medium)',
                 borderRadius: 'var(--radius-md)',
+                fontSize: '13px',
               }}
               required
+              autoFocus
             />
           </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Queue Slug *
-            </label>
-            <input
-              type="text"
-              value={queueSlug}
-              onChange={(e) => setQueueSlug(e.target.value)}
-              placeholder="e.g. billing-p1"
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-              required
-            />
-          </div>
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <div style={{ flex: 1 }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
               <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
               >
-                Support Tier
+                Routing Method <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              </label>
+              <select
+                value={queueRouting}
+                onChange={(e) => setQueueRouting(e.target.value)}
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="LEAST_LOADED">Least Loaded (Smart Capacity)</option>
+                <option value="ROUND_ROBIN">Round Robin (Strict Rotation)</option>
+                <option value="MANUAL">Manual Triage (Queue Hold)</option>
+              </select>
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Support Tier <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
               </label>
               <select
                 value={queueTier}
@@ -7960,9 +8116,10 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 className="form-control"
                 style={{
                   width: '100%',
-                  padding: '8px',
+                  padding: '9px 12px',
                   border: '1px solid var(--border-medium)',
                   borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
                 }}
               >
                 <option value="L1">L1 Tier</option>
@@ -7972,35 +8129,41 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 <option value="QA">QA Tier</option>
               </select>
             </div>
-            <div style={{ flex: 1 }}>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
               <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
               >
-                Routing Method
+                Assign to Team <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
               </label>
               <select
-                value={queueRouting}
-                onChange={(e) => setQueueRouting(e.target.value)}
+                value={queueTeamId}
+                onChange={(e) => setQueueTeamId(e.target.value)}
                 className="form-control"
                 style={{
                   width: '100%',
-                  padding: '8px',
+                  padding: '9px 12px',
                   border: '1px solid var(--border-medium)',
                   borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
                 }}
               >
-                <option value="LEAST_LOADED">Least Loaded</option>
-                <option value="ROUND_ROBIN">Round Robin</option>
-                <option value="MANUAL">Manual Triage</option>
+                <option value="">No Team (All Tenant Staff)</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
               </select>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <div style={{ flex: 1 }}>
+
+            <div>
               <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
               >
-                Link to Brand
+                Link to Brand <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
               </label>
               <select
                 value={queueBrandId}
@@ -8008,9 +8171,10 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 className="form-control"
                 style={{
                   width: '100%',
-                  padding: '8px',
+                  padding: '9px 12px',
                   border: '1px solid var(--border-medium)',
                   borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
                 }}
               >
                 <option value="">All Brands</option>
@@ -8021,24 +8185,164 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 ))}
               </select>
             </div>
-            <div style={{ flex: 1 }}>
+          </div>
+
+          <div
+            style={{
+              padding: '12px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={queueIsDefault}
+                onChange={(e) => setQueueIsDefault(e.target.checked)}
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+              />
+              <span>Set as Default Queue (incoming unrouted tickets land here)</span>
+            </label>
+          </div>
+
+          <div
+            style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}
+          >
+            <button
+              type="button"
+              onClick={() => setIsCreateQueueOpen(false)}
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '8px 16px' }}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '8px 20px', fontWeight: 600 }}>
+              Create Queue
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Queue Modal */}
+      <Modal
+        isOpen={isEditQueueOpen}
+        onClose={() => {
+          setIsEditQueueOpen(false);
+          setEditingQueueId(null);
+        }}
+        title="Edit Routing Queue"
+      >
+        <form
+          onSubmit={handleUpdateQueue}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+        >
+          <div>
+            <label
+              style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+            >
+              Queue Name <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+            </label>
+            <input
+              type="text"
+              value={editQueueName}
+              onChange={(e) => setEditQueueName(e.target.value)}
+              placeholder="e.g. Critical Billing Queue"
+              className="form-control"
+              style={{
+                width: '100%',
+                padding: '9px 12px',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '13px',
+              }}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
               <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
               >
-                Assign to Team
+                Routing Method <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
               </label>
               <select
-                value={queueTeamId}
-                onChange={(e) => setQueueTeamId(e.target.value)}
+                value={editQueueRouting}
+                onChange={(e) => setEditQueueRouting(e.target.value)}
                 className="form-control"
                 style={{
                   width: '100%',
-                  padding: '8px',
+                  padding: '9px 12px',
                   border: '1px solid var(--border-medium)',
                   borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
                 }}
               >
-                <option value="">No Team Assigned</option>
+                <option value="LEAST_LOADED">Least Loaded (Smart Capacity)</option>
+                <option value="ROUND_ROBIN">Round Robin (Strict Rotation)</option>
+                <option value="MANUAL">Manual Triage (Queue Hold)</option>
+              </select>
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Support Tier <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
+              </label>
+              <select
+                value={editQueueTier}
+                onChange={(e) => setEditQueueTier(e.target.value)}
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="L1">L1 Tier</option>
+                <option value="L2">L2 Tier</option>
+                <option value="L3">L3 Tier</option>
+                <option value="DEV">DEV Tier</option>
+                <option value="QA">QA Tier</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Assign to Team <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
+              </label>
+              <select
+                value={editQueueTeamId}
+                onChange={(e) => setEditQueueTeamId(e.target.value)}
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="">No Team (All Tenant Staff)</option>
                 {teams.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
@@ -8046,37 +8350,80 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 ))}
               </select>
             </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Link to Brand <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
+              </label>
+              <select
+                value={editQueueBrandId}
+                onChange={(e) => setEditQueueBrandId(e.target.value)}
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="">All Brands</option>
+                {brandsList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <label
+
+          <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              marginTop: '4px',
+              padding: '12px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+              border: '1px solid var(--border-subtle)',
             }}
           >
-            <input
-              type="checkbox"
-              checked={queueIsDefault}
-              onChange={(e) => setQueueIsDefault(e.target.checked)}
-            />
-            <span>Set as Default Queue (tickets with no brand land here)</span>
-          </label>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={editQueueIsDefault}
+                onChange={(e) => setEditQueueIsDefault(e.target.checked)}
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+              />
+              <span>Set as Default Queue (incoming unrouted tickets land here)</span>
+            </label>
+          </div>
+
           <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
+            style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}
           >
             <button
               type="button"
-              onClick={() => setIsCreateQueueOpen(false)}
+              onClick={() => {
+                setIsEditQueueOpen(false);
+                setEditingQueueId(null);
+              }}
               className="btn btn-secondary btn-sm"
+              style={{ padding: '8px 16px' }}
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-sm">
-              Create Queue
+            <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '8px 20px', fontWeight: 600 }}>
+              Save Changes
             </button>
           </div>
         </form>

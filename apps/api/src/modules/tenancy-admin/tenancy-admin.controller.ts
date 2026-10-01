@@ -163,6 +163,24 @@ export class TenancyAdminController {
     return this.adminService.listQueues(principal);
   }
 
+  @Patch('queues/:id')
+  @RequirePermission('admin:queue:manage')
+  @Audited({ action: 'queue.updated', resourceType: 'queue', idParam: 'id' })
+  updateQueue(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param('id') queueId: string,
+    @Body() dto: UpdateQueueDto,
+  ) {
+    return this.adminService.updateQueue(principal, queueId, dto);
+  }
+
+  @Delete('queues/:id')
+  @RequirePermission('admin:queue:manage')
+  @Audited({ action: 'queue.deleted', resourceType: 'queue', idParam: 'id' })
+  deleteQueue(@CurrentUser() principal: AuthenticatedPrincipal, @Param('id') queueId: string) {
+    return this.adminService.deleteQueue(principal, queueId);
+  }
+
   // -------------------------------------------------------------------------
   // Users & Invitations
   // -------------------------------------------------------------------------

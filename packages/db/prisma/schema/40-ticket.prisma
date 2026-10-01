@@ -17,8 +17,10 @@ enum TicketStatus {
   NEW
   /// L1 is classifying it.
   TRIAGE
-  /// Actively worked.
+  /// Assigned and ready to be worked on.
   OPEN
+  /// Actively worked on (internal notes, replies, diagnostics).
+  IN_PROGRESS
   /// Waiting on the customer. SLA clocks pause here.
   PENDING_CUSTOMER
   /// Waiting on something else (vendor, maintenance window).

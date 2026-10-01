@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -7,6 +8,7 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   maxWidth?: string;
+  className?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -15,6 +17,7 @@ export const Modal: React.FC<ModalProps> = ({
   title,
   children,
   maxWidth = '540px',
+  className,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -32,8 +35,9 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
+      className={className}
       style={{
         position: 'fixed',
         inset: 0,
@@ -92,6 +96,7 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
         <div style={{ padding: '20px', overflowY: 'auto' }}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

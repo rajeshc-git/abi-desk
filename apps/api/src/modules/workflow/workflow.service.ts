@@ -705,7 +705,8 @@ export class WorkflowService {
         transition.toStatus.startsWith('ESCALATED') ||
         transition.toStatus === 'IN_DEVELOPMENT' ||
         transition.toStatus === 'IN_QA' ||
-        transition.toStatus === 'OPEN';
+        transition.toStatus === 'OPEN' ||
+        transition.toStatus === 'IN_PROGRESS';
 
       await tx.ticketComment.create({
         data: {

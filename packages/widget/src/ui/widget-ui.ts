@@ -1318,19 +1318,24 @@ export class WidgetUI {
 
   private getStatusColor(status: string): { bg: string; text: string } {
     const map: Record<string, { bg: string; text: string }> = {
-      NEW: { bg: '#dbeafe', text: '#1e40af' },
-      TRIAGE: { bg: '#e0e7ff', text: '#3730a3' },
-      OPEN: { bg: '#dcfce7', text: '#166534' },
-      PENDING_CUSTOMER: { bg: '#fef9c3', text: '#854d0e' },
-      ON_HOLD: { bg: '#f3e8ff', text: '#6b21a8' },
-      ESCALATED_L2: { bg: '#ffedd5', text: '#9a3412' },
-      ESCALATED_L3: { bg: '#fee2e2', text: '#991b1b' },
-      IN_DEVELOPMENT: { bg: '#cffafe', text: '#155e75' },
-      IN_QA: { bg: '#e0f2fe', text: '#075985' },
-      RESOLVED: { bg: '#d1fae5', text: '#065f46' },
+      NEW: { bg: '#f1f5f9', text: '#475569' },
+      TRIAGE: { bg: '#f8fafc', text: '#334155' },
+      OPEN: { bg: '#eff6ff', text: '#0284c7' },
+      IN_PROGRESS: { bg: '#fef3c7', text: '#92400e' },
+      PENDING_CUSTOMER: { bg: '#fff7ed', text: '#c2410c' },
+      ON_HOLD: { bg: '#fff1f2', text: '#be123c' },
+      ESCALATED_L2: { bg: '#fdf2f8', text: '#be185d' },
+      ESCALATED_L3: { bg: '#fdf4ff', text: '#a21caf' },
+      IN_DEVELOPMENT: { bg: '#eef2ff', text: '#4338ca' },
+      IN_QA: { bg: '#f5f3ff', text: '#6d28d9' },
+      PENDING_RELEASE: { bg: '#fff7ed', text: '#c2410c' },
+      RELEASED: { bg: '#ecfeff', text: '#0e7490' },
+      PENDING_VERIFICATION: { bg: '#f0f9ff', text: '#0369a1' },
+      AWAITING_CUSTOMER_CONFIRMATION: { bg: '#eff6ff', text: '#1d4ed8' },
+      RESOLVED: { bg: '#ecfdf5', text: '#047857' },
       CLOSED: { bg: '#f1f5f9', text: '#475569' },
-      REOPENED: { bg: '#fef3c7', text: '#92400e' },
-      CANCELLED: { bg: '#f1f5f9', text: '#64748b' },
+      REOPENED: { bg: '#fff1f2', text: '#e11d48' },
+      CANCELLED: { bg: '#fef2f2', text: '#dc2626' },
     };
     return map[status] || { bg: '#f1f5f9', text: '#475569' };
   }

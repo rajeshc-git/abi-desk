@@ -5,10 +5,16 @@ interface StatusBadgeProps {
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
-  const normalized = status.toLowerCase();
-  const label = status === 'OPEN' ? 'In Progress' : status.replace(/_/g, ' ');
+  const normalized = (status || '').toLowerCase().replace(/_/g, '-');
+  const normalizedUnder = (status || '').toLowerCase();
+  const label =
+    status === 'OPEN'
+      ? 'Open'
+      : status === 'IN_PROGRESS'
+      ? 'In Progress'
+      : (status || '').replace(/_/g, ' ');
 
-  return <span className={`badge badge-${normalized}`}>{label}</span>;
+  return <span className={`badge badge-${normalized} badge-${normalizedUnder}`}>{label}</span>;
 };
 
 interface PriorityPillProps {

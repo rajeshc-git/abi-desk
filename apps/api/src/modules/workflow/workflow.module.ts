@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { MailModule } from '../../infra/mail/mail.module';
 import { SlaModule } from '../sla/sla.module';
 import { TicketModule } from '../tickets/ticket.module';
@@ -13,7 +13,7 @@ import { WorkflowService } from './workflow.service';
  * bypass that check.
  */
 @Module({
-  imports: [TicketModule, SlaModule, MailModule],
+  imports: [forwardRef(() => TicketModule), SlaModule, MailModule],
   controllers: [WorkflowController, BulkTicketController],
   providers: [WorkflowService, AssignmentService],
   exports: [WorkflowService, AssignmentService],

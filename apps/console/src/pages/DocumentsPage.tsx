@@ -138,8 +138,9 @@ const AVAILABLE_COLUMNS: ColumnDef[] = [
 
 const ALL_STATUSES = [
   { value: 'NEW', label: 'New' },
+  { value: 'OPEN', label: 'Open' },
+  { value: 'IN_PROGRESS', label: 'In Progress' },
   { value: 'TRIAGE', label: 'Triage' },
-  { value: 'OPEN', label: 'In Progress' },
   { value: 'PENDING_CUSTOMER', label: 'Pending Customer' },
   { value: 'ON_HOLD', label: 'On Hold' },
   { value: 'ESCALATED_L2', label: 'Escalated (L2)' },
@@ -2122,9 +2123,9 @@ export const DocumentsPage: React.FC = () => {
 
       const [p1, p2, p3, p4, p5] = await Promise.allSettled([
         ApiClient.get(`/tickets?pageSize=1&createdAfter=${todayStr}T00:00:00.000Z`),
-        ApiClient.get(`/tickets?pageSize=1&status=OPEN,TRIAGE,ESCALATED_L2,ESCALATED_L3,IN_DEVELOPMENT,IN_QA`),
+        ApiClient.get(`/tickets?pageSize=1&status=OPEN,IN_PROGRESS,TRIAGE,ESCALATED_L2,ESCALATED_L3,IN_DEVELOPMENT,IN_QA`),
         ApiClient.get(`/tickets?pageSize=1&unassigned=true`),
-        ApiClient.get(`/tickets?pageSize=1&status=NEW,OPEN,TRIAGE&createdAfter=${monthStart}`),
+        ApiClient.get(`/tickets?pageSize=1&status=NEW,OPEN,IN_PROGRESS,TRIAGE&createdAfter=${monthStart}`),
         ApiClient.get(`/tickets?pageSize=1&status=RESOLVED,CLOSED&createdAfter=${monthStart}`),
       ]);
 
@@ -2641,7 +2642,7 @@ export const DocumentsPage: React.FC = () => {
       case 'subject':
         return cleanPlainText(t.subject);
       case 'status':
-        return t.status === 'OPEN' ? 'In Progress' : (t.status || '').replace(/_/g, ' ');
+        return t.status === 'OPEN' ? 'Open' : (t.status === 'IN_PROGRESS' ? 'In Progress' : (t.status || '').replace(/_/g, ' '));
       case 'priority':
         return t.priority || '';
       case 'tier':
@@ -3031,7 +3032,7 @@ export const DocumentsPage: React.FC = () => {
         generateAndDownload({ createdAfter: `${new Date().toISOString().split('T')[0]}T00:00:00.000Z` }, 'todays-tickets');
         break;
       case 'open_escalated':
-        generateAndDownload({ status: 'OPEN,TRIAGE,ESCALATED_L2,ESCALATED_L3,IN_DEVELOPMENT,IN_QA' }, 'open-escalated-tickets');
+        generateAndDownload({ status: 'OPEN,IN_PROGRESS,TRIAGE,ESCALATED_L2,ESCALATED_L3,IN_DEVELOPMENT,IN_QA' }, 'open-escalated-tickets');
         break;
       case 'unassigned_tickets':
         generateAndDownload({ unassigned: 'true' }, 'unassigned-tickets-report');
@@ -3039,7 +3040,7 @@ export const DocumentsPage: React.FC = () => {
       case 'this_month_open': {
         const d = new Date();
         const start = new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
-        generateAndDownload({ status: 'NEW,OPEN,TRIAGE', createdAfter: start }, 'this-month-open-tickets');
+        generateAndDownload({ status: 'NEW,OPEN,IN_PROGRESS,TRIAGE', createdAfter: start }, 'this-month-open-tickets');
         break;
       }
       case 'resolved_month': {
@@ -3201,8 +3202,8 @@ export const DocumentsPage: React.FC = () => {
     const upperVal = val.toUpperCase();
 
     // Status Styling
-    if (lowerHeader.includes('status') || ['NEW', 'OPEN', 'IN PROGRESS', 'RESOLVED', 'CLOSED', 'TRIAGE', 'IN_QA', 'ON_HOLD', 'CANCELLED'].includes(upperVal)) {
-      const displayVal = upperVal === 'OPEN' ? 'In Progress' : val;
+    if (lowerHeader.includes('status') || ['NEW', 'OPEN', 'IN_PROGRESS', 'IN PROGRESS', 'RESOLVED', 'CLOSED', 'TRIAGE', 'IN_QA', 'ON_HOLD', 'CANCELLED'].includes(upperVal)) {
+      const displayVal = upperVal === 'OPEN' ? 'Open' : (upperVal === 'IN_PROGRESS' || upperVal === 'IN PROGRESS' ? 'In Progress' : val);
       if (upperVal === 'RESOLVED' || upperVal === 'CLOSED') {
         return (
           <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(34, 197, 94, 0.12)', color: '#16a34a', padding: '2px 8px', borderRadius: '12px' }}>
@@ -3210,9 +3211,23 @@ export const DocumentsPage: React.FC = () => {
           </span>
         );
       }
-      if (upperVal === 'NEW' || upperVal === 'OPEN' || upperVal === 'IN PROGRESS' || upperVal === 'TRIAGE') {
+      if (upperVal === 'OPEN') {
         return (
-          <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#2563eb', padding: '2px 8px', borderRadius: '12px' }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(2, 132, 199, 0.12)', color: '#0284c7', padding: '2px 8px', borderRadius: '12px' }}>
+            {displayVal}
+          </span>
+        );
+      }
+      if (upperVal === 'IN_PROGRESS' || upperVal === 'IN PROGRESS') {
+        return (
+          <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(245, 158, 11, 0.12)', color: '#d97706', padding: '2px 8px', borderRadius: '12px' }}>
+            {displayVal}
+          </span>
+        );
+      }
+      if (upperVal === 'NEW' || upperVal === 'TRIAGE') {
+        return (
+          <span style={{ fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(100, 116, 139, 0.12)', color: '#475569', padding: '2px 8px', borderRadius: '12px' }}>
             {displayVal}
           </span>
         );

@@ -1297,21 +1297,49 @@
 
 @media (max-width: 1024px) {
   .ticket-conversation-split-layout {
-    flex-direction: column;
+    flex-direction: column !important;
   }
-  .ticket-conversation-stream-pane {
-    width: 100%;
-    border-right: none;
+  .ticket-conversation-stream-pane,
+  .ticket-conversation-stream-pane.is-split,
+  .ticket-conversation-stream-pane.is-full {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-right: none !important;
     border-bottom: 1px solid var(--border-subtle, #e2e8f0);
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 180px;
   }
   .ticket-conversation-composer-pane {
-    width: 100%;
-    padding: 10px 12px;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 8px 10px !important;
     flex: none;
   }
   .ticket-conversation-composer-pane .reply-composer-card {
     height: auto;
+  }
+}
+
+/* ─── Responsive Reply Bar Buttons ─── */
+.reply-btn-label-desktop {
+  display: inline;
+}
+.reply-btn-label-mobile {
+  display: none;
+}
+.reply-hint-desktop {
+  display: inline;
+}
+
+@media (max-width: 768px) {
+  .reply-btn-label-desktop {
+    display: none !important;
+  }
+  .reply-btn-label-mobile {
+    display: inline !important;
+  }
+  .reply-hint-desktop {
+    display: none !important;
   }
 }
 

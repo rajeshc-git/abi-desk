@@ -402,6 +402,7 @@ model Queue {
   /// Where unrouted tickets land. One default per tenant (partial unique index).
   isDefault Boolean @default(false)
   isActive  Boolean @default(true)
+  lastAssignedUserId String? @db.Uuid
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)

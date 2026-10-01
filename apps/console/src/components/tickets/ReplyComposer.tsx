@@ -49,18 +49,24 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   initialIsInternal = false,
 }) => {
   const { user } = useAuth();
-  const [isMinimized, setIsMinimized] = useState(() => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 640) {
-      return true;
-    }
-    return false;
-  });
+  const [isMinimized, setIsMinimized] = useState(false);
   const [body, setBody] = useState('');
   const [isInternal, setIsInternal] = useState(initialIsInternal);
 
   useEffect(() => {
     setIsInternal(initialIsInternal);
   }, [initialIsInternal]);
+
+  // Auto-focus textarea when composer opens
+  useEffect(() => {
+    if (!isMinimized && textareaRef.current) {
+      // Small timeout to allow render/animation to settle
+      const timer = setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isMinimized]);
   const [ccList, setCcList] = useState<string[]>([]);
   const [ccInput, setCcInput] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ id: string; name: string }>>([]);
@@ -94,29 +100,66 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       .filter((u) => {
         const name = (u.fullName || '').toLowerCase();
         const email = (u.email || '').toLowerCase();
-        return name.includes(q) || email.includes(q);
+        const emailPrefix = email.split('@')[0];
+        return name.includes(q) || email.includes(q) || emailPrefix.includes(q);
       })
       .slice(0, 6);
   }, [mentionQuery, staffUsers]);
 
   const detectedMentions = useMemo(() => {
+    if (!body || !body.includes('@')) return [];
+
+    // Strip full valid email addresses first so typing contact@company.com or pasting snippets with emails never creates false @domain mentions
+    const textWithoutEmails = body.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ');
+
     const list: string[] = [];
-    const matches = Array.from(body.matchAll(/@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)/g));
+    // Must be preceded by start of line, whitespace, or punctuation, followed by @
+    const matches = Array.from(textWithoutEmails.matchAll(/(?:^|[\s(\[{<])@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)/g));
+    
     for (const m of matches) {
-      const name = m[1].trim();
-      if (name && !list.includes(name)) {
-        list.push(name);
+      const rawName = m[1].trim();
+      if (!rawName) continue;
+
+      // Validate against known staff users if available
+      const matchedStaff = staffUsers.length > 0
+        ? staffUsers.find((u) => {
+            const fullName = (u.fullName || '').toLowerCase();
+            const email = (u.email || '').toLowerCase();
+            const emailPrefix = email.split('@')[0];
+            const q = rawName.toLowerCase();
+            return fullName === q || email === q || emailPrefix === q;
+          })
+        : null;
+
+      if (staffUsers.length > 0) {
+        if (matchedStaff) {
+          const displayLabel = matchedStaff.fullName || matchedStaff.email;
+          if (!list.includes(displayLabel)) {
+            list.push(displayLabel);
+          }
+        }
+      } else if (!rawName.includes('.') && !list.includes(rawName)) {
+        list.push(rawName);
       }
     }
     return list;
-  }, [body]);
+  }, [body, staffUsers]);
 
   const checkMentionTrigger = (text: string, cursor: number) => {
     const textBefore = text.slice(0, cursor);
-    // Matches @ followed by letters/numbers/underscores/dots or single spaced first-last name up to 30 chars
-    const match = textBefore.match(/(?:^|\s)@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]*)?)$/);
+
+    // Look for @ that is at start of string or preceded by whitespace / opening brackets
+    // It must NOT be preceded by an alphanumeric character (e.g. "contact@" is an email, not a mention trigger)
+    const match = textBefore.match(/(?:^|[\s(\[{<])@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]*)?)$/);
     if (match) {
-      setMentionQuery(match[1]);
+      const query = match[1];
+      // If user typed something that looks like an email domain (e.g. "gmail.com"), don't trigger mention autocomplete
+      if (/\.[a-zA-Z]{2,}$/.test(query)) {
+        setMentionQuery(null);
+        return;
+      }
+
+      setMentionQuery(query);
       const atIndex = textBefore.lastIndexOf('@');
       setMentionStartPos(atIndex);
       setMentionIndex(0);

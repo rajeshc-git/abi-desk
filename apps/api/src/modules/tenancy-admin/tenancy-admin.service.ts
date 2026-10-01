@@ -408,11 +408,26 @@ export class TenancyAdminService {
         });
       }
 
+      let slug = dto.slug ? dto.slug.toLowerCase().trim() : dto.name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60) || 'queue';
+
+      const existingSlug = await tx.queue.findFirst({
+        where: { tenantId, slug },
+        select: { id: true },
+      });
+      if (existingSlug) {
+        slug = `${slug}-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+
       return tx.queue.create({
         data: {
           tenantId,
           name: dto.name,
-          slug: dto.slug,
+          slug,
           description: dto.description ?? null,
           tier: dto.tier,
           brandId: dto.brandId ?? null,
@@ -432,6 +447,69 @@ export class TenancyAdminService {
       where: { tenantId },
       include: { team: true, brand: true },
       orderBy: [{ isDefault: 'desc' }, { tier: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  async updateQueue(_principal: AuthenticatedPrincipal, queueId: string, dto: UpdateQueueDto) {
+    const tenantId = this.tenantContext.requireTenantId();
+
+    return this.db.run(async (tx) => {
+      const existing = await tx.queue.findFirst({
+        where: { id: queueId, tenantId },
+      });
+
+      if (!existing) {
+        throw AppException.notFound('Queue not found.');
+      }
+
+      if (dto.isDefault) {
+        await tx.queue.updateMany({
+          where: { tenantId, id: { not: queueId } },
+          data: { isDefault: false },
+        });
+      }
+
+      return tx.queue.update({
+        where: { id: queueId },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.slug !== undefined ? { slug: dto.slug } : {}),
+          ...(dto.description !== undefined ? { description: dto.description } : {}),
+          ...(dto.tier !== undefined ? { tier: dto.tier } : {}),
+          ...(dto.brandId !== undefined ? { brandId: dto.brandId } : {}),
+          ...(dto.teamId !== undefined ? { teamId: dto.teamId } : {}),
+          ...(dto.routing !== undefined ? { routing: dto.routing } : {}),
+          ...(dto.isDefault !== undefined ? { isDefault: dto.isDefault } : {}),
+          ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        },
+        include: { team: true, brand: true },
+      });
+    });
+  }
+
+  async deleteQueue(_principal: AuthenticatedPrincipal, queueId: string) {
+    const tenantId = this.tenantContext.requireTenantId();
+
+    return this.db.run(async (tx) => {
+      const existing = await tx.queue.findFirst({
+        where: { id: queueId, tenantId },
+      });
+
+      if (!existing) {
+        throw AppException.notFound('Queue not found.');
+      }
+
+      if (existing.isDefault) {
+        throw AppException.conflict('Cannot delete the default queue. Set another queue as default first.');
+      }
+
+      // Detach any tickets currently in this queue
+      await tx.ticket.updateMany({
+        where: { queueId, tenantId },
+        data: { queueId: null },
+      });
+
+      return tx.queue.delete({ where: { id: queueId } });
     });
   }
 

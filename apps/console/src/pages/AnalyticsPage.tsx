@@ -169,12 +169,19 @@ export const AnalyticsPage: React.FC = () => {
 
   // Color mappings
   const STATUS_COLORS: Record<string, string> = {
-    NEW: '#3b82f6',
-    OPEN: '#60a5fa',
+    NEW: '#94a3b8',
+    OPEN: '#0284c7',
     IN_PROGRESS: '#f59e0b',
+    TRIAGE: '#64748b',
+    PENDING_CUSTOMER: '#d97706',
     WAITING_ON_CUSTOMER: '#8b5cf6',
+    ON_HOLD: '#ea580c',
+    ESCALATED_L2: '#ec4899',
+    ESCALATED_L3: '#d946ef',
+    IN_DEVELOPMENT: '#6366f1',
+    IN_QA: '#8b5cf6',
     RESOLVED: '#10b981',
-    CLOSED: '#64748b',
+    CLOSED: '#475569',
   };
 
   const PRIORITY_COLORS: Record<string, string> = {
@@ -187,7 +194,7 @@ export const AnalyticsPage: React.FC = () => {
 
   // Donut Segments for Status & Priority
   const statusSegments: DonutSegment[] = (volume?.byStatus || []).map((s: any) => ({
-    label: s.status === 'OPEN' ? 'In Progress' : s.status.replace(/_/g, ' '),
+    label: s.status === 'OPEN' ? 'Open' : (s.status === 'IN_PROGRESS' ? 'In Progress' : (s.status || '').replace(/_/g, ' ')),
     count: s.count,
     color: STATUS_COLORS[s.status] || '#94a3b8',
   }));

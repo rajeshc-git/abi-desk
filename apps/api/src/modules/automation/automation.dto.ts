@@ -64,6 +64,7 @@ export const AutomationActionSchema = z.discriminatedUnion('type', [
       'NEW',
       'TRIAGE',
       'OPEN',
+      'IN_PROGRESS',
       'PENDING_CUSTOMER',
       'ON_HOLD',
       'ESCALATED_L2',

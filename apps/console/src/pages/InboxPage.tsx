@@ -883,7 +883,7 @@ export const InboxPage: React.FC = () => {
   const handleUnmergeTicket = async (primaryTicketId: string, secondaryTicketId: string) => {
     try {
       const updatedMaster: any = await TicketsApi.unmerge(primaryTicketId, secondaryTicketId);
-      toast.success('Ticket unmerged and restored to In Progress status.');
+      toast.success('Ticket unmerged and restored to previous status.');
       await loadTickets(true);
       if (selectedTicket?.id === primaryTicketId || selectedTicket?.id === secondaryTicketId) {
         setSelectedTicket(updatedMaster);
@@ -932,7 +932,7 @@ export const InboxPage: React.FC = () => {
     if (!selectedTicket) return;
     try {
       const res: any = await ApiClient.post(`/tickets/${selectedTicket.id}/transitions`, { toStatus: newStatus, comment });
-      const displayStatus = newStatus === 'OPEN' ? 'In Progress' : newStatus.replace(/_/g, ' ');
+      const displayStatus = newStatus === 'OPEN' ? 'Open' : (newStatus === 'IN_PROGRESS' ? 'In Progress' : newStatus.replace(/_/g, ' '));
       if (res?.kind === 'pending_approval') {
         toast.info(`Transition to ${displayStatus} requires sign-off. Approval request submitted.`);
       } else {
@@ -1653,7 +1653,7 @@ export const InboxPage: React.FC = () => {
                                   border: '1px solid #fecaca',
                                   borderRadius: '4px',
                                 }}
-                                title="Unmerge ticket and restore to In Progress"
+                                title="Unmerge ticket and restore to previous status"
                               >
                                 Unmerge
                               </button>

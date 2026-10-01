@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { resolveAssignmentCapability } from '@abi-desk/rbac';
 import { type Logger } from 'pino';
 import { AuditService } from '../../common/audit/audit.service';
@@ -13,24 +13,10 @@ import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { TicketService } from '../tickets/ticket.service';
 import { toPolicySubject } from '../tickets/ticket-scope';
 import { MailService } from '../../infra/mail/mail.service';
+import { ACTIVE_STATUSES } from '../tickets/ticket.dto';
 import { type AssignDto, type BulkUpdateDto } from './workflow.dto';
 
-/** Statuses that still count against an agent's workload. */
-const ACTIVE_STATUSES = [
-  'NEW',
-  'TRIAGE',
-  'OPEN',
-  'PENDING_CUSTOMER',
-  'ON_HOLD',
-  'ESCALATED_L2',
-  'ESCALATED_L3',
-  'IN_DEVELOPMENT',
-  'IN_QA',
-  'PENDING_RELEASE',
-  'RELEASED',
-  'PENDING_VERIFICATION',
-  'REOPENED',
-] as const;
+export { ACTIVE_STATUSES };
 
 export interface BulkOutcome {
   ticketId: string;
@@ -45,6 +31,7 @@ export class AssignmentService {
 
   constructor(
     private readonly prisma: TenantPrismaService,
+    @Inject(forwardRef(() => TicketService))
     private readonly tickets: TicketService,
     private readonly audit: AuditService,
     private readonly mailService: MailService,
@@ -89,6 +76,7 @@ export class AssignmentService {
       let queueId = dto.queueId !== undefined ? dto.queueId : (ticket.queue?.id ?? null);
       let teamId = dto.teamId !== undefined ? dto.teamId : (ticket.team?.id ?? null);
 
+      let queueRouting: string | null = null;
       if (dto.queueId) {
         const queue = await tx.queue.findFirst({
           where: { id: dto.queueId, tenantId, isActive: true },
@@ -102,6 +90,7 @@ export class AssignmentService {
         }
 
         queueId = queue.id;
+        queueRouting = queue.routing;
         // A queue's team is inherited unless the caller overrode it explicitly.
         if (dto.teamId !== undefined) {
           teamId = dto.teamId;
@@ -148,7 +137,11 @@ export class AssignmentService {
       }
 
       if (dto.autoAssign) {
-        assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId);
+        if (queueRouting === 'ROUND_ROBIN') {
+          assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId);
+        } else {
+          assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId);
+        }
 
         if (!assigneeId) {
           // Left in the queue rather than failing: an unstaffed queue is a real
@@ -516,19 +509,17 @@ export class AssignmentService {
   }
 
   /**
-   * Picks the agent with the fewest active tickets.
-   *
-   * Least-loaded rather than round-robin: round-robin distributes ticket *counts*
-   * evenly but ignores that some agents are already buried, which is how one person
-   * ends up with every hard ticket. Agents who are unavailable, or already at their
-   * declared concurrency limit, are excluded.
+   * Picks the next agent in sequential round-robin order for the queue/team.
+   * Excludes agents who are unavailable, deleted, or at their declared concurrency limit.
    */
-  private async selectLeastLoadedAgent(
+  async selectRoundRobinAgent(
     tx: TenantTransaction,
     tenantId: string,
+    queueId: string | null,
     teamId: string | null,
   ): Promise<string | null> {
-    const candidates = await tx.user.findMany({
+    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    let candidates = await tx.user.findMany({
       where: {
         tenantId,
         kind: 'STAFF',
@@ -537,8 +528,24 @@ export class AssignmentService {
         deletedAt: null,
         ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
       },
-      select: { id: true, maxConcurrentTickets: true },
+      select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+      orderBy: { id: 'asc' },
     });
+
+    // 2. Fallback: If no available agents online, fallback to active staff sorted by most recent login/activity
+    if (candidates.length === 0) {
+      candidates = await tx.user.findMany({
+        where: {
+          tenantId,
+          kind: 'STAFF',
+          status: 'ACTIVE',
+          deletedAt: null,
+          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
+        },
+        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
+      });
+    }
 
     if (candidates.length === 0) return null;
 
@@ -555,16 +562,116 @@ export class AssignmentService {
 
     const loadByAgent = new Map(loads.map((row) => [row.assigneeId, row._count._all] as const));
 
-    const eligible = candidates
+    // Filter to agents not exceeding concurrency cap (or fallback to candidates if all at cap)
+    let eligible = candidates.filter((candidate) => {
+      const load = loadByAgent.get(candidate.id) ?? 0;
+      return candidate.maxConcurrentTickets === null || load < candidate.maxConcurrentTickets;
+    });
+
+    if (eligible.length === 0) {
+      eligible = candidates;
+    }
+
+    if (eligible.length === 0 || !eligible[0]) return null;
+
+    let chosenAgentId = eligible[0].id;
+
+    if (queueId) {
+      const queue = await tx.queue.findUnique({
+        where: { id: queueId },
+        select: { lastAssignedUserId: true },
+      });
+
+      if (queue?.lastAssignedUserId) {
+        const lastIdx = eligible.findIndex((c) => c.id === queue.lastAssignedUserId);
+        if (lastIdx !== -1) {
+          const nextIdx = (lastIdx + 1) % eligible.length;
+          const nextCandidate = eligible[nextIdx];
+          if (nextCandidate) {
+            chosenAgentId = nextCandidate.id;
+          }
+        }
+      }
+
+      await tx.queue.update({
+        where: { id: queueId },
+        data: { lastAssignedUserId: chosenAgentId },
+      });
+    }
+
+    return chosenAgentId;
+  }
+
+  /**
+   * Picks the agent with the fewest active tickets.
+   */
+  async selectLeastLoadedAgent(
+    tx: TenantTransaction,
+    tenantId: string,
+    teamId: string | null,
+  ): Promise<string | null> {
+    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    let candidates = await tx.user.findMany({
+      where: {
+        tenantId,
+        kind: 'STAFF',
+        status: 'ACTIVE',
+        isAvailable: true,
+        deletedAt: null,
+        ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
+      },
+      select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+    });
+
+    // 2. Fallback: If no available agents online, fallback to all active staff by recency of login/activity
+    if (candidates.length === 0) {
+      candidates = await tx.user.findMany({
+        where: {
+          tenantId,
+          kind: 'STAFF',
+          status: 'ACTIVE',
+          deletedAt: null,
+          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
+        },
+        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
+      });
+    }
+
+    if (candidates.length === 0) return null;
+
+    const loads = await tx.ticket.groupBy({
+      by: ['assigneeId'],
+      where: {
+        tenantId,
+        assigneeId: { in: candidates.map((candidate) => candidate.id) },
+        status: { in: [...ACTIVE_STATUSES] },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+
+    const loadByAgent = new Map(loads.map((row) => [row.assigneeId, row._count._all] as const));
+
+    let eligible = candidates
       .map((candidate) => ({
         id: candidate.id,
         load: loadByAgent.get(candidate.id) ?? 0,
         cap: candidate.maxConcurrentTickets,
+        lastLogin: (candidate.lastSeenAt || candidate.lastLoginAt || new Date(0)).getTime(),
       }))
-      .filter((candidate) => candidate.cap === null || candidate.load < candidate.cap)
-      // Sort by load, then by id so the choice is deterministic when loads tie -
-      // otherwise the same agent can be picked repeatedly by chance.
-      .sort((a, b) => a.load - b.load || a.id.localeCompare(b.id));
+      .filter((candidate) => candidate.cap === null || candidate.load < candidate.cap);
+
+    if (eligible.length === 0) {
+      eligible = candidates.map((candidate) => ({
+        id: candidate.id,
+        load: loadByAgent.get(candidate.id) ?? 0,
+        cap: candidate.maxConcurrentTickets,
+        lastLogin: (candidate.lastSeenAt || candidate.lastLoginAt || new Date(0)).getTime(),
+      }));
+    }
+
+    eligible.sort((a, b) => a.load - b.load || b.lastLogin - a.lastLogin || a.id.localeCompare(b.id));
 
     return eligible[0]?.id ?? null;
   }

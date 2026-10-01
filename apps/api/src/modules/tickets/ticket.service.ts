@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { type Prisma, type TicketEventType } from '@abi-desk/db';
+import { type Prisma, type SupportTier, type TicketEventType } from '@abi-desk/db';
 import { canEditTicket, canReadInternalNotes, resolveTicketScope } from '@abi-desk/rbac';
 import { type Logger } from 'pino';
 import { AuditService } from '../../common/audit/audit.service';
@@ -17,6 +17,7 @@ import { MailService } from '../../infra/mail/mail.service';
 import { StorageService } from '../../infra/storage/storage.service';
 import { SlaService } from '../sla/sla.service';
 import {
+  ACTIVE_STATUSES,
   type AddCommentDto,
   type CreateCategoryDto,
   type CreateOrganizationDto,
@@ -164,6 +165,14 @@ export class TicketService {
         ...(autoProd ? { product: autoProd } : {}),
       };
 
+      const routing = await this.resolveQueueAndAutoAssign(
+        tx,
+        tenantId,
+        brandId,
+        dto.queueId,
+        dto.assigneeId,
+      );
+
       const created = await tx.ticket.create({
         data: {
           tenantId,
@@ -178,8 +187,11 @@ export class TicketService {
           category: dto.category ?? null,
           subcategory: dto.subcategory ?? null,
           requesterId,
-          status: 'NEW',
-          tier: 'L1',
+          assigneeId: routing.assigneeId,
+          queueId: routing.queueId,
+          teamId: routing.teamId,
+          status: routing.status,
+          tier: routing.tier,
           lastActivityAt: new Date(),
           customFields: mergedCustomFields as Prisma.InputJsonValue,
         },
@@ -197,8 +209,25 @@ export class TicketService {
           priority: dto.priority,
           ...(autoOrg ? { organization: autoOrg } : {}),
           ...(autoProd ? { productName: autoProd } : {}),
+          ...(routing.queueId ? { queueId: routing.queueId } : {}),
+          ...(routing.routingStrategy ? { routingStrategy: routing.routingStrategy } : {}),
         },
       });
+
+      if (routing.assigneeId) {
+        await this.recordEvent(tx, {
+          tenantId,
+          ticketId: created.id,
+          type: 'ASSIGNED',
+          actorId: principal.userId,
+          toValue: routing.assigneeId,
+          metadata: {
+            routingStrategy: routing.routingStrategy,
+            queueId: routing.queueId,
+            autoAssigned: true,
+          },
+        });
+      }
 
       if (dto.tags?.length) {
         await this.attachTags(tx, tenantId, created.id, dto.tags, principal.userId);
@@ -995,10 +1024,17 @@ export class TicketService {
       // reply from staff. An internal note is not an answer to the customer.
       const isFirstStaffReply = isPublic && isStaff && ticket.firstResponseAt === null;
 
+      // When staff begins actively working on a ticket (internal note or staff reply)
+      // that is currently in NEW, OPEN, or TRIAGE, move status to IN_PROGRESS.
+      const shouldMoveToInProgress =
+        isStaff &&
+        (ticket.status === 'NEW' || ticket.status === 'OPEN' || ticket.status === 'TRIAGE');
+
       await tx.ticket.update({
         where: { id: ticketId },
         data: {
           lastActivityAt: new Date(),
+          ...(shouldMoveToInProgress ? { status: 'IN_PROGRESS' } : {}),
           ...(isPublic
             ? { publicCommentCount: { increment: 1 } }
             : { internalNoteCount: { increment: 1 } }),
@@ -1010,6 +1046,27 @@ export class TicketService {
 
       if (isFirstStaffReply) {
         await this.sla.recordFirstResponse(tx, tenantId, ticketId, new Date());
+      }
+
+      if (shouldMoveToInProgress) {
+        await this.recordEvent(tx, {
+          tenantId,
+          ticketId,
+          type: 'STATUS_CHANGED',
+          actorId: principal.userId,
+          fromValue: ticket.status,
+          toValue: 'IN_PROGRESS',
+          metadata: {
+            reason: isPublic ? 'Public staff reply added' : 'Internal note added',
+          },
+        });
+
+        await this.emit(tx, tenantId, 'ticket.status_changed', ticketId, {
+          ticketId,
+          fromStatus: ticket.status,
+          toStatus: 'IN_PROGRESS',
+          actorId: principal.userId,
+        });
       }
 
       await this.recordEvent(tx, {
@@ -1560,7 +1617,7 @@ export class TicketService {
           category: targetCategory ?? null,
           subcategory: targetSubcategory ?? null,
           requesterId,
-          status: 'OPEN',
+          status: assigneeId ? 'OPEN' : 'NEW',
           tier: targetTier,
           teamId: teamId ?? null,
           assigneeId: assigneeId ?? null,
@@ -2896,6 +2953,8 @@ export class TicketService {
 
       const autoOrg = this.detectOrganizationFromEmail(senderEmail);
 
+      const routing = await this.resolveQueueAndAutoAssign(tx, tenantId, brandId);
+
       const created = await tx.ticket.create({
         data: {
           tenantId,
@@ -2908,8 +2967,11 @@ export class TicketService {
           type: 'QUESTION',
           channel: 'EMAIL',
           requesterId: requester.id,
-          status: 'NEW',
-          tier: 'L1',
+          assigneeId: routing.assigneeId,
+          queueId: routing.queueId,
+          teamId: routing.teamId,
+          status: routing.status,
+          tier: routing.tier,
           lastActivityAt: new Date(),
           customFields: autoOrg ? { organization: autoOrg } : {},
         },
@@ -3044,6 +3106,236 @@ export class TicketService {
     });
 
     return ticket;
+  }
+
+  /**
+   * Resolves the target queue (requested or default) and runs its auto-assignment
+   * routing strategy (ROUND_ROBIN, LEAST_LOADED, or MANUAL).
+   */
+  private async resolveQueueAndAutoAssign(
+    tx: TenantTransaction,
+    tenantId: string,
+    brandId: string | null,
+    requestedQueueId?: string | null,
+    requestedAssigneeId?: string | null,
+  ): Promise<{
+    queueId: string | null;
+    teamId: string | null;
+    tier: SupportTier;
+    assigneeId: string | null;
+    status: 'NEW' | 'OPEN';
+    routingStrategy?: string;
+  }> {
+    let resolvedQueue: { id: string; teamId: string | null; tier: SupportTier; routing: string } | null = null;
+
+    if (requestedQueueId) {
+      resolvedQueue = await tx.queue.findFirst({
+        where: { id: requestedQueueId, tenantId, isActive: true },
+        select: { id: true, teamId: true, tier: true, routing: true },
+      });
+    } else {
+      resolvedQueue = await tx.queue.findFirst({
+        where: {
+          tenantId,
+          isActive: true,
+          isDefault: true,
+          ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
+        },
+        orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { isDefault: 'desc' }],
+        select: { id: true, teamId: true, tier: true, routing: true },
+      });
+    }
+
+    const queueId = resolvedQueue?.id ?? null;
+    const teamId = resolvedQueue?.teamId ?? null;
+    const tier: SupportTier = resolvedQueue?.tier ?? 'L1';
+    let assigneeId: string | null = requestedAssigneeId ?? null;
+
+    if (!assigneeId && resolvedQueue) {
+      if (resolvedQueue.routing === 'ROUND_ROBIN') {
+        assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId);
+      } else if (resolvedQueue.routing === 'LEAST_LOADED') {
+        assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId);
+      }
+    }
+
+    const status: 'NEW' | 'OPEN' = assigneeId ? 'OPEN' : 'NEW';
+
+    return {
+      queueId,
+      teamId,
+      tier,
+      assigneeId,
+      status,
+      routingStrategy: resolvedQueue?.routing,
+    };
+  }
+
+  /**
+   * Picks the next agent in sequential round-robin order for the queue/team.
+   */
+  private async selectRoundRobinAgent(
+    tx: TenantTransaction,
+    tenantId: string,
+    queueId: string | null,
+    teamId: string | null,
+  ): Promise<string | null> {
+    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    let candidates = await tx.user.findMany({
+      where: {
+        tenantId,
+        kind: 'STAFF',
+        status: 'ACTIVE',
+        isAvailable: true,
+        deletedAt: null,
+        ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
+      },
+      select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+      orderBy: { id: 'asc' },
+    });
+
+    // 2. Fallback: If no available agents online, fallback to active staff sorted by most recent login/activity
+    if (candidates.length === 0) {
+      candidates = await tx.user.findMany({
+        where: {
+          tenantId,
+          kind: 'STAFF',
+          status: 'ACTIVE',
+          deletedAt: null,
+          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
+        },
+        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
+      });
+    }
+
+    if (candidates.length === 0) return null;
+
+    const loads = await tx.ticket.groupBy({
+      by: ['assigneeId'],
+      where: {
+        tenantId,
+        assigneeId: { in: candidates.map((candidate) => candidate.id) },
+        status: { in: [...ACTIVE_STATUSES] },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+
+    const loadByAgent = new Map(loads.map((row) => [row.assigneeId, row._count._all] as const));
+
+    // Filter to agents not exceeding concurrency cap (or fallback to candidates if all at cap)
+    let eligible = candidates.filter((candidate) => {
+      const load = loadByAgent.get(candidate.id) ?? 0;
+      return candidate.maxConcurrentTickets === null || load < candidate.maxConcurrentTickets;
+    });
+
+    if (eligible.length === 0) {
+      eligible = candidates;
+    }
+
+    if (eligible.length === 0 || !eligible[0]) return null;
+
+    let chosenAgentId = eligible[0].id;
+
+    if (queueId) {
+      const queue = await tx.queue.findUnique({
+        where: { id: queueId },
+        select: { lastAssignedUserId: true },
+      });
+
+      if (queue?.lastAssignedUserId) {
+        const lastIdx = eligible.findIndex((c) => c.id === queue.lastAssignedUserId);
+        if (lastIdx !== -1) {
+          const nextIdx = (lastIdx + 1) % eligible.length;
+          const nextCandidate = eligible[nextIdx];
+          if (nextCandidate) {
+            chosenAgentId = nextCandidate.id;
+          }
+        }
+      }
+
+      await tx.queue.update({
+        where: { id: queueId },
+        data: { lastAssignedUserId: chosenAgentId },
+      });
+    }
+
+    return chosenAgentId;
+  }
+
+  /**
+   * Picks the agent with the fewest active tickets.
+   */
+  private async selectLeastLoadedAgent(
+    tx: TenantTransaction,
+    tenantId: string,
+    teamId: string | null,
+  ): Promise<string | null> {
+    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    let candidates = await tx.user.findMany({
+      where: {
+        tenantId,
+        kind: 'STAFF',
+        status: 'ACTIVE',
+        isAvailable: true,
+        deletedAt: null,
+        ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
+      },
+      select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+    });
+
+    // 2. Fallback: If no available agents online, fallback to all active staff by recency of login/activity
+    if (candidates.length === 0) {
+      candidates = await tx.user.findMany({
+        where: {
+          tenantId,
+          kind: 'STAFF',
+          status: 'ACTIVE',
+          deletedAt: null,
+          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
+        },
+        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
+      });
+    }
+
+    if (candidates.length === 0) return null;
+
+    const loads = await tx.ticket.groupBy({
+      by: ['assigneeId'],
+      where: {
+        tenantId,
+        assigneeId: { in: candidates.map((candidate) => candidate.id) },
+        status: { in: [...ACTIVE_STATUSES] },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+
+    const loadByAgent = new Map(loads.map((row) => [row.assigneeId, row._count._all] as const));
+
+    let eligible = candidates
+      .map((candidate) => ({
+        id: candidate.id,
+        load: loadByAgent.get(candidate.id) ?? 0,
+        cap: candidate.maxConcurrentTickets,
+        lastLogin: (candidate.lastSeenAt || candidate.lastLoginAt || new Date(0)).getTime(),
+      }))
+      .filter((candidate) => candidate.cap === null || candidate.load < candidate.cap);
+
+    if (eligible.length === 0) {
+      eligible = candidates.map((candidate) => ({
+        id: candidate.id,
+        load: loadByAgent.get(candidate.id) ?? 0,
+        cap: candidate.maxConcurrentTickets,
+        lastLogin: (candidate.lastSeenAt || candidate.lastLoginAt || new Date(0)).getTime(),
+      }));
+    }
+
+    eligible.sort((a, b) => a.load - b.load || b.lastLogin - a.lastLogin || a.id.localeCompare(b.id));
+
+    return eligible[0]?.id ?? null;
   }
 }
 

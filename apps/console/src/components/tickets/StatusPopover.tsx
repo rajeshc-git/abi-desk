@@ -11,9 +11,10 @@ export interface StatusOption {
 
 export const ALL_STATUSES: StatusOption[] = [
   { value: 'NEW', label: 'New', color: '#94a3b8', category: 'open' },
+  { value: 'OPEN', label: 'Open', color: '#0284c7', category: 'open' },
+  { value: 'IN_PROGRESS', label: 'In Progress', color: '#f59e0b', category: 'open' },
   { value: 'TRIAGE', label: 'Triage', color: '#64748b', category: 'open' },
-  { value: 'OPEN', label: 'In Progress', color: '#0284c7', category: 'open' },
-  { value: 'PENDING_CUSTOMER', label: 'Pending Customer', color: '#f59e0b', category: 'pending' },
+  { value: 'PENDING_CUSTOMER', label: 'Pending Customer', color: '#d97706', category: 'pending' },
   { value: 'ON_HOLD', label: 'On Hold', color: '#ea580c', category: 'pending' },
   { value: 'ESCALATED_L2', label: 'Escalated (L2)', color: '#ec4899', category: 'open' },
   { value: 'ESCALATED_L3', label: 'Escalated (L3)', color: '#d946ef', category: 'open' },
@@ -34,7 +35,7 @@ export const getStatusMeta = (status: string): StatusOption => {
   if (found) return found;
   return {
     value: status,
-    label: status === 'OPEN' ? 'In Progress' : status.replace(/_/g, ' '),
+    label: status === 'OPEN' ? 'Open' : (status === 'IN_PROGRESS' ? 'In Progress' : (status || '').replace(/_/g, ' ')),
     color: '#64748b',
   };
 };

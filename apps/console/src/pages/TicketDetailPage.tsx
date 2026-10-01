@@ -295,7 +295,7 @@ export const TicketDetailPage: React.FC = () => {
     if (!id) return;
     try {
       const res: any = await ApiClient.post(`/tickets/${id}/transitions`, { toStatus: newStatus, comment });
-      const displayStatus = newStatus === 'OPEN' ? 'In Progress' : newStatus.replace(/_/g, ' ');
+      const displayStatus = newStatus === 'OPEN' ? 'Open' : (newStatus === 'IN_PROGRESS' ? 'In Progress' : newStatus.replace(/_/g, ' '));
       if (res?.kind === 'pending_approval') {
         toast.info(`Transition to ${displayStatus} requires sign-off. Approval request #${res.approvalRequestId || ''} submitted.`);
       } else {
@@ -341,7 +341,7 @@ export const TicketDetailPage: React.FC = () => {
   const handleUnmergeTicket = async (primaryTicketId: string, secondaryTicketId: string) => {
     try {
       const updatedMaster: any = await TicketsApi.unmerge(primaryTicketId, secondaryTicketId);
-      toast.success('Ticket unmerged and restored to In Progress status.');
+      toast.success('Ticket unmerged and restored to previous status.');
       setTicket(updatedMaster);
       if (id) loadTicketDetails(id);
     } catch (err: any) {
@@ -964,7 +964,7 @@ export const TicketDetailPage: React.FC = () => {
                               display: 'flex',
                               alignItems: 'center',
                               gap: '6px',
-                              padding: '8px 18px',
+                              padding: '8px 16px',
                               fontSize: '13px',
                               fontWeight: 600,
                               borderRadius: '6px',
@@ -972,7 +972,8 @@ export const TicketDetailPage: React.FC = () => {
                             }}
                           >
                             <Globe size={14} />
-                            <span>Reply to Customer</span>
+                            <span className="reply-btn-label-desktop">Reply to Customer</span>
+                            <span className="reply-btn-label-mobile">Reply</span>
                           </button>
 
                           {canWriteInternal && (
@@ -987,7 +988,7 @@ export const TicketDetailPage: React.FC = () => {
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '6px',
-                                padding: '8px 16px',
+                                padding: '8px 14px',
                                 fontSize: '13px',
                                 fontWeight: 600,
                                 borderRadius: '6px',
@@ -998,12 +999,13 @@ export const TicketDetailPage: React.FC = () => {
                               }}
                             >
                               <Lock size={14} />
-                              <span>Add Internal Note</span>
+                              <span className="reply-btn-label-desktop">Add Internal Note</span>
+                              <span className="reply-btn-label-mobile">Internal</span>
                             </button>
                           )}
                         </div>
 
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
+                        <span className="reply-hint-desktop" style={{ fontSize: '12px', color: 'var(--text-muted, #64748b)' }}>
                           Click Reply to open side-by-side composer
                         </span>
                       </div>

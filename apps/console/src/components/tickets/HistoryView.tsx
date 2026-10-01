@@ -338,7 +338,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
     } else if (type === 'STATUS_CHANGED' || type === 'RESOLVED' || type === 'CLOSED' || type === 'REOPENED') {
       const formatStatus = (val?: string | null) => {
         if (!val) return null;
-        if (val === 'OPEN') return 'In Progress';
+        if (val === 'OPEN') return 'Open';
+        if (val === 'IN_PROGRESS') return 'In Progress';
         return val.replace(/_/g, ' ');
       };
       diffRows.push({

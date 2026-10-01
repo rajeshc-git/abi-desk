@@ -117,7 +117,8 @@ export const CreateQueueSchema = z.object({
     .string()
     .min(1)
     .max(64)
-    .regex(/^[a-z0-9-]+$/),
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
   description: z.string().max(500).optional(),
   tier: SupportTierEnum.default('L1'),
   brandId: z.string().uuid().optional(),

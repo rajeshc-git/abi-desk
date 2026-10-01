@@ -13,6 +13,7 @@ export const ticketStatusValues = [
   'NEW',
   'TRIAGE',
   'OPEN',
+  'IN_PROGRESS',
   'PENDING_CUSTOMER',
   'ON_HOLD',
   'ESCALATED_L2',
@@ -27,6 +28,25 @@ export const ticketStatusValues = [
   'CLOSED',
   'REOPENED',
   'CANCELLED',
+] as const;
+
+/** Statuses that still count against an agent's active workload. */
+export const ACTIVE_STATUSES = [
+  'NEW',
+  'TRIAGE',
+  'OPEN',
+  'IN_PROGRESS',
+  'PENDING_CUSTOMER',
+  'ON_HOLD',
+  'ESCALATED_L2',
+  'ESCALATED_L3',
+  'IN_DEVELOPMENT',
+  'IN_QA',
+  'PENDING_RELEASE',
+  'RELEASED',
+  'PENDING_VERIFICATION',
+  'AWAITING_CUSTOMER_CONFIRMATION',
+  'REOPENED',
 ] as const;
 
 export const ticketPriorityValues = ['LOW', 'NORMAL', 'HIGH', 'URGENT', 'CRITICAL'] as const;
@@ -48,6 +68,8 @@ export const createTicketSchema = z.object({
   subcategory: z.string().trim().max(120).nullable().optional(),
   organization: z.string().trim().max(160).nullable().optional(),
   product: z.string().trim().max(120).nullable().optional(),
+  queueId: uuid.optional(),
+  assigneeId: uuid.optional(),
   tags: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
   /**
    * Raise on behalf of another user. Staff-only; the service refuses it unless the

@@ -149,14 +149,22 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Check if current user is @mentioned in the comment body
       const userFullName = (user.fullName || '').toLowerCase().trim();
       const userEmail = (user.email || '').toLowerCase().trim();
+      const userEmailPrefix = userEmail.split('@')[0] || '';
       const userFirstName = userFullName.split(/\s+/)[0] || '';
-      const bodyLower = commentBody.toLowerCase();
 
-      // Check mention patterns: @FullName, @Email, @FirstName, or @Username
+      // Strip full email addresses first so typing contact@company.com never triggers mention of "company.com" or "@company"
+      const bodyWithoutEmails = commentBody.toLowerCase().replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ');
+
+      // Check mention patterns with whitespace / boundary preceding @: @FullName, @Email, @FirstName, or @Username
+      const escapeReg = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const isMentioned =
-        (userFullName && (bodyLower.includes(`@${userFullName}`) || bodyLower.includes(`@${userFullName.replace(/\s+/g, '')}`))) ||
-        (userEmail && (bodyLower.includes(`@${userEmail}`) || bodyLower.includes(`@${userEmail.split('@')[0]}`))) ||
-        (userFirstName && userFirstName.length >= 2 && bodyLower.includes(`@${userFirstName}`));
+        (userFullName && (
+          new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userFullName)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails) ||
+          new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userFullName.replace(/\\s+/g, ''))}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails)
+        )) ||
+        (userEmail && new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userEmail)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails)) ||
+        (userEmailPrefix && userEmailPrefix.length >= 2 && new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userEmailPrefix)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails)) ||
+        (userFirstName && userFirstName.length >= 2 && new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userFirstName)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails));
 
       if (isMentioned) {
         // High priority mention notification!
