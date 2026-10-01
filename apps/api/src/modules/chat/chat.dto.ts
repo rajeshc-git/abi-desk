@@ -44,3 +44,13 @@ export const ListConversationsQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
 });
 export class ListConversationsQueryDto extends createZodDto(ListConversationsQuerySchema) {}
+
+export const BulkDeleteConversationsSchema = z.object({
+  conversationIds: z.array(z.string().uuid()).min(1),
+});
+export class BulkDeleteConversationsDto extends createZodDto(BulkDeleteConversationsSchema) {}
+
+export const BulkCloseConversationsSchema = z.object({
+  conversationIds: z.array(z.string().uuid()).min(1),
+});
+export class BulkCloseConversationsDto extends createZodDto(BulkCloseConversationsSchema) {}

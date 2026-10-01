@@ -58,6 +58,15 @@ import { useToast } from '../context/ToastContext';
 import { useSearch } from '../context/SearchContext';
 import { THEME_PRESETS, applyPrimaryTheme } from '../styles/theme-utils';
 
+export const SUPPORT_TIER_OPTIONS = [
+  { value: 'L1', label: 'L1 Tier', teamLabel: 'L1 - Frontline Support' },
+  { value: 'L2', label: 'L2 Tier', teamLabel: 'L2 - Technical Support' },
+  { value: 'L3', label: 'L3 Tier', teamLabel: 'L3 - Product Specialists' },
+  { value: 'DEV', label: 'DEV Tier', teamLabel: 'DEV - Product Developers' },
+  { value: 'DEVOPS', label: 'DEVOPS Tier', teamLabel: 'DEVOPS - Cloud & Infrastructure' },
+  { value: 'QA', label: 'QA Tier', teamLabel: 'QA - Quality Assurance' },
+] as const;
+
 declare const __CONSOLE_HOST__: string;
 declare const __API_PORT__: string;
 
@@ -7691,11 +7700,11 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               onChange={(e) => setTeamTier(e.target.value)}
               className="form-select"
             >
-              <option value="L1">L1 - Frontline Support</option>
-              <option value="L2">L2 - Technical Support</option>
-              <option value="L3">L3 - Product Specialists</option>
-              <option value="DEV">DEV - Product Developers</option>
-              <option value="QA">QA - Quality Testing</option>
+              {SUPPORT_TIER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.teamLabel}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -8122,11 +8131,11 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   fontSize: '13px',
                 }}
               >
-                <option value="L1">L1 Tier</option>
-                <option value="L2">L2 Tier</option>
-                <option value="L3">L3 Tier</option>
-                <option value="DEV">DEV Tier</option>
-                <option value="QA">QA Tier</option>
+                {SUPPORT_TIER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -8150,7 +8159,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   fontSize: '13px',
                 }}
               >
-                <option value="">No Team (All Tenant Staff)</option>
+                <option value="">No Team (All Agents)</option>
                 {teams.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
@@ -8314,11 +8323,11 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   fontSize: '13px',
                 }}
               >
-                <option value="L1">L1 Tier</option>
-                <option value="L2">L2 Tier</option>
-                <option value="L3">L3 Tier</option>
-                <option value="DEV">DEV Tier</option>
-                <option value="QA">QA Tier</option>
+                {SUPPORT_TIER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -8342,7 +8351,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   fontSize: '13px',
                 }}
               >
-                <option value="">No Team (All Tenant Staff)</option>
+                <option value="">No Team (All Agents)</option>
                 {teams.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}

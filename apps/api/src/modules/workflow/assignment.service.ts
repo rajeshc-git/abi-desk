@@ -13,6 +13,7 @@ import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { TicketService } from '../tickets/ticket.service';
 import { toPolicySubject } from '../tickets/ticket-scope';
 import { MailService } from '../../infra/mail/mail.service';
+import { type SupportTier } from '@abi-desk/db';
 import { ACTIVE_STATUSES } from '../tickets/ticket.dto';
 import { type AssignDto, type BulkUpdateDto } from './workflow.dto';
 
@@ -75,12 +76,13 @@ export class AssignmentService {
       let assigneeId = dto.assigneeId !== undefined ? dto.assigneeId : (ticket.assignee?.id ?? null);
       let queueId = dto.queueId !== undefined ? dto.queueId : (ticket.queue?.id ?? null);
       let teamId = dto.teamId !== undefined ? dto.teamId : (ticket.team?.id ?? null);
+      let tier: SupportTier | null = (ticket.tier as SupportTier) ?? null;
 
       let queueRouting: string | null = null;
       if (dto.queueId) {
         const queue = await tx.queue.findFirst({
           where: { id: dto.queueId, tenantId, isActive: true },
-          select: { id: true, teamId: true, routing: true, name: true },
+          select: { id: true, teamId: true, routing: true, name: true, tier: true },
         });
 
         if (!queue) {
@@ -91,6 +93,9 @@ export class AssignmentService {
 
         queueId = queue.id;
         queueRouting = queue.routing;
+        if (queue.tier) {
+          tier = queue.tier;
+        }
         // A queue's team is inherited unless the caller overrode it explicitly.
         if (dto.teamId !== undefined) {
           teamId = dto.teamId;
@@ -138,16 +143,16 @@ export class AssignmentService {
 
       if (dto.autoAssign) {
         if (queueRouting === 'ROUND_ROBIN') {
-          assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId);
+          assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId, tier);
         } else {
-          assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId);
+          assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId, tier);
         }
 
         if (!assigneeId) {
           // Left in the queue rather than failing: an unstaffed queue is a real
           // operational state, and the ticket must not be lost because of it.
           this.logger.warn(
-            { ticketId, tenantId, teamId },
+            { ticketId, tenantId, teamId, tier },
             'Auto-assignment found no available agent; ticket left queued',
           );
         }
@@ -509,7 +514,7 @@ export class AssignmentService {
   }
 
   /**
-   * Picks the next agent in sequential round-robin order for the queue/team.
+   * Picks the next agent in sequential round-robin order for the queue/team/tier.
    * Excludes agents who are unavailable, deleted, or at their declared concurrency limit.
    */
   async selectRoundRobinAgent(
@@ -517,16 +522,30 @@ export class AssignmentService {
     tenantId: string,
     queueId: string | null,
     teamId: string | null,
+    tier: SupportTier | null = null,
   ): Promise<string | null> {
+    const tierFilter = tier
+      ? {
+          OR: [
+            { roles: { some: { role: { tier } } } },
+            { teamMembers: { some: { team: { tier } } } },
+          ],
+        }
+      : {};
+
+    const candidateFilter = {
+      tenantId,
+      kind: 'STAFF' as const,
+      status: 'ACTIVE' as const,
+      deletedAt: null,
+      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
+    };
+
     // 1. Primary: Active staff who are currently available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
-        tenantId,
-        kind: 'STAFF',
-        status: 'ACTIVE',
+        ...candidateFilter,
         isAvailable: true,
-        deletedAt: null,
-        ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
       },
       select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
       orderBy: { id: 'asc' },
@@ -535,13 +554,7 @@ export class AssignmentService {
     // 2. Fallback: If no available agents online, fallback to active staff sorted by most recent login/activity
     if (candidates.length === 0) {
       candidates = await tx.user.findMany({
-        where: {
-          tenantId,
-          kind: 'STAFF',
-          status: 'ACTIVE',
-          deletedAt: null,
-          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
-        },
+        where: candidateFilter,
         select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
       });
@@ -603,22 +616,36 @@ export class AssignmentService {
   }
 
   /**
-   * Picks the agent with the fewest active tickets.
+   * Picks the agent with the fewest active tickets within the queue/team/tier.
    */
   async selectLeastLoadedAgent(
     tx: TenantTransaction,
     tenantId: string,
     teamId: string | null,
+    tier: SupportTier | null = null,
   ): Promise<string | null> {
+    const tierFilter = tier
+      ? {
+          OR: [
+            { roles: { some: { role: { tier } } } },
+            { teamMembers: { some: { team: { tier } } } },
+          ],
+        }
+      : {};
+
+    const candidateFilter = {
+      tenantId,
+      kind: 'STAFF' as const,
+      status: 'ACTIVE' as const,
+      deletedAt: null,
+      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
+    };
+
     // 1. Primary: Active staff who are currently available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
-        tenantId,
-        kind: 'STAFF',
-        status: 'ACTIVE',
+        ...candidateFilter,
         isAvailable: true,
-        deletedAt: null,
-        ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
       },
       select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
     });
@@ -626,13 +653,7 @@ export class AssignmentService {
     // 2. Fallback: If no available agents online, fallback to all active staff by recency of login/activity
     if (candidates.length === 0) {
       candidates = await tx.user.findMany({
-        where: {
-          tenantId,
-          kind: 'STAFF',
-          status: 'ACTIVE',
-          deletedAt: null,
-          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
-        },
+        where: candidateFilter,
         select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
       });

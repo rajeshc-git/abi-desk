@@ -3153,9 +3153,9 @@ export class TicketService {
 
     if (!assigneeId && resolvedQueue) {
       if (resolvedQueue.routing === 'ROUND_ROBIN') {
-        assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId);
+        assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId, tier);
       } else if (resolvedQueue.routing === 'LEAST_LOADED') {
-        assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId);
+        assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId, tier);
       }
     }
 
@@ -3172,23 +3172,37 @@ export class TicketService {
   }
 
   /**
-   * Picks the next agent in sequential round-robin order for the queue/team.
+   * Picks the next agent in sequential round-robin order for the queue/team/tier.
    */
   private async selectRoundRobinAgent(
     tx: TenantTransaction,
     tenantId: string,
     queueId: string | null,
     teamId: string | null,
+    tier: SupportTier | null = null,
   ): Promise<string | null> {
+    const tierFilter = tier
+      ? {
+          OR: [
+            { roles: { some: { role: { tier } } } },
+            { teamMembers: { some: { team: { tier } } } },
+          ],
+        }
+      : {};
+
+    const candidateFilter = {
+      tenantId,
+      kind: 'STAFF' as const,
+      status: 'ACTIVE' as const,
+      deletedAt: null,
+      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
+    };
+
     // 1. Primary: Active staff who are currently available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
-        tenantId,
-        kind: 'STAFF',
-        status: 'ACTIVE',
+        ...candidateFilter,
         isAvailable: true,
-        deletedAt: null,
-        ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
       },
       select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
       orderBy: { id: 'asc' },
@@ -3197,13 +3211,7 @@ export class TicketService {
     // 2. Fallback: If no available agents online, fallback to active staff sorted by most recent login/activity
     if (candidates.length === 0) {
       candidates = await tx.user.findMany({
-        where: {
-          tenantId,
-          kind: 'STAFF',
-          status: 'ACTIVE',
-          deletedAt: null,
-          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
-        },
+        where: candidateFilter,
         select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
       });
@@ -3265,22 +3273,36 @@ export class TicketService {
   }
 
   /**
-   * Picks the agent with the fewest active tickets.
+   * Picks the agent with the fewest active tickets within the queue/team/tier.
    */
   private async selectLeastLoadedAgent(
     tx: TenantTransaction,
     tenantId: string,
     teamId: string | null,
+    tier: SupportTier | null = null,
   ): Promise<string | null> {
+    const tierFilter = tier
+      ? {
+          OR: [
+            { roles: { some: { role: { tier } } } },
+            { teamMembers: { some: { team: { tier } } } },
+          ],
+        }
+      : {};
+
+    const candidateFilter = {
+      tenantId,
+      kind: 'STAFF' as const,
+      status: 'ACTIVE' as const,
+      deletedAt: null,
+      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
+    };
+
     // 1. Primary: Active staff who are currently available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
-        tenantId,
-        kind: 'STAFF',
-        status: 'ACTIVE',
+        ...candidateFilter,
         isAvailable: true,
-        deletedAt: null,
-        ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
       },
       select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
     });
@@ -3288,13 +3310,7 @@ export class TicketService {
     // 2. Fallback: If no available agents online, fallback to all active staff by recency of login/activity
     if (candidates.length === 0) {
       candidates = await tx.user.findMany({
-        where: {
-          tenantId,
-          kind: 'STAFF',
-          status: 'ACTIVE',
-          deletedAt: null,
-          ...(teamId ? { teamMembers: { some: { teamId } } } : {}),
-        },
+        where: candidateFilter,
         select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
       });

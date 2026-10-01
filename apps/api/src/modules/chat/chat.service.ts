@@ -299,6 +299,65 @@ export class ChatService {
     return updated;
   }
 
+  async deleteConversation(principal: AuthenticatedPrincipal, conversationId: string) {
+    const tenantId = this.tenantContext.requireTenantId();
+
+    const conv = await this.db.client.chatConversation.findFirst({
+      where: { id: conversationId, tenantId },
+    });
+
+    if (!conv) {
+      throw AppException.notFound(`Chat conversation '${conversationId}' not found.`);
+    }
+
+    await this.db.client.chatConversation.delete({
+      where: { id: conversationId },
+    });
+
+    this.logger.info({ conversationId, tenantId, deletedBy: principal.userId }, 'Chat conversation deleted');
+    return { success: true, deletedId: conversationId };
+  }
+
+  async bulkDeleteConversations(principal: AuthenticatedPrincipal, conversationIds: string[]) {
+    const tenantId = this.tenantContext.requireTenantId();
+
+    const result = await this.db.client.chatConversation.deleteMany({
+      where: {
+        id: { in: conversationIds },
+        tenantId,
+      },
+    });
+
+    this.logger.info(
+      { count: result.count, conversationIds, tenantId, deletedBy: principal.userId },
+      'Bulk deleted chat conversations',
+    );
+    return { success: true, deletedCount: result.count };
+  }
+
+  async bulkCloseConversations(principal: AuthenticatedPrincipal, conversationIds: string[]) {
+    const tenantId = this.tenantContext.requireTenantId();
+
+    const result = await this.db.client.chatConversation.updateMany({
+      where: {
+        id: { in: conversationIds },
+        tenantId,
+        status: { not: 'CLOSED' },
+      },
+      data: {
+        status: 'CLOSED',
+        closedAt: new Date(),
+        closedById: principal.userId,
+      },
+    });
+
+    this.logger.info(
+      { count: result.count, conversationIds, tenantId, closedBy: principal.userId },
+      'Bulk closed chat conversations',
+    );
+    return { success: true, closedCount: result.count };
+  }
+
   async promoteToTicket(
     principal: AuthenticatedPrincipal,
     conversationId: string,

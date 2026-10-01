@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   MessageSquare,
@@ -9,10 +9,18 @@ import {
   User,
   Globe,
   ArrowLeft,
+  Trash2,
+  Lock,
+  Search,
+  CheckSquare,
+  Square,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { StatusBadge } from '../components/common/Badge';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { Modal } from '../components/common/Modal';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { useToast } from '../context/ToastContext';
@@ -118,22 +126,45 @@ export const LiveChatPage: React.FC = () => {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const { debouncedSearchQuery } = useSearch();
 
-  const filteredConversations = React.useMemo(() => {
-    if (!debouncedSearchQuery.trim()) return conversations;
-    const query = debouncedSearchQuery.toLowerCase();
-    return conversations.filter((c) => {
-      const customerName =
-        c.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
-        c.subject ||
-        'Customer Visitor';
-      const lastMessage = c.lastMessagePreview || '';
-      return (
-        customerName.toLowerCase().includes(query) ||
-        lastMessage.toLowerCase().includes(query) ||
-        (c.subject && c.subject.toLowerCase().includes(query))
-      );
-    });
-  }, [conversations, debouncedSearchQuery]);
+  // Status Filter Tabs (Ticket Desk Design Language)
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'QUEUED' | 'CLOSED'>('ALL');
+
+  // Bulk Selection & Delete States
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  const canDeleteChats =
+    user?.roles?.some((r: string) => ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r)) ||
+    user?.permissions?.includes('ticket:delete') ||
+    user?.kind === 'STAFF';
+
+  const filteredConversations = useMemo(() => {
+    let list = conversations;
+    if (statusFilter !== 'ALL') {
+      if (statusFilter === 'OPEN') {
+        list = list.filter((c) => c.status === 'OPEN' || c.status === 'WAITING');
+      } else {
+        list = list.filter((c) => c.status === statusFilter);
+      }
+    }
+    if (debouncedSearchQuery.trim()) {
+      const query = debouncedSearchQuery.toLowerCase();
+      list = list.filter((c) => {
+        const customerName =
+          c.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
+          c.subject ||
+          'Customer Visitor';
+        const lastMessage = c.lastMessagePreview || '';
+        return (
+          customerName.toLowerCase().includes(query) ||
+          lastMessage.toLowerCase().includes(query) ||
+          (c.subject && c.subject.toLowerCase().includes(query))
+        );
+      });
+    }
+    return list;
+  }, [conversations, statusFilter, debouncedSearchQuery]);
 
   useEffect(() => {
     loadConversations();
@@ -256,6 +287,80 @@ export const LiveChatPage: React.FC = () => {
     }
   };
 
+  const handleToggleSelect = (convId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(convId)) {
+        next.delete(convId);
+      } else {
+        next.add(convId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.size === filteredConversations.length && filteredConversations.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredConversations.map((c) => c.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await ApiClient.post('/chat/conversations/bulk-delete', { conversationIds: ids });
+      toast.success(`${ids.length} chat conversation${ids.length > 1 ? 's' : ''} deleted.`);
+      setConversations((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+      if (activeConv && selectedIds.has(activeConv.id)) {
+        setActiveConv(null);
+        setMessages([]);
+      }
+      setSelectedIds(new Set());
+      setIsBulkDeleteOpen(false);
+    } catch (err: any) {
+      toast.error(`Failed to delete chats: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  const handleBulkClose = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      const ids = Array.from(selectedIds);
+      await ApiClient.post('/chat/conversations/bulk-close', { conversationIds: ids });
+      toast.success(`${ids.length} chat conversation${ids.length > 1 ? 's' : ''} closed.`);
+      setConversations((prev) =>
+        prev.map((c) => (selectedIds.has(c.id) ? { ...c, status: 'CLOSED' } : c)),
+      );
+      if (activeConv && selectedIds.has(activeConv.id)) {
+        setActiveConv((prev) => (prev ? { ...prev, status: 'CLOSED' } : null));
+      }
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      toast.error(`Failed to close chats: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleCloseActiveChat = async () => {
+    if (!activeConv) return;
+    try {
+      await ApiClient.post(`/chat/conversations/${activeConv.id}/close`);
+      toast.success('Conversation marked as closed.');
+      setActiveConv((prev) => (prev ? { ...prev, status: 'CLOSED' } : null));
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeConv.id ? { ...c, status: 'CLOSED' } : c)),
+      );
+    } catch (err: any) {
+      toast.error(`Failed to close chat: ${err.message || 'Unknown error'}`);
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMsg.trim() || !activeConv) return;
@@ -306,44 +411,121 @@ export const LiveChatPage: React.FC = () => {
   return (
     <div
       className={`split-pane-layout livechat-split-layout ${activeConv ? 'has-selected' : ''}`}
-      style={{ height: 'calc(100vh - 64px)', overflow: 'hidden' }}
+      style={{ height: '100%', flex: 1, overflow: 'hidden' }}
     >
       {/* Left Pane: Active Chat Conversations Queue */}
-      <div className="split-left-pane livechat-left-pane">
-        <div className="livechat-queue-header">
-          <div>
-            <h2 className="livechat-queue-title">Live Chat Desk</h2>
-            <div
-              className="livechat-gateway-status"
-              style={{
-                color: isConnected ? '#10b981' : '#f59e0b',
-              }}
-            >
-              <span
-                style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: isConnected ? '#10b981' : '#f59e0b',
-                  display: 'inline-block',
-                }}
-              ></span>
-              {isConnected ? 'Real-time Gateway Online' : 'Connecting...'}
+      <div className="split-left-pane livechat-left-pane" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <div style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+              <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                Live Chat Desk
+              </h2>
+              {conversations.length > 0 && (
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 500 }}>
+                  {filteredConversations.length} of {conversations.length}
+                </span>
+              )}
             </div>
           </div>
+
+          {/* Status Tabs Segmented Control (matches Ticket Desk) */}
+          <div className="inbox-status-tabs-container">
+            {[
+              { id: 'ALL', label: 'All' },
+              { id: 'OPEN', label: 'Active' },
+              { id: 'QUEUED', label: 'Queued' },
+              { id: 'CLOSED', label: 'Closed' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setStatusFilter(tab.id as any);
+                  setSelectedIds(new Set());
+                }}
+                className={`inbox-status-tab-btn ${statusFilter === tab.id ? 'active' : ''}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Bulk Action Toolbar (matches Ticket Desk) */}
+        {selectedIds.size > 0 && (
+          <div
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'var(--primary-surface, #eff6ff)',
+              borderBottom: '1px solid var(--primary-border, #bfdbfe)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '12px',
+              fontWeight: 600,
+            }}
+          >
+            <span style={{ color: 'var(--primary, #2563eb)' }}>{selectedIds.size} selected</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={handleBulkClose}
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '3px 8px', fontSize: '11px', height: '26px' }}
+                title="Mark selected as closed"
+              >
+                <Lock size={12} /> Close
+              </button>
+              {canDeleteChats && (
+                <button
+                  type="button"
+                  onClick={() => setIsBulkDeleteOpen(true)}
+                  className="btn btn-danger btn-sm"
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: '11px',
+                    height: '26px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: 600,
+                    backgroundColor: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                  }}
+                  title="Permanently delete selected chats"
+                >
+                  <Trash2 size={12} /> Delete ({selectedIds.size})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="btn btn-ghost btn-sm"
+                style={{ padding: '2px 6px', fontSize: '11px', color: 'var(--text-muted)' }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="livechat-queue-list">
           {isLoading ? (
             <LoadingSpinner size={24} text="Loading chats..." />
           ) : filteredConversations.length === 0 ? (
             <div className="livechat-queue-empty">
-              No active chat visitors right now.
+              {statusFilter !== 'ALL'
+                ? `No ${statusFilter.toLowerCase()} chat conversations found.`
+                : 'No active chat visitors right now.'}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
               {filteredConversations.map((c) => {
                 const isActive = activeConv?.id === c.id;
+                const isSelected = selectedIds.has(c.id);
                 const senderName =
                   c.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
                   c.subject ||
@@ -354,46 +536,127 @@ export const LiveChatPage: React.FC = () => {
                 return (
                   <div
                     key={c.id}
-                    onClick={() => selectConversation(c)}
-                    className={`livechat-conv-item ${isActive ? 'active' : ''}`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      minWidth: 0,
+                      width: '100%',
+                    }}
                   >
-                    <div
-                      className="livechat-conv-avatar"
+                    {/* Item Checkbox matching Ticket Desk */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleSelect(c.id, e)}
                       style={{
-                        background: avatarBg,
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '0 8px 0 12px',
+                        color: isSelected ? 'var(--primary)' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                      title="Select chat"
+                    >
+                      {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                    </button>
+
+                    {/* Chat Item Row matching Ticket Desk Card UI */}
+                    <div
+                      onClick={() => selectConversation(c)}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
                         overflow: 'hidden',
+                        padding: '12px 16px',
+                        borderBottom: '1px solid var(--border-subtle)',
+                        backgroundColor: isActive
+                          ? 'var(--primary-surface)'
+                          : unreadCount > 0
+                          ? 'var(--bg-surface-elevated, #f0f9ff)'
+                          : 'transparent',
+                        borderLeft: isActive
+                          ? '3px solid var(--primary)'
+                          : unreadCount > 0
+                          ? '3px solid #2563eb'
+                          : '3px solid transparent',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxSizing: 'border-box',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-surface, #f8fafc)';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive)
+                          e.currentTarget.style.backgroundColor = unreadCount > 0 ? 'var(--bg-surface-elevated, #f0f9ff)' : 'transparent';
                       }}
                     >
-                      {renderAvatarContent(senderName, 16, c.participants.find((p) => p.role === 'CUSTOMER')?.user?.avatarUrl)}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div
+                        className="livechat-conv-avatar"
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: '2px',
+                          background: avatarBg,
+                          overflow: 'hidden',
+                          flexShrink: 0,
                         }}
                       >
-                        <span className="livechat-conv-name">
-                          {senderName}
-                        </span>
+                        {renderAvatarContent(senderName, 16, c.participants.find((p) => p.role === 'CUSTOMER')?.user?.avatarUrl)}
                       </div>
-                      <div className="livechat-conv-preview">
-                        {c.lastMessagePreview || 'New chat session started'}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: '2px',
+                          }}
+                        >
+                          <span className="livechat-conv-name">
+                            {senderName}
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>
+                            {c.lastMessageAt ? formatTime(c.lastMessageAt) : ''}
+                          </span>
+                        </div>
+                        <div className="livechat-conv-preview">
+                          {c.lastMessagePreview || 'New chat session started'}
+                        </div>
                       </div>
+                      {unreadCount > 0 && (
+                        <div className="livechat-unread-badge">
+                          {unreadCount}
+                        </div>
+                      )}
                     </div>
-                    {unreadCount > 0 && (
-                      <div className="livechat-unread-badge">
-                        {unreadCount}
-                      </div>
-                    )}
                   </div>
                 );
               })}
             </div>
           )}
         </div>
+
+        {/* Fixed Bottom Status Bar matching Sidebar Baseline */}
+        {!isLoading && filteredConversations.length > 0 && (
+          <div
+            style={{
+              padding: '0 16px',
+              borderTop: '1px solid var(--border-subtle)',
+              backgroundColor: '#ffffff',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '58px',
+              boxSizing: 'border-box',
+              fontSize: '11.5px',
+              color: 'var(--text-muted)',
+            }}
+          >
+            Showing {filteredConversations.length} {statusFilter !== 'ALL' ? statusFilter.toLowerCase() : ''} conversation{filteredConversations.length !== 1 ? 's' : ''}
+          </div>
+        )}
       </div>
 
       {/* Right Pane: Live Chat Stream Workspace */}
@@ -430,11 +693,36 @@ export const LiveChatPage: React.FC = () => {
                   )}
                 </div>
                 <div className="livechat-header-info">
-                  <h3 className="livechat-header-name">
-                    {activeConv.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
-                      activeConv.subject ||
-                      'Live Chat Visitor'}
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 className="livechat-header-name">
+                      {activeConv.participants.find((p) => p.role === 'CUSTOMER')?.user?.fullName ||
+                        activeConv.subject ||
+                        'Live Chat Visitor'}
+                    </h3>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: activeConv.status === 'CLOSED' ? '#6b7280' : '#10b981',
+                        backgroundColor: activeConv.status === 'CLOSED' ? 'rgba(107, 114, 128, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                        padding: '2px 8px',
+                        borderRadius: '9999px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          backgroundColor: activeConv.status === 'CLOSED' ? '#6b7280' : '#10b981',
+                        }}
+                      />
+                      {activeConv.status === 'CLOSED' ? 'Closed' : 'Active'}
+                    </span>
+                  </div>
                   {activeConv.pageUrl && (
                     <div className="livechat-origin-badge">
                       <Globe size={11} />
@@ -451,7 +739,7 @@ export const LiveChatPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="livechat-header-actions">
+              <div className="livechat-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {activeConv.status === 'QUEUED' && (
                   <button
                     type="button"
@@ -464,15 +752,26 @@ export const LiveChatPage: React.FC = () => {
                   </button>
                 )}
                 {activeConv.status !== 'CLOSED' && (
-                  <button
-                    type="button"
-                    onClick={handlePromoteToTicket}
-                    className="btn btn-primary livechat-action-btn"
-                    title="Promote to Ticket"
-                  >
-                    <ArrowUpRight size={14} />
-                    <span className="livechat-action-btn-text">Promote to Ticket</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleCloseActiveChat}
+                      className="btn btn-secondary livechat-action-btn"
+                      title="Close Conversation"
+                    >
+                      <Lock size={14} />
+                      <span className="livechat-action-btn-text">Close Chat</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePromoteToTicket}
+                      className="btn btn-primary livechat-action-btn"
+                      title="Promote to Ticket"
+                    >
+                      <ArrowUpRight size={14} />
+                      <span className="livechat-action-btn-text">Promote to Ticket</span>
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -573,14 +872,92 @@ export const LiveChatPage: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="livechat-empty-workspace">
-            <MessageSquare size={32} style={{ opacity: 0.5 }} />
-            <span style={{ fontSize: '14px', fontWeight: 500 }}>
-              Select a live chat visitor from the left queue to begin.
-            </span>
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div className="livechat-empty-workspace" style={{ flex: 1 }}>
+              <MessageSquare size={32} style={{ opacity: 0.5 }} />
+              <span style={{ fontSize: '14px', fontWeight: 500 }}>
+                Select a live chat visitor from the left queue to begin.
+              </span>
+            </div>
+            <div
+              style={{
+                height: '58px',
+                boxSizing: 'border-box',
+                borderTop: '1px solid var(--border-subtle)',
+                backgroundColor: '#ffffff',
+                flexShrink: 0,
+              }}
+            />
           </div>
         )}
       </div>
+
+      {/* Bulk Delete Chats Confirmation Modal */}
+      <Modal
+        isOpen={isBulkDeleteOpen}
+        onClose={() => !isBulkDeleting && setIsBulkDeleteOpen(false)}
+        title={`Delete ${selectedIds.size} Chat Conversation${selectedIds.size > 1 ? 's' : ''}?`}
+        maxWidth="460px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '10px',
+                backgroundColor: '#fee2e2',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Trash2 size={22} color="#dc2626" />
+            </div>
+            <div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Permanent Database Deletion
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                {selectedIds.size} chat conversation{selectedIds.size > 1 ? 's' : ''} selected
+              </div>
+            </div>
+          </div>
+
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+            Are you sure you want to permanently delete <strong>{selectedIds.size} selected chat conversation{selectedIds.size > 1 ? 's' : ''}</strong> from the database? All associated message transcripts and visitor data will be completely removed. <strong>This action cannot be undone.</strong>
+          </p>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteOpen(false)}
+              disabled={isBulkDeleting}
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '7px 16px' }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className="btn btn-danger btn-sm"
+              style={{
+                padding: '7px 18px',
+                backgroundColor: '#dc2626',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 600,
+              }}
+            >
+              {isBulkDeleting ? 'Deleting...' : `Permanently Delete (${selectedIds.size})`}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
+

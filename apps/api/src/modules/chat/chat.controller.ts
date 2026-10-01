@@ -1,7 +1,9 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { Audited, CurrentUser, RequirePermission } from '../../common/auth/auth.decorators';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import {
+  type BulkCloseConversationsDto,
+  type BulkDeleteConversationsDto,
   type ListConversationsQueryDto,
   type PromoteToTicketDto,
   type SendMessageDto,
@@ -33,9 +35,39 @@ export class ChatController {
     return this.chatService.listConversations(principal, query);
   }
 
+  @Post('conversations/bulk-delete')
+  @RequirePermission('ticket:delete')
+  @Audited({ action: 'chat.bulk_deleted', resourceType: 'chat_conversation' })
+  @HttpCode(HttpStatus.OK)
+  bulkDeleteConversations(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: BulkDeleteConversationsDto,
+  ) {
+    return this.chatService.bulkDeleteConversations(principal, dto.conversationIds);
+  }
+
+  @Post('conversations/bulk-close')
+  @RequirePermission('chat:respond')
+  @Audited({ action: 'chat.bulk_closed', resourceType: 'chat_conversation' })
+  @HttpCode(HttpStatus.OK)
+  bulkCloseConversations(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: BulkCloseConversationsDto,
+  ) {
+    return this.chatService.bulkCloseConversations(principal, dto.conversationIds);
+  }
+
   @Get('conversations/:id')
   getConversation(@CurrentUser() principal: AuthenticatedPrincipal, @Param('id') id: string) {
     return this.chatService.getConversation(principal, id);
+  }
+
+  @Delete('conversations/:id')
+  @RequirePermission('ticket:delete')
+  @Audited({ action: 'chat.deleted', resourceType: 'chat_conversation', idParam: 'id' })
+  @HttpCode(HttpStatus.OK)
+  deleteConversation(@CurrentUser() principal: AuthenticatedPrincipal, @Param('id') id: string) {
+    return this.chatService.deleteConversation(principal, id);
   }
 
   @Post('conversations/:id/accept')
@@ -95,3 +127,4 @@ export class ChatController {
     return this.chatService.promoteToTicket(principal, id, dto);
   }
 }
+

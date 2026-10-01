@@ -971,9 +971,12 @@ export const InboxPage: React.FC = () => {
   };
 
   return (
-    <div className={`split-pane-layout ${selectedTicket ? 'has-selected' : ''}`}>
+    <div
+      className={`split-pane-layout ${selectedTicket ? 'has-selected' : ''}`}
+      style={{ height: '100%', flex: 1, overflow: 'hidden' }}
+    >
       {/* Left Pane: Ticket Stream & Filters */}
-      <div className="split-left-pane" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="split-left-pane" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
         {/* Filters Bar */}
         <div
           style={{
@@ -1013,7 +1016,7 @@ export const InboxPage: React.FC = () => {
           {/* Status Tabs Segmented Control */}
           <div className="inbox-status-tabs-container">
             {[
-              { id: 'ALL_OPEN', label: 'All Open' },
+              { id: 'ALL_OPEN', label: 'All' },
               { id: 'UNASSIGNED', label: 'Unassigned' },
               { id: 'MY_TICKETS', label: 'My Tickets' },
               { id: 'ESCALATED', label: 'Escalated' },
@@ -1150,97 +1153,91 @@ export const InboxPage: React.FC = () => {
                   </div>
                 </div>
               ))}
-
-              {/* Gmail-Style Load More Footer */}
-              {hasMore && (
-                <div
-                  style={{
-                    padding: '16px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderTop: '1px solid var(--border-subtle)',
-                    backgroundColor: 'var(--bg-surface)',
-                  }}
-                >
-                  <button
-                    onClick={handleLoadMore}
-                    disabled={isLoadingMore}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      padding: '8px 20px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-primary)',
-                      backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-                      border: '1px solid var(--border-subtle, #e2e8f0)',
-                      borderRadius: '9999px',
-                      boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-                      cursor: isLoadingMore ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isLoadingMore) {
-                        e.currentTarget.style.backgroundColor = 'var(--primary-surface, #eff6ff)';
-                        e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
-                        e.currentTarget.style.color = 'var(--primary, #2563eb)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isLoadingMore) {
-                        e.currentTarget.style.backgroundColor = 'var(--bg-surface-elevated, #f8fafc)';
-                        e.currentTarget.style.borderColor = 'var(--border-subtle, #e2e8f0)';
-                        e.currentTarget.style.color = 'var(--text-primary)';
-                      }
-                    }}
-                  >
-                    {isLoadingMore ? (
-                      <>
-                        <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} />
-                        <span>Loading more conversations...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown size={14} style={{ opacity: 0.8 }} />
-                        <span>Load more conversations</span>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: 500,
-                            padding: '1px 6px',
-                            borderRadius: '10px',
-                            backgroundColor: 'rgba(0, 0, 0, 0.06)',
-                          }}
-                        >
-                          {tickets.length} of {totalCount}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-
-              {!hasMore && tickets.length > 0 && (
-                <div
-                  style={{
-                    padding: '14px 16px',
-                    textAlign: 'center',
-                    fontSize: '11px',
-                    color: 'var(--text-muted)',
-                    borderTop: '1px solid var(--border-subtle)',
-                    backgroundColor: 'var(--bg-surface)',
-                  }}
-                >
-                  Showing all {tickets.length} conversations
-                </div>
-              )}
             </>
           )}
         </div>
+
+        {/* Fixed Bottom Pagination & Status Bar */}
+        {!isLoading && tickets.length > 0 && (
+          <div
+            style={{
+              padding: '0 16px',
+              borderTop: '1px solid var(--border-subtle)',
+              backgroundColor: '#ffffff',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '58px',
+              boxSizing: 'border-box',
+            }}
+          >
+            {hasMore ? (
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={isLoadingMore}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '6px 18px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '9999px',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                  cursor: isLoadingMore ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isLoadingMore) {
+                    e.currentTarget.style.backgroundColor = 'var(--primary-surface, #eff6ff)';
+                    e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
+                    e.currentTarget.style.color = 'var(--primary, #2563eb)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isLoadingMore) {
+                    e.currentTarget.style.backgroundColor = 'var(--bg-surface-elevated, #f8fafc)';
+                    e.currentTarget.style.borderColor = 'var(--border-subtle, #e2e8f0)';
+                    e.currentTarget.style.color = 'var(--text-primary)';
+                  }
+                }}
+              >
+                {isLoadingMore ? (
+                  <>
+                    <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span>Loading more conversations...</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown size={14} style={{ opacity: 0.8 }} />
+                    <span>Load more conversations</span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        backgroundColor: 'rgba(0, 0, 0, 0.06)',
+                      }}
+                    >
+                      {tickets.length} of {totalCount}
+                    </span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                Showing all {tickets.length} conversations
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Right Pane: Quick Detail Workspace */}
@@ -1250,15 +1247,26 @@ export const InboxPage: React.FC = () => {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              padding: '16px 20px',
-              gap: '12px',
               boxSizing: 'border-box',
               height: '100%',
               minHeight: 0,
               overflow: 'hidden',
             }}
           >
-            {/* Top Toolbar (Single Sleek Row Dock) */}
+            {/* Top Workspace Content (Toolbar + Message Stream) */}
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: '16px 20px 12px 20px',
+                gap: '12px',
+                boxSizing: 'border-box',
+              }}
+            >
+              {/* Top Toolbar (Single Sleek Row Dock) */}
             <div
               className="ticket-header-toolbar card"
               style={{
@@ -2360,9 +2368,10 @@ export const InboxPage: React.FC = () => {
                   )}
                 </div>
               </div>
+            </div>
 
             {/* Bottom Compact Metadata Status Bar */}
-            <div className="card ticket-bottom-metadata-bar">
+            <div className="ticket-bottom-metadata-bar">
               <div className="ticket-bottom-metadata-item">
                 <span className="metadata-label">Requester:</span>
                 <strong className="metadata-value">{selectedTicket.requester?.fullName || 'Customer'}</strong>
@@ -2381,7 +2390,7 @@ export const InboxPage: React.FC = () => {
                 <span className="metadata-value metadata-channel">{selectedTicket.channel}</span>
               </div>
             </div>
-            </div>
+          </div>
         ) : (
           <div
             style={{
