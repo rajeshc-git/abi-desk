@@ -20,6 +20,9 @@ export interface PolicySubject {
   isPlatformAdmin: boolean;
   /** Set when the user's roles are restricted to a single brand. */
   brandId?: string | null;
+  /** Set when the user's access is restricted to specific software products. */
+  productIds?: readonly string[];
+  productNames?: readonly string[];
   roles?: readonly (RoleKey | string)[];
 }
 

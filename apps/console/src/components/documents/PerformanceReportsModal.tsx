@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ApiClient } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 
 export type ReportDatePreset =
@@ -81,7 +82,14 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
   isOpen,
   onClose,
 }) => {
+  const { user } = useAuth();
   const toast = useToast();
+
+  const isAdmin = Boolean(
+    user?.roles?.some((r: string) =>
+      ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(r.toUpperCase()),
+    ),
+  );
   const [activeTab, setActiveTab] = useState<'agents' | 'teams' | 'kpis'>('agents');
   const [preset, setPreset] = useState<ReportDatePreset>('this_month');
   const [startDate, setStartDate] = useState<string>('');
@@ -571,10 +579,10 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
   };
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && isAdmin) {
       fetchReportData();
     }
-  }, [isOpen, preset, startDate, endDate]);
+  }, [isOpen, isAdmin, preset, startDate, endDate]);
 
   // Sorting handlers
   const handleAgentSort = (field: keyof AgentPerformance) => {
@@ -787,7 +795,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
     toast.success(`Team Performance CSV exported (${filteredTeams.length} teams)!`);
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !isAdmin) return null;
 
   return createPortal(
     <div

@@ -33,6 +33,14 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
   const [tagsList, setTagsList] = useState<SearchTag[]>([]);
   const [categoriesList, setCategoriesList] = useState<SearchCategory[]>([]);
+  const [orgsList, setOrgsList] = useState<Array<{ id: string; name: string; domains?: string; product?: string }>>([]);
+  const [productsList, setProductsList] = useState<Array<{ id: string; name: string; description?: string }>>([]);
+  const [expandedSections, setExpandedSections] = useState<{
+    orgs?: boolean;
+    products?: boolean;
+    categories?: boolean;
+    tags?: boolean;
+  }>({});
   const [isFocused, setIsFocused] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -46,12 +54,16 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [tagsRes, categoriesRes] = await Promise.all([
-          ApiClient.get('/tags'),
-          ApiClient.get('/categories'),
+        const [tagsRes, categoriesRes, orgsRes, productsRes] = await Promise.all([
+          ApiClient.get('/tags').catch(() => []),
+          ApiClient.get('/categories').catch(() => []),
+          ApiClient.get('/organizations').catch(() => []),
+          ApiClient.get('/admin/roster/products').catch(() => []),
         ]);
         if (Array.isArray(tagsRes)) setTagsList(tagsRes);
         if (Array.isArray(categoriesRes)) setCategoriesList(categoriesRes);
+        if (Array.isArray(orgsRes)) setOrgsList(orgsRes);
+        if (Array.isArray(productsRes)) setProductsList(productsRes);
       } catch {
         // non-blocking
       }
@@ -59,8 +71,26 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     fetchData();
   }, []);
 
-  // Filter matching tags and categories based on typed query
+  // Filter matching organizations, products, tags and categories based on typed query
   const queryTrim = searchQuery.trim().toLowerCase();
+  const matchingOrganizations = queryTrim
+    ? orgsList.filter(
+      (o) =>
+        o.name.toLowerCase().includes(queryTrim) ||
+        (o.domains && o.domains.toLowerCase().includes(queryTrim)) ||
+        (o.product && o.product.toLowerCase().includes(queryTrim)),
+    )
+    : [];
+
+  const matchingProducts = queryTrim
+    ? productsList.filter(
+      (p: any) =>
+        p.name.toLowerCase().includes(queryTrim) ||
+        (p.slug && p.slug.toLowerCase().includes(queryTrim)) ||
+        (p.description && p.description.toLowerCase().includes(queryTrim)),
+    )
+    : [];
+
   const matchingTags = queryTrim
     ? tagsList.filter(
       (t) =>
@@ -81,11 +111,38 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
   const isChatPage = location.pathname.startsWith('/chat');
 
-  const hasSuggestions = !isChatPage && (matchingTags.length > 0 || matchingCategories.length > 0);
+  const hasSuggestions =
+    !isChatPage &&
+    (matchingOrganizations.length > 0 ||
+      matchingProducts.length > 0 ||
+      matchingTags.length > 0 ||
+      matchingCategories.length > 0);
+
+  const handleSelectOrganization = (org: { name: string }) => {
+    setSelectedOrganization(org.name);
+    setSelectedProduct(null);
+    setSelectedCategory(null);
+    setSelectedTag(null);
+    setSearchQuery('');
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  };
+
+  const handleSelectProduct = (prod: { name: string }) => {
+    setSelectedProduct(prod.name);
+    setSelectedOrganization(null);
+    setSelectedCategory(null);
+    setSelectedTag(null);
+    setSearchQuery('');
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  };
 
   const handleSelectTag = (tag: SearchTag) => {
     setSelectedTag(tag);
+    setSelectedProduct(null);
     setSelectedCategory(null);
+    setSelectedOrganization(null);
     setSearchQuery('');
     setShowSuggestions(false);
     inputRef.current?.focus();
@@ -93,7 +150,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
   const handleSelectCategory = (cat: SearchCategory) => {
     setSelectedCategory(cat);
+    setSelectedProduct(null);
     setSelectedTag(null);
+    setSelectedOrganization(null);
     setSearchQuery('');
     setShowSuggestions(false);
     inputRef.current?.focus();
@@ -102,7 +161,13 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       if (showSuggestions) {
-        if (matchingCategories.length > 0) {
+        if (matchingOrganizations.length > 0) {
+          e.preventDefault();
+          handleSelectOrganization(matchingOrganizations[0]);
+        } else if (matchingProducts.length > 0) {
+          e.preventDefault();
+          handleSelectProduct(matchingProducts[0]);
+        } else if (matchingCategories.length > 0) {
           e.preventDefault();
           handleSelectCategory(matchingCategories[0]);
         } else if (matchingTags.length > 0) {
@@ -435,15 +500,18 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                     '0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
                   zIndex: 1000,
                   padding: '6px',
-                  maxHeight: '280px',
+                  maxHeight: '420px',
                   overflowY: 'auto',
                 }}
               >
-                {/* Categories Header & Items */}
-                {matchingCategories.length > 0 && (
+                {/* Organizations Header & Items */}
+                {matchingOrganizations.length > 0 && (
                   <>
                     <div
                       style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                         fontSize: '10px',
                         fontWeight: 700,
                         color: 'var(--text-muted)',
@@ -452,9 +520,245 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                         letterSpacing: '0.5px',
                       }}
                     >
-                      Matching Categories
+                      <span>Matching Organizations</span>
+                      <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                        {matchingOrganizations.length}
+                      </span>
                     </div>
-                    {matchingCategories.map((cat, idx) => (
+                    {(expandedSections.orgs ? matchingOrganizations : matchingOrganizations.slice(0, 5)).map((org, idx) => (
+                      <div
+                        key={org.id || idx}
+                        onClick={() => handleSelectOrganization(org)}
+                        onMouseDown={(e) => e.preventDefault()}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '7px 10px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          transition: 'background-color 0.15s ease',
+                          marginBottom: '2px',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ fontSize: '12px', flexShrink: 0 }}>🏢</span>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>
+                            {org.name}
+                          </span>
+                          {org.domains && (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-muted)',
+                                maxWidth: '200px',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              ({org.domains})
+                            </span>
+                          )}
+                          {org.product && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                padding: '1px 5px',
+                                borderRadius: '3px',
+                                backgroundColor: 'var(--bg-surface-elevated, #f1f5f9)',
+                                color: 'var(--text-secondary, #64748b)',
+                                fontWeight: 500,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {org.product}
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            padding: '1px 5px',
+                            borderRadius: '3px',
+                            backgroundColor: '#ecfdf5',
+                            color: '#047857',
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          ORG
+                        </span>
+                      </div>
+                    ))}
+                    {matchingOrganizations.length > 5 && (
+                      <div
+                        onClick={() => setExpandedSections((prev) => ({ ...prev, orgs: !prev.orgs }))}
+                        onMouseDown={(e) => e.preventDefault()}
+                        style={{
+                          padding: '5px 10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--primary, #2563eb)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          borderRadius: '4px',
+                          marginBottom: '6px',
+                          userSelect: 'none',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <span>
+                          {expandedSections.orgs
+                            ? '▲ Show fewer organizations'
+                            : `+ Show ${matchingOrganizations.length - 5} more organizations...`}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Products Header & Items */}
+                {matchingProducts.length > 0 && (
+                  <>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        color: 'var(--text-muted)',
+                        textTransform: 'uppercase',
+                        padding: '4px 8px',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      <span>Matching Products</span>
+                      <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                        {matchingProducts.length}
+                      </span>
+                    </div>
+                    {(expandedSections.products ? matchingProducts : matchingProducts.slice(0, 5)).map((prod, idx) => (
+                      <div
+                        key={prod.id || idx}
+                        onClick={() => handleSelectProduct(prod)}
+                        onMouseDown={(e) => e.preventDefault()}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '7px 10px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          transition: 'background-color 0.15s ease',
+                          marginBottom: '2px',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ fontSize: '12px', flexShrink: 0 }}>📦</span>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>
+                            {prod.name}
+                          </span>
+                          {prod.description && (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-muted)',
+                                maxWidth: '240px',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              ({prod.description})
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            padding: '1px 5px',
+                            borderRadius: '3px',
+                            backgroundColor: '#faf5ff',
+                            color: '#9333ea',
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          PRODUCT
+                        </span>
+                      </div>
+                    ))}
+                    {matchingProducts.length > 5 && (
+                      <div
+                        onClick={() => setExpandedSections((prev) => ({ ...prev, products: !prev.products }))}
+                        onMouseDown={(e) => e.preventDefault()}
+                        style={{
+                          padding: '5px 10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--primary, #2563eb)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          borderRadius: '4px',
+                          marginBottom: '6px',
+                          userSelect: 'none',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <span>
+                          {expandedSections.products
+                            ? '▲ Show fewer products'
+                            : `+ Show ${matchingProducts.length - 5} more products...`}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Categories Header & Items */}
+                {matchingCategories.length > 0 && (
+                  <>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        color: 'var(--text-muted)',
+                        textTransform: 'uppercase',
+                        padding: '4px 8px',
+                        letterSpacing: '0.5px',
+                      }}
+                    >
+                      <span>Matching Categories</span>
+                      <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                        {matchingCategories.length}
+                      </span>
+                    </div>
+                    {(expandedSections.categories ? matchingCategories : matchingCategories.slice(0, 5)).map((cat, idx) => (
                       <div
                         key={cat.id || idx}
                         onClick={() => handleSelectCategory(cat)}
@@ -524,6 +828,33 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                         </span>
                       </div>
                     ))}
+                    {matchingCategories.length > 5 && (
+                      <div
+                        onClick={() => setExpandedSections((prev) => ({ ...prev, categories: !prev.categories }))}
+                        onMouseDown={(e) => e.preventDefault()}
+                        style={{
+                          padding: '5px 10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--primary, #2563eb)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          borderRadius: '4px',
+                          marginBottom: '6px',
+                          userSelect: 'none',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <span>
+                          {expandedSections.categories
+                            ? '▲ Show fewer categories'
+                            : `+ Show ${matchingCategories.length - 5} more categories...`}
+                        </span>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -532,6 +863,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                   <>
                     <div
                       style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                         fontSize: '10px',
                         fontWeight: 700,
                         color: 'var(--text-muted)',
@@ -540,9 +874,12 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                         letterSpacing: '0.5px',
                       }}
                     >
-                      Matching Tags
+                      <span>Matching Tags</span>
+                      <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                        {matchingTags.length}
+                      </span>
                     </div>
-                    {matchingTags.map((tag, idx) => (
+                    {(expandedSections.tags ? matchingTags : matchingTags.slice(0, 5)).map((tag, idx) => (
                       <div
                         key={tag.id || idx}
                         onClick={() => handleSelectTag(tag)}
@@ -611,6 +948,33 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                         </span>
                       </div>
                     ))}
+                    {matchingTags.length > 5 && (
+                      <div
+                        onClick={() => setExpandedSections((prev) => ({ ...prev, tags: !prev.tags }))}
+                        onMouseDown={(e) => e.preventDefault()}
+                        style={{
+                          padding: '5px 10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--primary, #2563eb)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          borderRadius: '4px',
+                          marginTop: '2px',
+                          userSelect: 'none',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <span>
+                          {expandedSections.tags
+                            ? '▲ Show fewer tags'
+                            : `+ Show ${matchingTags.length - 5} more tags...`}
+                        </span>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

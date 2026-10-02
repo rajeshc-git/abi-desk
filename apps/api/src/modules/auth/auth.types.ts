@@ -53,6 +53,10 @@ export interface AuthenticatedPrincipal {
   /** Effective permission keys after tenant overrides. */
   permissions: ReadonlySet<string>;
   brandId?: string;
+  /** Assigned software product IDs, if restricted. */
+  productIds?: string[];
+  /** Assigned software product names (e.g. 'Claimbook'), for fast ticket filtering. */
+  productNames?: string[];
   /** Set when authenticated with an API key rather than a session. */
   apiKeyId?: string;
   isPlatformAdmin: boolean;

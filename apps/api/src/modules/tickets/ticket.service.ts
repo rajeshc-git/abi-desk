@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { type Prisma, type SupportTier, type TicketEventType } from '@abi-desk/db';
+import { type Prisma, RoleKey, type SupportTier, type TicketEventType } from '@abi-desk/db';
 import { canEditTicket, canReadInternalNotes, resolveTicketScope } from '@abi-desk/rbac';
 import { type Logger } from 'pino';
 import { AuditService } from '../../common/audit/audit.service';
@@ -155,9 +155,10 @@ export class TicketService {
         where: { id: requesterId },
         select: { email: true },
       });
+      const autoMappings = await this.detectAutoDomainMappings(tx, tenantId, requesterUser?.email || '');
       const autoOrg =
-        dto.organization || this.detectOrganizationFromEmail(requesterUser?.email || '');
-      const autoProd = dto.product || null;
+        dto.organization || autoMappings.organization || this.detectOrganizationFromEmail(requesterUser?.email || '');
+      const autoProd = dto.product || autoMappings.product || null;
 
       const mergedCustomFields: Record<string, any> = {
         ...(dto.customFields && typeof dto.customFields === 'object' ? dto.customFields : {}),
@@ -171,6 +172,7 @@ export class TicketService {
         brandId,
         dto.queueId,
         dto.assigneeId,
+        autoProd,
       );
 
       const created = await tx.ticket.create({
@@ -229,8 +231,13 @@ export class TicketService {
         });
       }
 
-      if (dto.tags?.length) {
-        await this.attachTags(tx, tenantId, created.id, dto.tags, principal.userId);
+      const tagIdsToAttach = [
+        ...(dto.tags || []),
+        ...autoMappings.matchingTags.map((t) => t.id),
+      ];
+      if (tagIdsToAttach.length > 0) {
+        const uniqueTags = [...new Set(tagIdsToAttach)];
+        await this.attachTags(tx, tenantId, created.id, uniqueTags, principal.userId);
       }
 
       if (dto.diagnostics && typeof dto.diagnostics === 'object') {
@@ -772,6 +779,24 @@ export class TicketService {
         throw AppException.permissionDenied(
           'Only authorized support, engineering, DevOps, and admin roles may adjust ticket priority.',
           { ticketId: id, currentPriority: existing.priority, requestedPriority: dto.priority, roles: principal.roles },
+        );
+      }
+    }
+
+    const nextProdCheck =
+      dto.product !== undefined
+        ? dto.product
+        : (dto.customFields as any)?.product !== undefined
+          ? (dto.customFields as any).product
+          : undefined;
+
+    const isTenantAdmin = principal.roles.includes('TENANT_ADMIN') || principal.isPlatformAdmin;
+    if (!isTenantAdmin && nextProdCheck !== undefined && nextProdCheck !== null && nextProdCheck !== '') {
+      const allowedProds = (principal.productNames || []).map((p) => p.toLowerCase());
+      if (allowedProds.length > 0 && !allowedProds.includes(nextProdCheck.toLowerCase())) {
+        throw AppException.permissionDenied(
+          `You cannot reassign this ticket to "${nextProdCheck}". You are only authorized for: ${(principal.productNames || []).join(', ')}.`,
+          { requestedProduct: nextProdCheck, allowedProducts: principal.productNames },
         );
       }
     }
@@ -2301,6 +2326,77 @@ export class TicketService {
     }
   }
 
+  /** Automatically matches requester email or email domain against organization directory and tag auto-rules and returns detected mappings. */
+  private async detectAutoDomainMappings(
+    tx: TenantTransaction,
+    tenantId: string,
+    requesterEmail: string,
+  ): Promise<{ organization?: string; product?: string; matchingTags: Array<{ id: string; name: string }> }> {
+    try {
+      if (!requesterEmail || !requesterEmail.includes('@')) return { matchingTags: [] };
+
+      const cleanEmail = requesterEmail.toLowerCase().trim();
+      const emailDomain = cleanEmail.split('@')[1]?.toLowerCase().trim();
+      if (!emailDomain) return { matchingTags: [] };
+
+      let organization: string | undefined;
+      let product: string | undefined;
+      const matchingTags: Array<{ id: string; name: string }> = [];
+
+      // 1. Check registered Client Organizations with associated sender email domains
+      const allOrgs = await tx.organization.findMany({
+        where: { tenantId, domains: { not: null } },
+      });
+
+      for (const org of allOrgs) {
+        if (!org.domains) continue;
+        const domainList = org.domains
+          .split(/[\s,;]+/)
+          .map((d) => d.toLowerCase().trim())
+          .filter(Boolean);
+
+        const isMatch = domainList.some((rule) => {
+          const cleanRule = rule.replace(/^@/, '');
+          return rule === cleanEmail || cleanRule === cleanEmail || cleanRule === emailDomain;
+        });
+
+        if (isMatch) {
+          if (!organization) organization = org.name;
+          if (org.product && !product) product = org.product;
+          break;
+        }
+      }
+
+      // 2. Check Tag Auto-Rules (with associated organization / product mappings)
+      const allTags = await tx.tag.findMany({
+        where: { tenantId, domains: { not: null } },
+      });
+
+      for (const tag of allTags) {
+        if (!tag.domains) continue;
+        const ruleList = tag.domains
+          .split(/[\s,;]+/)
+          .map((d) => d.toLowerCase().trim())
+          .filter(Boolean);
+
+        const isMatch = ruleList.some((rule) => {
+          const cleanRule = rule.replace(/^@/, '');
+          return rule === cleanEmail || cleanRule === cleanEmail || cleanRule === emailDomain;
+        });
+
+        if (isMatch) {
+          matchingTags.push({ id: tag.id, name: tag.name });
+          if (tag.organization && !organization) organization = tag.organization;
+          if (tag.product && !product) product = tag.product;
+        }
+      }
+
+      return { organization, product, matchingTags };
+    } catch {
+      return { matchingTags: [] };
+    }
+  }
+
   /** Automatically matches requester email or email domain against tag auto-rules and tags ticket. */
   private async applyAutoDomainTags(
     tx: TenantTransaction,
@@ -2319,72 +2415,57 @@ export class TicketService {
       const emailDomain = requesterEmail.split('@')[1]?.toLowerCase().trim();
       if (!emailDomain) return;
 
-      const allTags = await tx.tag.findMany({
-        where: { tenantId, domains: { not: null } },
-      });
+      const autoMappings = await this.detectAutoDomainMappings(tx, tenantId, requesterEmail);
 
-      for (const tag of allTags) {
-        if (!tag.domains) continue;
-        const ruleList = tag.domains
-          .split(/[\s,;]+/)
-          .map((d) => d.toLowerCase().trim())
-          .filter(Boolean);
-
-        // Matches exact full email (e.g. "vip.client@gmail.com") OR domain (e.g. "company.com" or "@company.com")
-        const isMatch = ruleList.some((rule) => {
-          const cleanRule = rule.replace(/^@/, '');
-          return rule === requesterEmail || cleanRule === requesterEmail || cleanRule === emailDomain;
+      // Link matched tags
+      for (const tag of autoMappings.matchingTags) {
+        const existing = await tx.ticketTag.findFirst({
+          where: { ticketId, tagId: tag.id },
+          select: { ticketId: true },
         });
-
-        if (isMatch) {
-          const existing = await tx.ticketTag.findFirst({
-            where: { ticketId, tagId: tag.id },
-            select: { ticketId: true },
+        if (!existing) {
+          await tx.ticketTag.create({
+            data: { tenantId, ticketId, tagId: tag.id },
           });
-          if (!existing) {
-            await tx.ticketTag.create({
-              data: { tenantId, ticketId, tagId: tag.id },
-            });
-            await tx.tag.update({
-              where: { id: tag.id },
-              data: { usageCount: { increment: 1 } },
-            });
-            await this.recordEvent(tx, {
-              tenantId,
-              ticketId,
-              type: 'TAG_ADDED',
-              toValue: tag.name,
-              metadata: { autoTagRule: requesterEmail },
-            });
-          }
+          await tx.tag.update({
+            where: { id: tag.id },
+            data: { usageCount: { increment: 1 } },
+          });
+          await this.recordEvent(tx, {
+            tenantId,
+            ticketId,
+            type: 'TAG_ADDED',
+            toValue: tag.name,
+            metadata: { autoTagRule: requesterEmail },
+          });
+        }
+      }
 
-          // Automatically assign mapped organization and/or product if configured on this tag
-          if (tag.organization || tag.product) {
-            const ticketRecord = await tx.ticket.findUnique({
-              where: { id: ticketId },
-              select: { customFields: true },
-            });
-            const currentFields = (ticketRecord?.customFields && typeof ticketRecord.customFields === 'object'
-              ? { ...(ticketRecord.customFields as Record<string, any>) }
-              : {}) as Record<string, any>;
+      // Ensure ticket has auto-mapped organization and/or product in customFields
+      if (autoMappings.organization || autoMappings.product) {
+        const ticketRecord = await tx.ticket.findUnique({
+          where: { id: ticketId },
+          select: { customFields: true },
+        });
+        const currentFields = (ticketRecord?.customFields && typeof ticketRecord.customFields === 'object'
+          ? { ...(ticketRecord.customFields as Record<string, any>) }
+          : {}) as Record<string, any>;
 
-            let fieldsUpdated = false;
-            if (tag.organization && !currentFields.organization) {
-              currentFields.organization = tag.organization;
-              fieldsUpdated = true;
-            }
-            if (tag.product && !currentFields.product) {
-              currentFields.product = tag.product;
-              fieldsUpdated = true;
-            }
+        let fieldsUpdated = false;
+        if (autoMappings.organization && !currentFields.organization) {
+          currentFields.organization = autoMappings.organization;
+          fieldsUpdated = true;
+        }
+        if (autoMappings.product && !currentFields.product) {
+          currentFields.product = autoMappings.product;
+          fieldsUpdated = true;
+        }
 
-            if (fieldsUpdated) {
-              await tx.ticket.update({
-                where: { id: ticketId },
-                data: { customFields: currentFields as Prisma.InputJsonValue },
-              });
-            }
-          }
+        if (fieldsUpdated) {
+          await tx.ticket.update({
+            where: { id: ticketId },
+            data: { customFields: currentFields as Prisma.InputJsonValue },
+          });
         }
       }
     } catch (err) {
@@ -2951,9 +3032,18 @@ export class TicketService {
       const sequence = await this.prisma.nextTicketSequence(tx, tenantId);
       const number = `${tenant.ticketPrefix}-${sequence}`;
 
-      const autoOrg = this.detectOrganizationFromEmail(senderEmail);
+      const autoMappings = await this.detectAutoDomainMappings(tx, tenantId, senderEmail);
+      const autoOrg = autoMappings.organization || this.detectOrganizationFromEmail(senderEmail);
+      const autoProd = autoMappings.product || null;
 
-      const routing = await this.resolveQueueAndAutoAssign(tx, tenantId, brandId);
+      const routing = await this.resolveQueueAndAutoAssign(
+        tx,
+        tenantId,
+        brandId,
+        null,
+        null,
+        autoProd,
+      );
 
       const created = await tx.ticket.create({
         data: {
@@ -2973,7 +3063,10 @@ export class TicketService {
           status: routing.status,
           tier: routing.tier,
           lastActivityAt: new Date(),
-          customFields: autoOrg ? { organization: autoOrg } : {},
+          customFields: {
+            ...(autoOrg ? { organization: autoOrg } : {}),
+            ...(autoProd ? { product: autoProd } : {}),
+          },
         },
         select: {
           id: true,
@@ -3118,6 +3211,7 @@ export class TicketService {
     brandId: string | null,
     requestedQueueId?: string | null,
     requestedAssigneeId?: string | null,
+    productName?: string | null,
   ): Promise<{
     queueId: string | null;
     teamId: string | null;
@@ -3126,13 +3220,38 @@ export class TicketService {
     status: 'NEW' | 'OPEN';
     routingStrategy?: string;
   }> {
-    let resolvedQueue: { id: string; teamId: string | null; tier: SupportTier; routing: string } | null = null;
+    let resolvedQueue: { id: string; teamId: string | null; tier: SupportTier; routing: string; product: { name: string } | null } | null = null;
 
     if (requestedQueueId) {
       resolvedQueue = await tx.queue.findFirst({
         where: { id: requestedQueueId, tenantId, isActive: true },
-        select: { id: true, teamId: true, tier: true, routing: true },
+        select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
       });
+    } else if (productName) {
+      resolvedQueue = await tx.queue.findFirst({
+        where: {
+          tenantId,
+          isActive: true,
+          isDefault: true,
+          product: { name: { equals: productName, mode: 'insensitive' } },
+          ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
+        },
+        orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { createdAt: 'desc' }],
+        select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
+      });
+
+      if (!resolvedQueue) {
+        resolvedQueue = await tx.queue.findFirst({
+          where: {
+            tenantId,
+            isActive: true,
+            isDefault: true,
+            ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
+          },
+          orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { isDefault: 'desc' }],
+          select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
+        });
+      }
     } else {
       resolvedQueue = await tx.queue.findFirst({
         where: {
@@ -3142,7 +3261,7 @@ export class TicketService {
           ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
         },
         orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { isDefault: 'desc' }],
-        select: { id: true, teamId: true, tier: true, routing: true },
+        select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
       });
     }
 
@@ -3150,12 +3269,13 @@ export class TicketService {
     const teamId = resolvedQueue?.teamId ?? null;
     const tier: SupportTier = resolvedQueue?.tier ?? 'L1';
     let assigneeId: string | null = requestedAssigneeId ?? null;
+    const effectiveProductName = productName || resolvedQueue?.product?.name || null;
 
     if (!assigneeId && resolvedQueue) {
       if (resolvedQueue.routing === 'ROUND_ROBIN') {
-        assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId, tier);
+        assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId, tier, effectiveProductName);
       } else if (resolvedQueue.routing === 'LEAST_LOADED') {
-        assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId, tier);
+        assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId, tier, effectiveProductName);
       }
     }
 
@@ -3172,7 +3292,7 @@ export class TicketService {
   }
 
   /**
-   * Picks the next agent in sequential round-robin order for the queue/team/tier.
+   * Picks the next agent in sequential round-robin order for the queue/product/tier.
    */
   private async selectRoundRobinAgent(
     tx: TenantTransaction,
@@ -3180,23 +3300,31 @@ export class TicketService {
     queueId: string | null,
     teamId: string | null,
     tier: SupportTier | null = null,
+    productName?: string | null,
   ): Promise<string | null> {
-    const tierFilter = tier
-      ? {
-          OR: [
-            { roles: { some: { role: { tier } } } },
-            { teamMembers: { some: { team: { tier } } } },
-          ],
-        }
-      : {};
+    const targetTier = tier || 'L1';
+    const andFilters: Prisma.UserWhereInput[] = [
+      { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
+    ];
 
-    const candidateFilter = {
-      tenantId,
-      kind: 'STAFF' as const,
-      status: 'ACTIVE' as const,
-      deletedAt: null,
-      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
-    };
+    if (productName) {
+      andFilters.push({
+        products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } },
+      });
+    }
+
+    if (teamId) {
+      andFilters.push({ teamMembers: { some: { teamId } } });
+    } else {
+      andFilters.push({
+        OR: [
+          { roles: { some: { role: { tier: targetTier } } } },
+          { teamMembers: { some: { team: { tier: targetTier } } } },
+        ],
+      });
+    }
+
+    const candidateFilter: Prisma.UserWhereInput = { AND: andFilters };
 
     // 1. Primary: Active staff who are currently available (isAvailable: true)
     let candidates = await tx.user.findMany({
@@ -3212,6 +3340,26 @@ export class TicketService {
     if (candidates.length === 0) {
       candidates = await tx.user.findMany({
         where: candidateFilter,
+        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
+      });
+    }
+
+    // 3. Fallback without strict product filter if no agents found for product
+    if (candidates.length === 0 && productName) {
+      const fallbackFilter: Prisma.UserWhereInput = {
+        AND: [
+          { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
+          {
+            OR: [
+              { roles: { some: { role: { tier: targetTier } } } },
+              { teamMembers: { some: { team: { tier: targetTier } } } },
+            ],
+          },
+        ],
+      };
+      candidates = await tx.user.findMany({
+        where: fallbackFilter,
         select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
       });
@@ -3280,23 +3428,31 @@ export class TicketService {
     tenantId: string,
     teamId: string | null,
     tier: SupportTier | null = null,
+    productName?: string | null,
   ): Promise<string | null> {
-    const tierFilter = tier
-      ? {
-          OR: [
-            { roles: { some: { role: { tier } } } },
-            { teamMembers: { some: { team: { tier } } } },
-          ],
-        }
-      : {};
+    const targetTier = tier || 'L1';
+    const andFilters: Prisma.UserWhereInput[] = [
+      { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
+    ];
 
-    const candidateFilter = {
-      tenantId,
-      kind: 'STAFF' as const,
-      status: 'ACTIVE' as const,
-      deletedAt: null,
-      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
-    };
+    if (productName) {
+      andFilters.push({
+        products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } },
+      });
+    }
+
+    if (teamId) {
+      andFilters.push({ teamMembers: { some: { teamId } } });
+    } else {
+      andFilters.push({
+        OR: [
+          { roles: { some: { role: { tier: targetTier } } } },
+          { teamMembers: { some: { team: { tier: targetTier } } } },
+        ],
+      });
+    }
+
+    const candidateFilter: Prisma.UserWhereInput = { AND: andFilters };
 
     // 1. Primary: Active staff who are currently available (isAvailable: true)
     let candidates = await tx.user.findMany({
@@ -3311,6 +3467,26 @@ export class TicketService {
     if (candidates.length === 0) {
       candidates = await tx.user.findMany({
         where: candidateFilter,
+        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
+        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
+      });
+    }
+
+    // 3. Fallback without strict product filter if no agents found for product
+    if (candidates.length === 0 && productName) {
+      const fallbackFilter: Prisma.UserWhereInput = {
+        AND: [
+          { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
+          {
+            OR: [
+              { roles: { some: { role: { tier: targetTier } } } },
+              { teamMembers: { some: { team: { tier: targetTier } } } },
+            ],
+          },
+        ],
+      };
+      candidates = await tx.user.findMany({
+        where: fallbackFilter,
         select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
         orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
       });

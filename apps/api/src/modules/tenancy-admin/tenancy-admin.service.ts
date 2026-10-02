@@ -8,6 +8,7 @@ import { AppConfig } from '../../config/app-config';
 import { MailService } from '../../infra/mail/mail.service';
 import { TenantContextService } from '../../infra/tenancy/tenant-context.service';
 import { TenantPrismaService } from '../../infra/tenancy/tenant-prisma.service';
+import { PermissionResolverService } from '../authorization/permission-resolver.service';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { invitationEmail } from '../../infra/mail/mail.templates';
 import {
@@ -33,6 +34,7 @@ export class TenancyAdminService {
     private readonly tenantContext: TenantContextService,
     private readonly config: AppConfig,
     private readonly mail: MailService,
+    private readonly permissions: PermissionResolverService,
     @Inject(PINO_LOGGER) rootLogger: Logger,
   ) {
     this.logger = rootLogger.child({ context: 'TenancyAdminService' });
@@ -423,20 +425,28 @@ export class TenancyAdminService {
         slug = `${slug}-${Math.floor(1000 + Math.random() * 9000)}`;
       }
 
+      if (dto.isDefault && dto.productId) {
+        await tx.queue.updateMany({
+          where: { tenantId, productId: dto.productId },
+          data: { isDefault: false },
+        });
+      }
+
       return tx.queue.create({
         data: {
           tenantId,
           name: dto.name,
           slug,
           description: dto.description ?? null,
-          tier: dto.tier,
+          tier: dto.tier || 'L1',
           brandId: dto.brandId ?? null,
           teamId: dto.teamId ?? null,
+          productId: dto.productId ?? null,
           routing: dto.routing,
           isDefault: dto.isDefault,
           isActive: dto.isActive,
         },
-        include: { team: true, brand: true },
+        include: { team: true, brand: true, product: true },
       });
     });
   }
@@ -445,7 +455,7 @@ export class TenancyAdminService {
     const tenantId = this.tenantContext.requireTenantId();
     return this.db.client.queue.findMany({
       where: { tenantId },
-      include: { team: true, brand: true },
+      include: { team: true, brand: true, product: true },
       orderBy: [{ isDefault: 'desc' }, { tier: 'asc' }, { name: 'asc' }],
     });
   }
@@ -462,9 +472,10 @@ export class TenancyAdminService {
         throw AppException.notFound('Queue not found.');
       }
 
-      if (dto.isDefault) {
+      const targetProductId = dto.productId !== undefined ? dto.productId : existing.productId;
+      if (dto.isDefault && targetProductId) {
         await tx.queue.updateMany({
-          where: { tenantId, id: { not: queueId } },
+          where: { tenantId, id: { not: queueId }, productId: targetProductId },
           data: { isDefault: false },
         });
       }
@@ -478,11 +489,12 @@ export class TenancyAdminService {
           ...(dto.tier !== undefined ? { tier: dto.tier } : {}),
           ...(dto.brandId !== undefined ? { brandId: dto.brandId } : {}),
           ...(dto.teamId !== undefined ? { teamId: dto.teamId } : {}),
+          ...(dto.productId !== undefined ? { productId: dto.productId } : {}),
           ...(dto.routing !== undefined ? { routing: dto.routing } : {}),
           ...(dto.isDefault !== undefined ? { isDefault: dto.isDefault } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         },
-        include: { team: true, brand: true },
+        include: { team: true, brand: true, product: true },
       });
     });
   }
@@ -540,6 +552,11 @@ export class TenancyAdminService {
             brand: { select: { id: true, name: true } },
           },
         },
+        products: {
+          include: {
+            product: { select: { id: true, name: true, slug: true, isActive: true } },
+          },
+        },
         teamMembers: {
           include: { team: { select: { id: true, name: true, tier: true } } },
         },
@@ -555,7 +572,7 @@ export class TenancyAdminService {
   ) {
     const tenantId = this.tenantContext.requireTenantId();
 
-    return this.db.run(async (tx) => {
+    const result = await this.db.run(async (tx) => {
       const user = await tx.user.findFirst({
         where: { id: userId, tenantId, deletedAt: null },
       });
@@ -580,6 +597,13 @@ export class TenancyAdminService {
       }
 
       if (dto.roleId) {
+        const targetRole = await tx.role.findUnique({ where: { id: dto.roleId } });
+        const isAdmin = targetRole?.key === 'TENANT_ADMIN' || targetRole?.key === 'PLATFORM_ADMIN';
+        const tenantProductCount = await tx.product.count({ where: { tenantId } });
+        if (!isAdmin && tenantProductCount > 0 && dto.productIds !== undefined && dto.productIds.length === 0) {
+          throw AppException.badRequest('Support agents must be assigned to at least 1 software product.');
+        }
+
         await tx.userRole.deleteMany({ where: { userId, tenantId } });
         await tx.userRole.create({
           data: {
@@ -592,11 +616,39 @@ export class TenancyAdminService {
         });
       }
 
+      if (dto.productIds !== undefined) {
+        await tx.userProduct.deleteMany({ where: { userId, tenantId } });
+        if (dto.productIds.length > 0) {
+          const existingProds = await tx.product.findMany({
+            where: { id: { in: dto.productIds }, tenantId },
+            select: { id: true },
+          });
+          const validProdIds = new Set(existingProds.map((p) => p.id));
+          for (const pid of dto.productIds) {
+            if (validProdIds.has(pid)) {
+              await tx.userProduct.create({
+                data: {
+                  tenantId,
+                  userId,
+                  productId: pid,
+                },
+              });
+            }
+          }
+        }
+      }
+
       return tx.user.findUnique({
         where: { id: userId },
-        include: { roles: { include: { role: true } } },
+        include: {
+          roles: { include: { role: true } },
+          products: { include: { product: true } },
+        },
       });
     });
+
+    await this.permissions.invalidateUser(userId, tenantId);
+    return result;
   }
 
   async deleteUser(principal: AuthenticatedPrincipal, userId: string) {
@@ -614,7 +666,7 @@ export class TenancyAdminService {
       throw AppException.notFound('User not found.');
     }
 
-    return this.db.run(async (tx) => {
+    const result = await this.db.run(async (tx) => {
       // 1. Delete tickets requested by this user (cascades ticket comments, events, SLA clocks)
       await tx.ticket.deleteMany({
         where: { tenantId, requesterId: userId },
@@ -641,8 +693,9 @@ export class TenancyAdminService {
       await tx.notification.deleteMany({ where: { userId } });
       await tx.notificationPreference.deleteMany({ where: { userId } });
 
-      // 6. Delete user roles & team memberships
+      // 6. Delete user roles, team memberships & product assignments
       await tx.userRole.deleteMany({ where: { userId, tenantId } });
+      await tx.userProduct.deleteMany({ where: { userId, tenantId } });
       await tx.teamMember.deleteMany({ where: { userId, tenantId } });
 
       // 7. Delete user identities & sessions
@@ -657,6 +710,9 @@ export class TenancyAdminService {
 
       return { success: true, message: `User '${user.fullName || user.email}' permanently deleted.` };
     });
+
+    await this.permissions.invalidateUser(userId, tenantId);
+    return result;
   }
 
   async inviteUser(principal: AuthenticatedPrincipal, dto: InviteUserDto) {
@@ -667,10 +723,17 @@ export class TenancyAdminService {
         where: { email: dto.email.toLowerCase(), tenantId, deletedAt: null },
       });
 
-      if (existingUser) {
+      if (existingUser && existingUser.kind === 'STAFF') {
         throw AppException.conflict(
           `A user with email '${dto.email}' already exists in this tenant.`,
         );
+      }
+
+      const targetRole = await tx.role.findUnique({ where: { id: dto.roleId } });
+      const isAdmin = targetRole?.key === 'TENANT_ADMIN' || targetRole?.key === 'PLATFORM_ADMIN';
+      const tenantProductCount = await tx.product.count({ where: { tenantId } });
+      if (!isAdmin && tenantProductCount > 0 && (!dto.productIds || dto.productIds.length === 0)) {
+        throw AppException.badRequest('Support agents must be assigned to at least 1 software product.');
       }
 
       // Revoke any previous pending invitations for this email to satisfy unique constraints
@@ -697,6 +760,7 @@ export class TenancyAdminService {
           brandId: dto.brandId ?? null,
           email: dto.email.toLowerCase(),
           roleId: dto.roleId,
+          productIds: dto.productIds ?? [],
           invitedById: principal.userId,
           tokenHash,
           message: dto.message ?? null,

@@ -126,6 +126,13 @@ export const TicketDetailPage: React.FC = () => {
       ),
     );
 
+  const isUserTenantAdmin = Boolean(
+    user?.roles?.some((r: string) => {
+      const u = r.toUpperCase();
+      return ['TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'ADMIN'].includes(u) || u.includes('TENANT ADMIN');
+    }),
+  );
+
   useEffect(() => {
     if (id) {
       loadTicketDetails(id);
@@ -642,6 +649,7 @@ export const TicketDetailPage: React.FC = () => {
               currentAssignee={ticket.assignee}
               currentTeam={ticket.team}
               currentTier={ticket.tier}
+              ticketProduct={ticket.customFields?.product || ticket.product || null}
               align="right"
               onAssigned={(res) => {
                 if (res.assignee !== undefined) {
@@ -662,7 +670,7 @@ export const TicketDetailPage: React.FC = () => {
               }}
             />
 
-            {(!ticket.assignee || ticket.assignee.id !== user?.id) && (
+            {!isUserTenantAdmin && (!ticket.assignee || ticket.assignee.id !== user?.id) && (
               <button
                 onClick={handleAssignToMe}
                 className="ticket-action-pill"
@@ -1146,6 +1154,7 @@ export const TicketDetailPage: React.FC = () => {
                 currentAssignee={ticket.assignee}
                 currentTeam={ticket.team}
                 currentTier={ticket.tier}
+                ticketProduct={ticket.customFields?.product || ticket.product || null}
                 align="left"
                 onAssigned={(res) => {
                   if (res.assignee !== undefined) {
@@ -1165,7 +1174,7 @@ export const TicketDetailPage: React.FC = () => {
                   loadTicketDetails(ticket.id);
                 }}
               />
-              {(!ticket.assignee || ticket.assignee.id !== user?.id) && (
+              {!isUserTenantAdmin && (!ticket.assignee || ticket.assignee.id !== user?.id) && (
                 <button
                   onClick={handleAssignToMe}
                   className="ticket-action-pill"

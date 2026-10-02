@@ -606,6 +606,8 @@ export class AuthService {
           roles: authority.roles,
           permissions: authority.permissions,
           brandId: authority.brandId,
+          productIds: authority.productIds,
+          productNames: authority.productNames,
           isPlatformAdmin: authority.isPlatformAdmin,
         }),
         csrfToken: this.tokens.createCsrfToken(),
@@ -1198,6 +1200,7 @@ export class AuthService {
     tenantName: string;
     brandName: string | null;
     roleName: string;
+    productNames: string[];
     expiresAt: Date;
     requiresPassword: boolean;
   }> {
@@ -1212,6 +1215,7 @@ export class AuthService {
           acceptedAt: true,
           revokedAt: true,
           tenantId: true,
+          productIds: true,
           tenant: { select: { name: true } },
           brand: { select: { name: true } },
           role: { select: { name: true } },
@@ -1234,11 +1238,24 @@ export class AuthService {
       }),
     );
 
+    let productNames: string[] = [];
+    const pIds = Array.isArray(invitation.productIds) ? (invitation.productIds as string[]) : [];
+    if (pIds.length > 0) {
+      const prods = await this.contexts.runWithBypass('authentication', {}, () =>
+        this.prisma.client.product.findMany({
+          where: { id: { in: pIds } },
+          select: { name: true },
+        }),
+      );
+      productNames = prods.map((p) => p.name);
+    }
+
     return {
       email: invitation.email,
       tenantName: invitation.tenant.name,
       brandName: invitation.brand?.name ?? null,
       roleName: invitation.role.name,
+      productNames,
       expiresAt: invitation.expiresAt,
       requiresPassword: !existing?.passwordHash,
     };
@@ -1263,6 +1280,7 @@ export class AuthService {
             tenantId: true,
             brandId: true,
             roleId: true,
+            productIds: true,
             expiresAt: true,
             acceptedAt: true,
             revokedAt: true,
@@ -1307,6 +1325,7 @@ export class AuthService {
           ? await tx.user.update({
               where: { id: existing.id },
               data: {
+                kind: 'STAFF',
                 status: 'ACTIVE',
                 emailVerifiedAt: existing.emailVerifiedAt ?? new Date(),
                 lastLoginAt: new Date(),
@@ -1330,6 +1349,16 @@ export class AuthService {
               select: USER_SELECT,
             });
 
+        // Clean up previous customer role if upgrading from CUSTOMER to STAFF
+        if (existing && existing.kind === 'CUSTOMER') {
+          await tx.userRole.deleteMany({
+            where: {
+              userId: account.id,
+              role: { key: 'GUEST_CUSTOMER' },
+            },
+          });
+        }
+
         // Idempotent: a re-run must not create a duplicate assignment. The
         // uniqueness guarantee is a partial index, so Prisma cannot target it.
         const assigned = await tx.userRole.findFirst({
@@ -1346,6 +1375,31 @@ export class AuthService {
               tenantId: invitation.tenantId,
             },
           });
+        }
+
+        // Map assigned products from invitation (validating that product still exists)
+        const assignedProductIds: string[] = Array.isArray(invitation.productIds)
+          ? (invitation.productIds as string[])
+          : [];
+        if (assignedProductIds.length > 0) {
+          const existingProds = await tx.product.findMany({
+            where: { id: { in: assignedProductIds }, tenantId: invitation.tenantId },
+            select: { id: true },
+          });
+          const validProdIds = new Set(existingProds.map((p) => p.id));
+          for (const pid of assignedProductIds) {
+            if (validProdIds.has(pid)) {
+              await tx.userProduct.upsert({
+                where: { userId_productId: { userId: account.id, productId: pid } },
+                create: {
+                  tenantId: invitation.tenantId,
+                  userId: account.id,
+                  productId: pid,
+                },
+                update: {},
+              });
+            }
+          }
         }
 
         await tx.invitation.update({
@@ -1447,6 +1501,8 @@ export class AuthService {
         roles: authority.roles,
         permissions: authority.permissions,
         brandId: authority.brandId,
+        productIds: authority.productIds,
+        productNames: authority.productNames,
         isPlatformAdmin: authority.isPlatformAdmin,
       });
     });
@@ -1788,6 +1844,8 @@ export class AuthService {
         roles: authority.roles,
         permissions: authority.permissions,
         brandId: authority.brandId,
+        productIds: authority.productIds,
+        productNames: authority.productNames,
         isPlatformAdmin: authority.isPlatformAdmin,
       }),
       csrfToken: this.tokens.createCsrfToken(),
@@ -1828,6 +1886,8 @@ export class AuthService {
       roles: RoleKey[];
       permissions: string[];
       brandId: string | null;
+      productIds?: string[];
+      productNames?: string[];
       isPlatformAdmin: boolean;
     },
   ): AuthenticatedPrincipal {
@@ -1843,6 +1903,8 @@ export class AuthService {
       roles: extra.roles,
       permissions: new Set(extra.permissions),
       ...(extra.brandId ? { brandId: extra.brandId } : {}),
+      ...(extra.productIds && extra.productIds.length > 0 ? { productIds: extra.productIds } : {}),
+      ...(extra.productNames && extra.productNames.length > 0 ? { productNames: extra.productNames } : {}),
       isPlatformAdmin: extra.isPlatformAdmin,
     };
   }

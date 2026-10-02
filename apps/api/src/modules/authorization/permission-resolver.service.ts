@@ -10,6 +10,10 @@ export interface ResolvedAuthority {
   permissions: string[];
   /** Brand the user is restricted to, if any. */
   brandId: string | null;
+  /** Product IDs the user is assigned to handle. */
+  productIds?: string[];
+  /** Product names (e.g. 'Claimbook') the user is assigned to handle. */
+  productNames?: string[];
   isPlatformAdmin: boolean;
 }
 
@@ -134,27 +138,41 @@ export class PermissionResolverService {
         : null;
 
     if (roles.length === 0) {
-      return { roles: [], permissions: [], brandId: null, isPlatformAdmin: false };
+      return { roles: [], permissions: [], brandId: null, productIds: [], productNames: [], isPlatformAdmin: false };
     }
 
-    const rows = await this.prisma.client.$queryRaw<Array<{ key: string }>>`
-      SELECT DISTINCT p.key
-      FROM user_role ur
-      JOIN role_permission rp ON rp."roleId" = ur."roleId"
-      JOIN permission p       ON p.id = rp."permissionId"
-      LEFT JOIN tenant_role_permission_override o
-             ON o."roleId" = ur."roleId"
-            AND o."permissionId" = rp."permissionId"
-            AND o."tenantId" IS NOT DISTINCT FROM ${tenantId}::uuid
-      WHERE ur."userId" = ${userId}::uuid
-        AND COALESCE(o.granted, rp.granted) = true
-      ORDER BY p.key
-    `;
+    const [rows, userProducts] = await Promise.all([
+      this.prisma.client.$queryRaw<Array<{ key: string }>>`
+        SELECT DISTINCT p.key
+        FROM user_role ur
+        JOIN role_permission rp ON rp."roleId" = ur."roleId"
+        JOIN permission p       ON p.id = rp."permissionId"
+        LEFT JOIN tenant_role_permission_override o
+               ON o."roleId" = ur."roleId"
+              AND o."permissionId" = rp."permissionId"
+              AND o."tenantId" IS NOT DISTINCT FROM ${tenantId}::uuid
+        WHERE ur."userId" = ${userId}::uuid
+          AND COALESCE(o.granted, rp.granted) = true
+        ORDER BY p.key
+      `,
+      this.prisma.client.userProduct.findMany({
+        where: tenantId ? { userId, tenantId } : { userId },
+        include: { product: { select: { id: true, name: true, isActive: true } } },
+      }),
+    ]);
+
+    const activeProducts = userProducts
+      .filter((up) => up.product && up.product.isActive)
+      .map((up) => up.product);
+    const productIds = activeProducts.map((p) => p.id);
+    const productNames = activeProducts.map((p) => p.name);
 
     return {
       roles: [...new Set(roles)],
       permissions: rows.map((row) => row.key),
       brandId,
+      productIds,
+      productNames,
       isPlatformAdmin,
     };
   }

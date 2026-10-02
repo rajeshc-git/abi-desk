@@ -18,7 +18,7 @@
 -- before first release is standard practice (Prisma calls it baselining) and is safe
 -- precisely because there is no deployed data to preserve.
 --
--- Generated 2026-09-23T08:34:40.513Z
+-- Generated 2026-10-02T12:31:54.954Z
 -- =========================================================================
 
 -- =========================================================================
@@ -701,6 +701,7 @@ CREATE TABLE "invitation" (
     "brandId" UUID,
     "email" VARCHAR(320) NOT NULL,
     "roleId" UUID NOT NULL,
+    "productIds" JSONB DEFAULT '[]',
     "invitedById" UUID NOT NULL,
     "tokenHash" VARCHAR(64) NOT NULL,
     "message" VARCHAR(1000),
@@ -810,6 +811,7 @@ CREATE TABLE "queue" (
     "description" VARCHAR(500),
     "tier" "SupportTier" NOT NULL DEFAULT 'L1',
     "teamId" UUID,
+    "productId" UUID,
     "routing" "QueueRoutingStrategy" NOT NULL DEFAULT 'LEAST_LOADED',
     "isDefault" BOOLEAN NOT NULL DEFAULT false,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
@@ -818,6 +820,17 @@ CREATE TABLE "queue" (
     "updatedAt" TIMESTAMPTZ(6) NOT NULL,
 
     CONSTRAINT "queue_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "user_product" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "tenantId" UUID NOT NULL,
+    "userId" UUID NOT NULL,
+    "productId" UUID NOT NULL,
+    "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "user_product_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1669,7 +1682,19 @@ CREATE UNIQUE INDEX "team_member_teamId_userId_key" ON "team_member"("teamId", "
 CREATE INDEX "queue_tenantId_tier_isActive_idx" ON "queue"("tenantId", "tier", "isActive");
 
 -- CreateIndex
+CREATE INDEX "queue_tenantId_productId_idx" ON "queue"("tenantId", "productId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "queue_tenantId_slug_key" ON "queue"("tenantId", "slug");
+
+-- CreateIndex
+CREATE INDEX "user_product_tenantId_userId_idx" ON "user_product"("tenantId", "userId");
+
+-- CreateIndex
+CREATE INDEX "user_product_tenantId_productId_idx" ON "user_product"("tenantId", "productId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "user_product_userId_productId_key" ON "user_product"("userId", "productId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "role_key_key" ON "role"("key");
@@ -2047,7 +2072,19 @@ ALTER TABLE "queue" ADD CONSTRAINT "queue_tenantId_fkey" FOREIGN KEY ("tenantId"
 ALTER TABLE "queue" ADD CONSTRAINT "queue_brandId_fkey" FOREIGN KEY ("brandId") REFERENCES "brand"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "queue" ADD CONSTRAINT "queue_productId_fkey" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "queue" ADD CONSTRAINT "queue_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "team"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_product" ADD CONSTRAINT "user_product_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_product" ADD CONSTRAINT "user_product_userId_fkey" FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_product" ADD CONSTRAINT "user_product_productId_fkey" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "role_permission" ADD CONSTRAINT "role_permission_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "role"("id") ON DELETE CASCADE ON UPDATE CASCADE;

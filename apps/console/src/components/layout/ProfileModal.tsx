@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   Sparkles,
   Layers,
+  Package,
+  Globe,
 } from 'lucide-react';
 
 interface ProfileModalProps {
@@ -258,6 +260,38 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
               </div>
             </div>
 
+            {/* Assigned Product(s) */}
+            <div className="profile-info-card profile-products-card">
+              <div className="profile-info-icon">
+                <Package size={16} />
+              </div>
+              <div className="profile-info-content">
+                <span className="profile-info-label">
+                  {user?.products && user.products.length > 1 ? 'Assigned Products' : 'Assigned Product'}
+                </span>
+                <div className="profile-products-list">
+                  {user?.products && user.products.length > 0 ? (
+                    user.products.map((prod) => (
+                      <span key={prod} className="profile-product-badge">
+                        <Package size={12} className="profile-product-badge-icon" />
+                        <span>{prod}</span>
+                      </span>
+                    ))
+                  ) : user?.roles?.some((r: string) => ['ADMIN', 'TENANT_ADMIN'].includes(r)) ? (
+                    <span className="profile-product-badge global">
+                      <Globe size={12} className="profile-product-badge-icon" />
+                      <span>All Products (Tenant Admin)</span>
+                    </span>
+                  ) : (
+                    <span className="profile-product-badge global">
+                      <Globe size={12} className="profile-product-badge-icon" />
+                      <span>All Products</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Tenant ID */}
             <div className="profile-info-card">
               <div className="profile-info-icon">
@@ -283,26 +317,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
                   )}
                 </button>
               )}
-            </div>
-
-            {/* User Type & Session Status */}
-            <div className="profile-meta-row">
-              <div className="profile-meta-item">
-                <span className="profile-info-label">User Kind</span>
-                <span
-                  className={`profile-kind-pill ${user?.kind === 'STAFF' ? 'staff' : 'customer'}`}
-                >
-                  {user?.kind || 'STAFF'}
-                </span>
-              </div>
-
-              <div className="profile-meta-item">
-                <span className="profile-info-label">Session Status</span>
-                <span className="profile-status-indicator">
-                  <span className="profile-status-dot" />
-                  <span>Active Session</span>
-                </span>
-              </div>
             </div>
 
             {/* Assigned Roles */}

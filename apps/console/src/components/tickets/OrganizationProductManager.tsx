@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Building2, Box, Check, X, ChevronDown, Search } from 'lucide-react';
 import { ApiClient } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface OrganizationItem {
   id: string;
@@ -27,7 +28,14 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
   onProductChange,
   readonly = false,
 }) => {
+  const { user } = useAuth();
   const toast = useToast();
+
+  const isAdmin = Boolean(
+    user?.roles?.some((r: string) =>
+      ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(r.toUpperCase()),
+    ),
+  );
 
   // Organization state
   const [isOrgOpen, setIsOrgOpen] = useState(false);
@@ -145,13 +153,27 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
     }
   };
 
+  // Scoped allowed products for this user
+  const userAssignedProductNames = (user?.products || (user as any)?.productNames || []).map((p: any) =>
+    typeof p === 'string' ? p : p?.name || '',
+  ).filter(Boolean);
+
+  const allowedProductNames = isAdmin
+    ? availableProducts
+    : availableProducts.filter((pName) =>
+        userAssignedProductNames.some((uProd: string) => uProd.toLowerCase() === pName.toLowerCase()),
+      );
+
+  // Non-admin can only change product if they are assigned to 2 or more products
+  const canChangeProduct = !readonly && (isAdmin || allowedProductNames.length > 1);
+
   const filteredOrgs = availableOrgs.filter(
     (o) =>
       o.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
       (o.domains && o.domains.toLowerCase().includes(orgSearch.toLowerCase())),
   );
 
-  const filteredProducts = availableProducts.filter((p) =>
+  const filteredProducts = allowedProductNames.filter((p) =>
     p.toLowerCase().includes(productSearch.toLowerCase()),
   );
 
@@ -426,7 +448,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
             Product Name
           </span>
 
-          {!readonly && (
+          {canChangeProduct && (
             <button
               type="button"
               onClick={() => setIsProductOpen(!isProductOpen)}
@@ -452,7 +474,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
 
         <div
           onClick={() => {
-            if (!readonly) setIsProductOpen(!isProductOpen);
+            if (canChangeProduct) setIsProductOpen(!isProductOpen);
           }}
           style={{
             display: 'flex',
@@ -460,7 +482,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
             justifyContent: 'space-between',
             padding: '6px 10px',
             borderRadius: '6px',
-            cursor: readonly ? 'default' : 'pointer',
+            cursor: canChangeProduct ? 'pointer' : 'default',
             backgroundColor: product
               ? 'rgba(168, 85, 247, 0.08)'
               : 'var(--bg-input, rgba(0,0,0,0.2))',
@@ -488,7 +510,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
             </span>
           </div>
 
-          {product && !readonly && (
+          {product && canChangeProduct && isAdmin && (
             <button
               type="button"
               onClick={(e) => {
@@ -513,7 +535,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
         </div>
 
         {/* Product Dropdown Menu */}
-        {isProductOpen && (
+        {isProductOpen && canChangeProduct && (
           <div
             style={{
               position: 'absolute',
@@ -559,7 +581,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
             </div>
 
             <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
-              {availableProducts.length === 0 ? (
+              {allowedProductNames.length === 0 ? (
                 <div
                   style={{
                     padding: '12px 8px',
@@ -568,7 +590,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
                     color: 'var(--text-muted, #94a3b8)',
                   }}
                 >
-                  No products found in shift roster matrix.
+                  No authorized products assigned to your account.
                 </div>
               ) : filteredProducts.length === 0 ? (
                 <div
@@ -583,7 +605,7 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
                 </div>
               ) : (
                 filteredProducts.map((p) => {
-                  const isSelected = p === product;
+                  const isSelected = p.toLowerCase() === (product || '').toLowerCase();
                   return (
                     <button
                       key={p}

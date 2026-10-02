@@ -48,6 +48,9 @@ import {
   Square,
   FileUp,
   Filter,
+  Zap,
+  RefreshCw,
+  BarChart3,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { Modal } from '../components/common/Modal';
@@ -561,6 +564,7 @@ export const AdminPage: React.FC = () => {
   const [editingStaffUser, setEditingStaffUser] = useState<any | null>(null);
   const [editStaffRoleId, setEditStaffRoleId] = useState('');
   const [editStaffBrandId, setEditStaffBrandId] = useState('');
+  const [editStaffProductIds, setEditStaffProductIds] = useState<string[]>([]);
   const [isUpdatingStaffRole, setIsUpdatingStaffRole] = useState(false);
 
   // Form states
@@ -605,7 +609,7 @@ export const AdminPage: React.FC = () => {
   const [queueName, setQueueName] = useState('');
   const [queueSlug, setQueueSlug] = useState('');
   const [queueTier, setQueueTier] = useState('L1');
-  const [queueTeamId, setQueueTeamId] = useState('');
+  const [queueProductId, setQueueProductId] = useState('');
   const [queueBrandId, setQueueBrandId] = useState('');
   const [queueRouting, setQueueRouting] = useState('LEAST_LOADED');
   const [queueIsDefault, setQueueIsDefault] = useState(false);
@@ -615,7 +619,7 @@ export const AdminPage: React.FC = () => {
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [editQueueName, setEditQueueName] = useState('');
   const [editQueueTier, setEditQueueTier] = useState('L1');
-  const [editQueueTeamId, setEditQueueTeamId] = useState('');
+  const [editQueueProductId, setEditQueueProductId] = useState('');
   const [editQueueBrandId, setEditQueueBrandId] = useState('');
   const [editQueueRouting, setEditQueueRouting] = useState('LEAST_LOADED');
   const [editQueueIsDefault, setEditQueueIsDefault] = useState(false);
@@ -625,6 +629,7 @@ export const AdminPage: React.FC = () => {
   const [inviteFullName, setInviteFullName] = useState('');
   const [inviteRoleId, setInviteRoleId] = useState('');
   const [inviteBrandId, setInviteBrandId] = useState('');
+  const [inviteProductIds, setInviteProductIds] = useState<string[]>([]);
   const [inviteMessage, setInviteMessage] = useState('');
   const [isInviting, setIsInviting] = useState(false);
   const [userToDelete, setUserToDelete] = useState<any | null>(null);
@@ -687,25 +692,29 @@ export const AdminPage: React.FC = () => {
           }
         }
       } else if (activeTab === 'teams') {
-        const [teamsData, queuesData, brandsData, usersData] = await Promise.all([
+        const [teamsData, queuesData, brandsData, usersData, productsData] = await Promise.all([
           ApiClient.get('/admin/teams'),
           ApiClient.get('/admin/queues'),
           ApiClient.get('/admin/brands'),
           ApiClient.get('/admin/users'),
+          ApiClient.get('/admin/roster/products').catch(() => []),
         ]);
         setTeams(teamsData || []);
         setQueuesList(queuesData || []);
         setBrandsList(brandsData || []);
         setUsersList(usersData?.users || usersData || []);
+        setAvailableProducts(Array.isArray(productsData) ? productsData : []);
       } else if (activeTab === 'users' || activeTab === 'customers') {
-        const [usersData, rolesData, brandsData] = await Promise.all([
+        const [usersData, rolesData, brandsData, productsData] = await Promise.all([
           ApiClient.get('/admin/users'),
           ApiClient.get('/admin/roles'),
           ApiClient.get('/admin/brands'),
+          ApiClient.get('/admin/roster/products').catch(() => []),
         ]);
         setUsersList(usersData?.users || usersData || []);
         setRoles(rolesData || []);
         setBrandsList(brandsData || []);
+        setAvailableProducts(Array.isArray(productsData) ? productsData : []);
       } else if (activeTab === 'organizations') {
         const [orgsData, productsData] = await Promise.all([
           ApiClient.get('/organizations').catch(() => []),
@@ -1687,12 +1696,39 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
   // Create Brand Submit
   const handleCreateBrand = async (e: React.FormEvent) => {
     e.preventDefault();
+    const name = brandName.trim();
+    const slug = brandSlug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^-+|-+$/g, '');
+    const supportEmail = brandSupportEmail.trim();
+    const portalDomain = brandPortalDomain.trim();
+
+    if (!name) {
+      toast.error('Brand Name is required');
+      return;
+    }
+    if (!slug) {
+      toast.error('URL Slug is required');
+      return;
+    }
+    if (!supportEmail) {
+      toast.error('Support Email is required');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(supportEmail)) {
+      toast.error('Please enter a valid Support Email address (e.g. support@acme.com)');
+      return;
+    }
+    if (!portalDomain) {
+      toast.error('Portal Custom Domain is required');
+      return;
+    }
+
     try {
       await ApiClient.post('/admin/brands', {
-        name: brandName,
-        slug: brandSlug.toLowerCase(),
-        supportEmail: brandSupportEmail || undefined,
-        portalDomain: brandPortalDomain || undefined,
+        name,
+        slug,
+        supportEmail,
+        portalDomain,
         timezone: 'Asia/Kolkata',
         locale: 'en',
         isDefault: brandIsDefault,
@@ -1729,12 +1765,39 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
   const handleUpdateBrand = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBrand) return;
+    const name = brandName.trim();
+    const slug = brandSlug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^-+|-+$/g, '');
+    const supportEmail = brandSupportEmail.trim();
+    const portalDomain = brandPortalDomain.trim();
+
+    if (!name) {
+      toast.error('Brand Name is required');
+      return;
+    }
+    if (!slug) {
+      toast.error('URL Slug is required');
+      return;
+    }
+    if (!supportEmail) {
+      toast.error('Support Email is required');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(supportEmail)) {
+      toast.error('Please enter a valid Support Email address (e.g. support@acme.com)');
+      return;
+    }
+    if (!portalDomain) {
+      toast.error('Portal Custom Domain is required');
+      return;
+    }
+
     try {
       await ApiClient.patch(`/admin/brands/${editingBrand.id}`, {
-        name: brandName,
-        slug: brandSlug.toLowerCase(),
-        supportEmail: brandSupportEmail || undefined,
-        portalDomain: brandPortalDomain || undefined,
+        name,
+        slug,
+        supportEmail,
+        portalDomain,
         timezone: 'Asia/Kolkata',
         locale: 'en',
         isDefault: brandIsDefault,
@@ -1952,14 +2015,18 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       toast.warning('Please enter a Queue Name.');
       return;
     }
+    if (!queueProductId) {
+      toast.warning('Please select a Target Product for this queue.');
+      return;
+    }
     const autoSlug = queueName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'queue';
     try {
       await ApiClient.post('/admin/queues', {
         name: queueName.trim(),
         slug: autoSlug,
-        tier: queueTier,
+        tier: 'L1',
         brandId: queueBrandId || undefined,
-        teamId: queueTeamId || undefined,
+        productId: queueProductId,
         routing: queueRouting,
         isDefault: queueIsDefault,
         isActive: true,
@@ -1968,7 +2035,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       setQueueName('');
       setQueueSlug('');
       setQueueTier('L1');
-      setQueueTeamId('');
+      setQueueProductId('');
       setQueueBrandId('');
       setQueueRouting('LEAST_LOADED');
       setQueueIsDefault(false);
@@ -1983,8 +2050,8 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
   const openEditQueueModal = (q: any) => {
     setEditingQueueId(q.id);
     setEditQueueName(q.name || '');
-    setEditQueueTier(q.tier || 'L1');
-    setEditQueueTeamId(q.teamId || q.team?.id || '');
+    setEditQueueTier('L1');
+    setEditQueueProductId(q.productId || q.product?.id || '');
     setEditQueueBrandId(q.brandId || q.brand?.id || '');
     setEditQueueRouting(q.routing || 'LEAST_LOADED');
     setEditQueueIsDefault(Boolean(q.isDefault));
@@ -1998,14 +2065,18 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       toast.warning('Please enter a Queue Name.');
       return;
     }
+    if (!editQueueProductId) {
+      toast.warning('Please select a Target Product for this queue.');
+      return;
+    }
     const autoSlug = editQueueName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'queue';
     try {
       await ApiClient.patch(`/admin/queues/${editingQueueId}`, {
         name: editQueueName.trim(),
         slug: autoSlug,
-        tier: editQueueTier,
+        tier: 'L1',
         brandId: editQueueBrandId || null,
-        teamId: editQueueTeamId || null,
+        productId: editQueueProductId,
         routing: editQueueRouting,
         isDefault: editQueueIsDefault,
         isActive: true,
@@ -2037,6 +2108,17 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
     }
   };
 
+  const handleOpenInviteModal = () => {
+    setIsInviteOpen(true);
+    setInviteEmail('');
+    setInviteFullName('');
+    setInviteRoleId('');
+    setInviteBrandId('');
+    setInviteMessage('');
+    // By default, check all products for agents
+    setInviteProductIds(availableProducts.map((p: any) => p.id));
+  };
+
   // Send Roster Email Invite
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2044,17 +2126,27 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       toast.warning('Please select an assigned support role.');
       return;
     }
+
+    const selectedRole = roles.find((r) => r.id === inviteRoleId);
+    const isAdmin = selectedRole?.key === 'TENANT_ADMIN' || selectedRole?.key === 'PLATFORM_ADMIN';
+    if (!isAdmin && availableProducts.length > 0 && inviteProductIds.length === 0) {
+      toast.error('Please select at least 1 assigned product for this agent.');
+      return;
+    }
+
     setIsInviting(true);
     try {
       await ApiClient.post('/admin/users/invite', {
         email: inviteEmail,
         roleId: inviteRoleId,
         brandId: inviteBrandId || undefined,
+        productIds: isAdmin ? undefined : inviteProductIds,
         message: inviteMessage || undefined,
       });
       setIsInviteOpen(false);
       setInviteEmail('');
       setInviteFullName('');
+      setInviteProductIds([]);
       setInviteMessage('');
       loadData();
       toast.success('Invitation email sent successfully!');
@@ -2096,8 +2188,19 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
 
   const handleOpenEditStaffRole = (user: any) => {
     setEditingStaffUser(user);
-    setEditStaffRoleId(user.roles?.[0]?.role?.id || user.roles?.[0]?.roleId || '');
+    const roleId = user.roles?.[0]?.role?.id || user.roles?.[0]?.roleId || '';
+    setEditStaffRoleId(roleId);
     setEditStaffBrandId(user.roles?.[0]?.brandId || '');
+
+    const userRoleKey = user.roles?.[0]?.role?.key;
+    const isUserAdmin = userRoleKey === 'TENANT_ADMIN' || userRoleKey === 'PLATFORM_ADMIN';
+    let userProductIds = Array.isArray(user.products)
+      ? user.products.map((up: any) => up.productId || up.product?.id).filter(Boolean)
+      : [];
+    if (!isUserAdmin && userProductIds.length === 0 && availableProducts.length > 0) {
+      userProductIds = availableProducts.map((p: any) => p.id);
+    }
+    setEditStaffProductIds(userProductIds);
   };
 
   const handleSaveStaffRole = async (e: React.FormEvent) => {
@@ -2107,13 +2210,21 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       return;
     }
 
+    const selectedRole = roles.find((r) => r.id === editStaffRoleId);
+    const isAdmin = selectedRole?.key === 'TENANT_ADMIN' || selectedRole?.key === 'PLATFORM_ADMIN';
+    if (!isAdmin && availableProducts.length > 0 && editStaffProductIds.length === 0) {
+      toast.error('Please select at least 1 assigned product for this agent.');
+      return;
+    }
+
     setIsUpdatingStaffRole(true);
     try {
       await ApiClient.patch(`/admin/users/${editingStaffUser.id}`, {
         roleId: editStaffRoleId,
         brandId: editStaffBrandId || null,
+        productIds: isAdmin ? [] : editStaffProductIds,
       });
-      toast.success(`Role updated successfully for ${editingStaffUser.fullName || editingStaffUser.email}!`);
+      toast.success(`Role & Product assignments updated successfully for ${editingStaffUser.fullName || editingStaffUser.email}!`);
       setEditingStaffUser(null);
       await loadData();
     } catch (err: unknown) {
@@ -5903,13 +6014,13 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                                 border: '1px solid var(--border-subtle, #e2e8f0)',
                               }}
                             >
-                              {q.tier} Tier
+                              L1 Tier
                             </span>
                           </div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <span><strong>Brand:</strong> {q.brand?.name || 'All Brands'}</span>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                            <span><strong>Product:</strong> {q.product?.name || 'All Products'}</span>
                             <span>•</span>
-                            <span><strong>Team:</strong> {q.team?.name || 'No Team Assigned'}</span>
+                            <span><strong>Brand:</strong> {q.brand?.name || 'All Brands'}</span>
                           </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -6043,7 +6154,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                     Administrators, support tiers (L1, L2, L3), developers, and QA specialists with agent workspace access.
                   </p>
                 </div>
-                <button onClick={() => setIsInviteOpen(true)} className="btn btn-primary btn-sm">
+                <button onClick={handleOpenInviteModal} className="btn btn-primary btn-sm">
                   <UserPlus size={14} /> Invite New Agent
                 </button>
               </div>
@@ -6209,6 +6320,29 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
                             {u.email}
                           </div>
+                          {u.products && u.products.length > 0 && (
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                              {u.products.map((up: any) => (
+                                <span
+                                  key={up.id || up.productId || up.product?.id}
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                                    color: '#2563eb',
+                                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                  }}
+                                >
+                                  📦 {up.product?.name || 'Product'}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span className={tierPillClass} style={customStyle}>
@@ -7059,123 +7193,190 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         isOpen={isCreateBrandOpen}
         onClose={() => setIsCreateBrandOpen(false)}
         title="Create New Product Brand"
+        maxWidth="580px"
       >
         <form
           onSubmit={handleCreateBrand}
-          style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
         >
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Brand Name *
-            </label>
-            <input
-              type="text"
-              value={brandName}
-              onChange={(e) => setBrandName(e.target.value)}
-              placeholder="e.g. Acme Billing"
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-              required
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              URL Slug *
-            </label>
-            <input
-              type="text"
-              value={brandSlug}
-              onChange={(e) => setBrandSlug(e.target.value)}
-              placeholder="e.g. billing (alphanumeric & hyphens)"
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-              required
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Support Email
-            </label>
-            <input
-              type="email"
-              value={brandSupportEmail}
-              onChange={(e) => setBrandSupportEmail(e.target.value)}
-              placeholder="e.g. billing-support@acme.com"
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Portal Custom Domain
-            </label>
-            <input
-              type="text"
-              value={brandPortalDomain}
-              onChange={(e) => setBrandPortalDomain(e.target.value)}
-              placeholder="e.g. billing-help.acme.com"
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-            />
+          <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+            Configure a dedicated multi-tenant product brand with isolated customer portals, support routing, and domain vanity.
           </div>
 
-          <label
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '14px',
+            }}
+          >
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                Brand Name <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={brandName}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setBrandName(val);
+                  if (!brandSlug || brandSlug === brandName.toLowerCase().replace(/[^a-z0-9_-]/g, '-')) {
+                    setBrandSlug(val.toLowerCase().replace(/[^a-z0-9_-]/g, '-'));
+                  }
+                }}
+                placeholder="e.g. Acme Billing"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                URL Slug <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={brandSlug}
+                onChange={(e) => setBrandSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '-'))}
+                placeholder="e.g. billing-app"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                Alphanumeric characters and hyphens only
+              </span>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '14px',
+            }}
+          >
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                Support Email <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="email"
+                value={brandSupportEmail}
+                onChange={(e) => setBrandSupportEmail(e.target.value)}
+                placeholder="e.g. billing-support@acme.com"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                Portal Custom Domain <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={brandPortalDomain}
+                onChange={(e) => setBrandPortalDomain(e.target.value)}
+                placeholder="e.g. billing-help.acme.com"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+            </div>
+          </div>
+
+          <div
+            onClick={() => setBrandIsDefault(!brandIsDefault)}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              fontSize: '12px',
-              fontWeight: 600,
+              gap: '10px',
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: brandIsDefault ? 'rgba(37, 99, 235, 0.06)' : 'var(--bg-input, #f8fafc)',
+              border: brandIsDefault ? '1.5px solid var(--primary, #2563eb)' : '1px solid var(--border-medium, #e2e8f0)',
               cursor: 'pointer',
-              marginTop: '4px',
+              transition: 'all 0.15s ease',
+              userSelect: 'none',
+              marginTop: '2px',
             }}
           >
             <input
               type="checkbox"
               checked={brandIsDefault}
               onChange={(e) => setBrandIsDefault(e.target.checked)}
+              style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--primary, #2563eb)' }}
+              onClick={(e) => e.stopPropagation()}
             />
-            <span>Set as Default Brand for this tenant</span>
-          </label>
+            <div>
+              <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Set as Default Brand for this tenant
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Unbranded customer tickets and default triage queues will route to this primary brand.
+              </div>
+            </div>
+          </div>
+
           <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
+            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle, #f1f5f9)' }}
           >
             <button
               type="button"
               onClick={() => setIsCreateBrandOpen(false)}
               className="btn btn-secondary btn-sm"
+              style={{ padding: '8px 14px', fontSize: '12.5px' }}
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-sm">
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: 600 }}
+            >
               Create Brand
             </button>
           </div>
@@ -7187,119 +7388,180 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         isOpen={isEditBrandOpen}
         onClose={() => setIsEditBrandOpen(false)}
         title="Edit Product Brand"
+        maxWidth="580px"
       >
         <form
           onSubmit={handleUpdateBrand}
-          style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
         >
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Brand Name *
-            </label>
-            <input
-              type="text"
-              value={brandName}
-              onChange={(e) => setBrandName(e.target.value)}
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-              required
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              URL Slug *
-            </label>
-            <input
-              type="text"
-              value={brandSlug}
-              onChange={(e) => setBrandSlug(e.target.value)}
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-              required
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Support Email
-            </label>
-            <input
-              type="email"
-              value={brandSupportEmail}
-              onChange={(e) => setBrandSupportEmail(e.target.value)}
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-            />
-          </div>
-          <div>
-            <label
-              style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-            >
-              Portal Custom Domain
-            </label>
-            <input
-              type="text"
-              value={brandPortalDomain}
-              onChange={(e) => setBrandPortalDomain(e.target.value)}
-              className="form-control"
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid var(--border-medium)',
-                borderRadius: 'var(--radius-md)',
-              }}
-            />
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '14px',
+            }}
+          >
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                Brand Name <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                placeholder="e.g. Acme Billing"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                URL Slug <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={brandSlug}
+                onChange={(e) => setBrandSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '-'))}
+                placeholder="e.g. billing-app"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                Alphanumeric characters and hyphens only
+              </span>
+            </div>
           </div>
 
-          <label
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '14px',
+            }}
+          >
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                Support Email <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="email"
+                value={brandSupportEmail}
+                onChange={(e) => setBrandSupportEmail(e.target.value)}
+                placeholder="e.g. billing-support@acme.com"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}
+              >
+                Portal Custom Domain <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={brandPortalDomain}
+                onChange={(e) => setBrandPortalDomain(e.target.value)}
+                placeholder="e.g. billing-help.acme.com"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-input)',
+                  color: 'var(--text-primary)',
+                  fontSize: '13px',
+                }}
+                required
+              />
+            </div>
+          </div>
+
+          <div
+            onClick={() => setBrandIsDefault(!brandIsDefault)}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              fontSize: '12px',
-              fontWeight: 600,
+              gap: '10px',
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: brandIsDefault ? 'rgba(37, 99, 235, 0.06)' : 'var(--bg-input, #f8fafc)',
+              border: brandIsDefault ? '1.5px solid var(--primary, #2563eb)' : '1px solid var(--border-medium, #e2e8f0)',
               cursor: 'pointer',
-              marginTop: '4px',
+              transition: 'all 0.15s ease',
+              userSelect: 'none',
+              marginTop: '2px',
             }}
           >
             <input
               type="checkbox"
               checked={brandIsDefault}
               onChange={(e) => setBrandIsDefault(e.target.checked)}
+              style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--primary, #2563eb)' }}
+              onClick={(e) => e.stopPropagation()}
             />
-            <span>Set as Default Brand for this tenant</span>
-          </label>
+            <div>
+              <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Set as Default Brand for this tenant
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Unbranded customer tickets and default triage queues will route to this primary brand.
+              </div>
+            </div>
+          </div>
+
           <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
+            style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle, #f1f5f9)' }}
           >
             <button
               type="button"
               onClick={() => setIsEditBrandOpen(false)}
               className="btn btn-secondary btn-sm"
+              style={{ padding: '8px 14px', fontSize: '12.5px' }}
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary btn-sm">
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm"
+              style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: 600 }}
+            >
               Save Changes
             </button>
           </div>
@@ -7309,7 +7571,10 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       {/* Change Agent Role Modal */}
       <Modal
         isOpen={!!editingStaffUser}
-        onClose={() => setEditingStaffUser(null)}
+        onClose={() => {
+          setEditingStaffUser(null);
+          setEditStaffProductIds([]);
+        }}
         title="Change Agent Role"
       >
         <div style={{ position: 'relative' }}>
@@ -7382,7 +7647,16 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 </label>
                 <select
                   value={editStaffRoleId}
-                  onChange={(e) => setEditStaffRoleId(e.target.value)}
+                  onChange={(e) => {
+                    const newRoleId = e.target.value;
+                    setEditStaffRoleId(newRoleId);
+                    const matched = roles.find((r) => r.id === newRoleId);
+                    if (matched?.key === 'TENANT_ADMIN' || matched?.key === 'PLATFORM_ADMIN') {
+                      setEditStaffProductIds([]);
+                    } else if (editStaffProductIds.length === 0 && availableProducts.length > 0) {
+                      setEditStaffProductIds(availableProducts.map((p: any) => p.id));
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '8px 12px',
@@ -7447,6 +7721,165 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 </select>
               </div>
 
+              {(() => {
+                const selectedRole = roles.find((r) => r.id === editStaffRoleId);
+                const isAdmin = selectedRole?.key === 'TENANT_ADMIN' || selectedRole?.key === 'PLATFORM_ADMIN';
+
+                if (isAdmin) {
+                  return (
+                    <div
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                        border: '1px solid rgba(59, 130, 246, 0.25)',
+                        fontSize: '12px',
+                        color: 'var(--text-primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <span style={{ fontSize: '15px' }}>👑</span>
+                      <div>
+                        <strong>Tenant Administrator</strong> has complete organization-wide access to all software products and tickets. Product-level restrictions are not applicable.
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        Assigned Supported Products <span style={{ color: '#ef4444' }}>*</span>
+                      </label>
+                      {availableProducts.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setEditStaffProductIds(availableProducts.map((p: any) => p.id))}
+                            style={{ fontSize: '11px', color: 'var(--primary, #2563eb)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                          >
+                            Select All
+                          </button>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>|</span>
+                          <button
+                            type="button"
+                            onClick={() => setEditStaffProductIds([])}
+                            style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        padding: '8px',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'var(--bg-input, #f8fafc)',
+                        border: editStaffProductIds.length === 0 && availableProducts.length > 0 ? '1.5px solid rgba(239, 68, 68, 0.6)' : '1px solid var(--border-medium, #e2e8f0)',
+                        maxHeight: 'min(240px, 35vh)',
+                        overflowY: 'auto',
+                        display: 'grid',
+                        gridTemplateColumns: availableProducts.length > 1 ? '1fr 1fr' : '1fr',
+                        gap: '6px',
+                      }}
+                    >
+                      {availableProducts.length === 0 ? (
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px' }}>
+                          No software products registered in database yet.
+                        </div>
+                      ) : (
+                        availableProducts.map((p: any) => {
+                          const isChecked = editStaffProductIds.includes(p.id);
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => {
+                                if (isChecked) {
+                                  setEditStaffProductIds(editStaffProductIds.filter((id) => id !== p.id));
+                                } else {
+                                  setEditStaffProductIds([...editStaffProductIds, p.id]);
+                                }
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '7px 10px',
+                                borderRadius: '7px',
+                                backgroundColor: isChecked ? 'rgba(37, 99, 235, 0.08)' : 'var(--bg-surface, #ffffff)',
+                                border: isChecked
+                                  ? '1.5px solid var(--primary, #2563eb)'
+                                  : '1px solid var(--border-subtle, #e2e8f0)',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                userSelect: 'none',
+                                boxShadow: isChecked ? '0 1px 3px rgba(37, 99, 235, 0.12)' : '0 1px 2px rgba(0,0,0,0.02)',
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isChecked) {
+                                  e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.4)';
+                                  e.currentTarget.style.backgroundColor = '#ffffff';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!isChecked) {
+                                  e.currentTarget.style.borderColor = 'var(--border-subtle, #e2e8f0)';
+                                  e.currentTarget.style.backgroundColor = 'var(--bg-surface, #ffffff)';
+                                }
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '16px',
+                                  height: '16px',
+                                  borderRadius: '4px',
+                                  border: isChecked ? 'none' : '1.5px solid var(--border-medium, #cbd5e1)',
+                                  backgroundColor: isChecked ? 'var(--primary, #2563eb)' : 'transparent',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                  transition: 'all 0.15s ease',
+                                }}
+                              >
+                                {isChecked && <Check size={11} color="#ffffff" strokeWidth={3} />}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                  <span style={{ fontSize: '11px' }}>📦</span>
+                                  <span style={{ fontSize: '12px', fontWeight: isChecked ? 700 : 500, color: isChecked ? 'var(--primary, #2563eb)' : 'var(--text-primary)' }}>
+                                    {p.name}
+                                  </span>
+                                </div>
+                                {p.description && (
+                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {p.description}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    {editStaffProductIds.length === 0 && availableProducts.length > 0 ? (
+                      <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span>⚠️</span>
+                        <span>Mandatory: Please select at least 1 product for this agent.</span>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        {`🎯 Agent will strictly be restricted to tickets matching ${editStaffProductIds.length} selected product(s).`}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div
                 style={{
                   display: 'flex',
@@ -7459,7 +7892,10 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               >
                 <button
                   type="button"
-                  onClick={() => setEditingStaffUser(null)}
+                  onClick={() => {
+                    setEditingStaffUser(null);
+                    setEditStaffProductIds([]);
+                  }}
                   className="btn btn-secondary btn-sm"
                   disabled={isUpdatingStaffRole}
                 >
@@ -7483,8 +7919,12 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       {/* Invite Modal */}
       <Modal
         isOpen={isInviteOpen}
-        onClose={() => setIsInviteOpen(false)}
+        onClose={() => {
+          setIsInviteOpen(false);
+          setInviteProductIds([]);
+        }}
         title="Invite Agent"
+        maxWidth="620px"
       >
         <div style={{ position: 'relative' }}>
           {isInviting && (
@@ -7495,8 +7935,8 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 left: 0,
                 right: 0,
                 bottom: 0,
-                background: 'rgba(255, 255, 255, 0.65)',
-                backdropFilter: 'blur(2px)',
+                background: 'rgba(255, 255, 255, 0.75)',
+                backdropFilter: 'blur(3px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -7509,128 +7949,318 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
           )}
           <form
             onSubmit={handleSendInvite}
-            style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
           >
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-              >
-                Full Name *
-              </label>
-              <input
-                type="text"
-                value={inviteFullName}
-                onChange={(e) => setInviteFullName(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-input)',
-                  border: '1px solid var(--border-medium)',
-                  color: 'var(--text-primary)',
-                }}
-                required
-              />
+            {/* Top 2-Column Row: Name & Email */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label
+                  style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}
+                >
+                  Full Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Sarah Connor"
+                  value={inviteFullName}
+                  onChange={(e) => setInviteFullName(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                  }}
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}
+                >
+                  Email Address <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="email"
+                  placeholder="agent@company.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                  }}
+                  required
+                />
+              </div>
             </div>
 
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-              >
-                Email Address *
-              </label>
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-input)',
-                  border: '1px solid var(--border-medium)',
-                  color: 'var(--text-primary)',
-                }}
-                required
-              />
-            </div>
+            {/* Middle 2-Column Row: Role & Brand */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label
+                  style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}
+                >
+                  Assigned Support Role <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  value={inviteRoleId}
+                  onChange={(e) => {
+                    const newRoleId = e.target.value;
+                    setInviteRoleId(newRoleId);
+                    const matched = roles.find((r) => r.id === newRoleId);
+                    if (matched?.key === 'TENANT_ADMIN' || matched?.key === 'PLATFORM_ADMIN') {
+                      setInviteProductIds([]);
+                    } else if (inviteProductIds.length === 0 && availableProducts.length > 0) {
+                      setInviteProductIds(availableProducts.map((p: any) => p.id));
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                  }}
+                  required
+                >
+                  <option value="">Select a Database Role...</option>
+                  {[...roles]
+                    .filter((r) => r.isStaff)
+                    .sort((a, b) => {
+                      const ROLE_ORDER: Record<string, number> = {
+                        TENANT_ADMIN: 1,
+                        L1_SUPPORT: 2,
+                        L2_SUPPORT: 3,
+                        L3_SUPPORT: 4,
+                        DEV_TEAM: 5,
+                        DEVOPS_TEAM: 6,
+                        QA_TEAM: 7,
+                      };
+                      const orderA = ROLE_ORDER[a.key] || 99;
+                      const orderB = ROLE_ORDER[b.key] || 99;
+                      return orderA - orderB;
+                    })
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
 
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-              >
-                Assigned Support Role *
-              </label>
-              <select
-                value={inviteRoleId}
-                onChange={(e) => setInviteRoleId(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-input)',
-                  border: '1px solid var(--border-medium)',
-                  color: 'var(--text-primary)',
-                }}
-                required
-              >
-                <option value="">Select a Database Role...</option>
-                {[...roles]
-                  .filter((r) => r.isStaff)
-                  .sort((a, b) => {
-                    const ROLE_ORDER: Record<string, number> = {
-                      TENANT_ADMIN: 1,
-                      L1_SUPPORT: 2,
-                      L2_SUPPORT: 3,
-                      L3_SUPPORT: 4,
-                      DEV_TEAM: 5,
-                      DEVOPS_TEAM: 6,
-                      QA_TEAM: 7,
-                    };
-                    const orderA = ROLE_ORDER[a.key] || 99;
-                    const orderB = ROLE_ORDER[b.key] || 99;
-                    return orderA - orderB;
-                  })
-                  .map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
+              <div>
+                <label
+                  style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}
+                >
+                  Assigned Product Brand <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '11px' }}>(Optional)</span>
+                </label>
+                <select
+                  value={inviteBrandId}
+                  onChange={(e) => setInviteBrandId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="">All Brands (Tenant Wide)</option>
+                  {brandsList.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
                     </option>
                   ))}
-              </select>
+                </select>
+              </div>
             </div>
 
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
-              >
-                Assigned Product Brand (Optional)
-              </label>
-              <select
-                value={inviteBrandId}
-                onChange={(e) => setInviteBrandId(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--bg-input)',
-                  border: '1px solid var(--border-medium)',
-                  color: 'var(--text-primary)',
-                }}
-              >
-                <option value="">All Brands (Tenant Wide)</option>
-                {brandsList.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Product Assignment Section */}
+            {(() => {
+              if (!inviteRoleId) {
+                return (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 0' }}>
+                    Select a database role above to configure assigned software products.
+                  </div>
+                );
+              }
 
+              const selectedRole = roles.find((r) => r.id === inviteRoleId);
+              const isAdmin = selectedRole?.key === 'TENANT_ADMIN' || selectedRole?.key === 'PLATFORM_ADMIN';
+
+              if (isAdmin) {
+                return (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      fontSize: '12px',
+                      color: 'var(--text-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <span style={{ fontSize: '18px' }}>👑</span>
+                    <div>
+                      <strong>Tenant Administrator</strong> has complete workspace-wide access to all software products and tickets. Product-level restrictions are not applicable.
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Assigned Supported Products <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    {availableProducts.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setInviteProductIds(availableProducts.map((p: any) => p.id))}
+                          style={{ fontSize: '11px', color: 'var(--primary, #2563eb)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                        >
+                          Select All
+                        </button>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>|</span>
+                        <button
+                          type="button"
+                          onClick={() => setInviteProductIds([])}
+                          style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      padding: '8px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--bg-input, #f8fafc)',
+                      border: inviteProductIds.length === 0 && availableProducts.length > 0 ? '1.5px solid rgba(239, 68, 68, 0.6)' : '1px solid var(--border-medium, #e2e8f0)',
+                      maxHeight: 'min(240px, 35vh)',
+                      overflowY: 'auto',
+                      display: 'grid',
+                      gridTemplateColumns: availableProducts.length > 1 ? '1fr 1fr' : '1fr',
+                      gap: '6px',
+                    }}
+                  >
+                    {availableProducts.length === 0 ? (
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px' }}>
+                        No software products registered in database yet.
+                      </div>
+                    ) : (
+                      availableProducts.map((p: any) => {
+                        const isChecked = inviteProductIds.includes(p.id);
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              if (isChecked) {
+                                setInviteProductIds(inviteProductIds.filter((id) => id !== p.id));
+                              } else {
+                                setInviteProductIds([...inviteProductIds, p.id]);
+                              }
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '7px 10px',
+                              borderRadius: '7px',
+                              backgroundColor: isChecked ? 'rgba(37, 99, 235, 0.08)' : 'var(--bg-surface, #ffffff)',
+                              border: isChecked
+                                ? '1.5px solid var(--primary, #2563eb)'
+                                : '1px solid var(--border-subtle, #e2e8f0)',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              userSelect: 'none',
+                              boxShadow: isChecked ? '0 1px 3px rgba(37, 99, 235, 0.12)' : '0 1px 2px rgba(0,0,0,0.02)',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isChecked) {
+                                e.currentTarget.style.borderColor = 'rgba(37, 99, 235, 0.4)';
+                                e.currentTarget.style.backgroundColor = '#ffffff';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isChecked) {
+                                e.currentTarget.style.borderColor = 'var(--border-subtle, #e2e8f0)';
+                                e.currentTarget.style.backgroundColor = 'var(--bg-surface, #ffffff)';
+                              }
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: '16px',
+                                height: '16px',
+                                borderRadius: '4px',
+                                border: isChecked ? 'none' : '1.5px solid var(--border-medium, #cbd5e1)',
+                                backgroundColor: isChecked ? 'var(--primary, #2563eb)' : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              {isChecked && <Check size={11} color="#ffffff" strokeWidth={3} />}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <span style={{ fontSize: '11px' }}>📦</span>
+                                <span style={{ fontSize: '12px', fontWeight: isChecked ? 700 : 500, color: isChecked ? 'var(--primary, #2563eb)' : 'var(--text-primary)' }}>
+                                  {p.name}
+                                </span>
+                              </div>
+                              {p.description && (
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {p.description}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  {inviteProductIds.length === 0 && availableProducts.length > 0 ? (
+                    <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>⚠️</span>
+                      <span>Mandatory: Please select at least 1 product for this agent.</span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      {`🎯 Agent will strictly be restricted to tickets matching ${inviteProductIds.length} selected product(s).`}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Personal Message */}
             <div>
               <label
-                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}
               >
-                Personal Message (Optional)
+                Personal Message <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '11px' }}>(Optional)</span>
               </label>
               <textarea
                 value={inviteMessage}
@@ -7643,17 +8273,23 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   backgroundColor: 'var(--bg-input)',
                   border: '1px solid var(--border-medium)',
                   color: 'var(--text-primary)',
-                  minHeight: '60px',
+                  minHeight: '52px',
+                  fontSize: '12.5px',
+                  resize: 'vertical',
                 }}
               />
             </div>
 
+            {/* Footer Buttons */}
             <div
-              style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}
+              style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}
             >
               <button
                 type="button"
-                onClick={() => setIsInviteOpen(false)}
+                onClick={() => {
+                  setIsInviteOpen(false);
+                  setInviteProductIds([]);
+                }}
                 className="btn btn-secondary btn-sm"
                 disabled={isInviting}
               >
@@ -8058,23 +8694,218 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
       <Modal
         isOpen={isCreateQueueOpen}
         onClose={() => setIsCreateQueueOpen(false)}
-        title="Create Routing Queue"
+        title="Create Automated Routing Queue"
       >
         <form
           onSubmit={handleCreateQueue}
-          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}
         >
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-lg, 10px)',
+              backgroundColor: 'rgba(37, 99, 235, 0.05)',
+              border: '1px solid rgba(37, 99, 235, 0.18)',
+              color: 'var(--primary, #2563eb)',
+              fontSize: '12px',
+              lineHeight: 1.5,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+            }}
+          >
+            <span style={{ fontSize: '16px', flexShrink: 0 }}>⚡</span>
+            <div>
+              <strong>Automated L1 Intake:</strong> Incoming tickets will be automatically assigned to active <strong>L1 Tier Support Agents</strong> who have access to the selected product using the chosen machine algorithm.
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Queue Name <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={queueName}
+                onChange={(e) => setQueueName(e.target.value)}
+                placeholder="e.g. Primary ClaimBook Queue"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+                required
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Target Product <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              </label>
+              <select
+                value={queueProductId}
+                onChange={(e) => setQueueProductId(e.target.value)}
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: !queueProductId ? '1.5px solid rgba(239, 68, 68, 0.5)' : '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                  backgroundColor: 'var(--bg-surface, #ffffff)',
+                }}
+                required
+              >
+                <option value="" disabled>-- Select a Product --</option>
+                {availableProducts.map((p) => {
+                  const isClaimBook = p.name?.toLowerCase().includes('claimbook');
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{isClaimBook ? ' (Recommended)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+
+          {/* Futuristic Algorithm Selector */}
+          <div>
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Routing Algorithm <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {/* Card 1: Least Loaded */}
+              <div
+                onClick={() => setQueueRouting('LEAST_LOADED')}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-lg, 10px)',
+                  border: queueRouting === 'LEAST_LOADED' ? '2px solid #10b981' : '1px solid var(--border-medium, #e2e8f0)',
+                  backgroundColor: queueRouting === 'LEAST_LOADED' ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-surface, #ffffff)',
+                  boxShadow: queueRouting === 'LEAST_LOADED' ? '0 0 0 1px #10b981, 0 3px 10px rgba(16, 185, 129, 0.12)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        backgroundColor: queueRouting === 'LEAST_LOADED' ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Zap size={14} color={queueRouting === 'LEAST_LOADED' ? '#059669' : '#64748b'} />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: queueRouting === 'LEAST_LOADED' ? '#047857' : 'var(--text-primary)' }}>
+                      Least Loaded
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: queueRouting === 'LEAST_LOADED' ? '5px solid #10b981' : '2px solid var(--border-medium, #cbd5e1)',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Smart Capacity
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
+                  Routes tickets dynamically to the active L1 agent with the lowest open ticket count.
+                </div>
+              </div>
+
+              {/* Card 2: Round Robin */}
+              <div
+                onClick={() => setQueueRouting('ROUND_ROBIN')}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-lg, 10px)',
+                  border: queueRouting === 'ROUND_ROBIN' ? '2px solid #2563eb' : '1px solid var(--border-medium, #e2e8f0)',
+                  backgroundColor: queueRouting === 'ROUND_ROBIN' ? 'rgba(37, 99, 235, 0.05)' : 'var(--bg-surface, #ffffff)',
+                  boxShadow: queueRouting === 'ROUND_ROBIN' ? '0 0 0 1px #2563eb, 0 3px 10px rgba(37, 99, 235, 0.12)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        backgroundColor: queueRouting === 'ROUND_ROBIN' ? 'rgba(37,99,235,0.15)' : 'rgba(100,116,139,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <RefreshCw size={14} color={queueRouting === 'ROUND_ROBIN' ? '#2563eb' : '#64748b'} />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: queueRouting === 'ROUND_ROBIN' ? '#1d4ed8' : 'var(--text-primary)' }}>
+                      Round Robin
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: queueRouting === 'ROUND_ROBIN' ? '5px solid #2563eb' : '2px solid var(--border-medium, #cbd5e1)',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Strict Rotation
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
+                  Distributes tickets in sequential circular order one-by-one across active L1 product agents.
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label
               style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
             >
-              Queue Name <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              Link to Brand <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
             </label>
-            <input
-              type="text"
-              value={queueName}
-              onChange={(e) => setQueueName(e.target.value)}
-              placeholder="e.g. Critical Billing Queue"
+            <select
+              value={queueBrandId}
+              onChange={(e) => setQueueBrandId(e.target.value)}
               className="form-control"
               style={{
                 width: '100%',
@@ -8083,150 +8914,130 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 borderRadius: 'var(--radius-md)',
                 fontSize: '13px',
               }}
-              required
-              autoFocus
-            />
+            >
+              <option value="">All Brands</option>
+              {brandsList.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Routing Method <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
-              </label>
-              <select
-                value={queueRouting}
-                onChange={(e) => setQueueRouting(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="LEAST_LOADED">Least Loaded (Smart Capacity)</option>
-                <option value="ROUND_ROBIN">Round Robin (Strict Rotation)</option>
-                <option value="MANUAL">Manual Triage (Queue Hold)</option>
-              </select>
-            </div>
-
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Support Tier <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
-              </label>
-              <select
-                value={queueTier}
-                onChange={(e) => setQueueTier(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                {SUPPORT_TIER_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Assign to Team <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
-              </label>
-              <select
-                value={queueTeamId}
-                onChange={(e) => setQueueTeamId(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="">No Team (All Agents)</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Link to Brand <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
-              </label>
-              <select
-                value={queueBrandId}
-                onChange={(e) => setQueueBrandId(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="">All Brands</option>
-                {brandsList.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
+          {/* Modern Engine On/Off Switch */}
           <div
+            onClick={() => setQueueIsDefault(!queueIsDefault)}
             style={{
-              padding: '12px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-              border: '1px solid var(--border-subtle)',
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-lg, 10px)',
+              border: queueIsDefault ? '1.5px solid #10b981' : '1px solid var(--border-medium, #e2e8f0)',
+              backgroundColor: queueIsDefault ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-surface-elevated, #f8fafc)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '14px',
+              transition: 'all 0.2s ease',
+              boxShadow: queueIsDefault ? '0 2px 8px rgba(16,185,129,0.08)' : 'none',
             }}
           >
-            <label
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  backgroundColor: queueIsDefault ? '#dcfce7' : '#e2e8f0',
+                  color: queueIsDefault ? '#166534' : '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                {queueIsDefault ? <Zap size={16} color="#166534" /> : <Power size={16} color="#64748b" />}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: queueIsDefault ? '#047857' : 'var(--text-primary)' }}>
+                    {queueIsDefault ? 'Automated Intake Engine: ACTIVE' : 'Standby Mode'}
+                  </span>
+                  {queueIsDefault && (
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        backgroundColor: '#10b981',
+                        color: '#ffffff',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Default
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)' }}>
+                  {queueIsDefault
+                    ? 'Incoming unassigned tickets will automatically route through this queue.'
+                    : 'Click to enable this queue as the primary automated intake engine.'}
+                </span>
+              </div>
+            </div>
+
+            {/* Pill Switch */}
+            <div
               style={{
+                width: '40px',
+                height: '22px',
+                borderRadius: '11px',
+                backgroundColor: queueIsDefault ? '#10b981' : '#cbd5e1',
+                padding: '2px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                color: 'var(--text-primary)',
+                transition: 'background-color 0.2s ease',
+                flexShrink: 0,
               }}
             >
-              <input
-                type="checkbox"
-                checked={queueIsDefault}
-                onChange={(e) => setQueueIsDefault(e.target.checked)}
-                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+              <div
+                style={{
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                  transform: queueIsDefault ? 'translateX(18px)' : 'translateX(0px)',
+                  transition: 'transform 0.2s ease',
+                }}
               />
-              <span>Set as Default Queue (incoming unrouted tickets land here)</span>
-            </label>
+            </div>
           </div>
 
+          {queueIsDefault && queueProductId && queuesList.some((q: any) => q.isDefault && (q.productId === queueProductId || q.product?.id === queueProductId)) && (
+            <div
+              style={{
+                padding: '9px 12px',
+                borderRadius: 'var(--radius-md, 8px)',
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fde68a',
+                color: '#b45309',
+                fontSize: '11.5px',
+                lineHeight: 1.4,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+              }}
+            >
+              <span style={{ fontSize: '14px', flexShrink: 0 }}>⚠️</span>
+              <div>
+                <strong>Notice:</strong> Another queue (<strong>"{queuesList.find((q: any) => q.isDefault && (q.productId === queueProductId || q.product?.id === queueProductId))?.name}"</strong>) is currently the active default engine for this product. Saving will set this queue as default and put the existing one into standby.
+              </div>
+            </div>
+          )}
+
           <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}
+            style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}
           >
             <button
               type="button"
@@ -8250,23 +9061,218 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
           setIsEditQueueOpen(false);
           setEditingQueueId(null);
         }}
-        title="Edit Routing Queue"
+        title="Edit Automated Routing Queue"
       >
         <form
           onSubmit={handleUpdateQueue}
-          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}
         >
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-lg, 10px)',
+              backgroundColor: 'rgba(37, 99, 235, 0.05)',
+              border: '1px solid rgba(37, 99, 235, 0.18)',
+              color: 'var(--primary, #2563eb)',
+              fontSize: '12px',
+              lineHeight: 1.5,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+            }}
+          >
+            <span style={{ fontSize: '16px', flexShrink: 0 }}>⚡</span>
+            <div>
+              <strong>Automated L1 Intake:</strong> Incoming tickets will be automatically assigned to active <strong>L1 Tier Support Agents</strong> who have access to the selected product using the chosen machine algorithm.
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Queue Name <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={editQueueName}
+                onChange={(e) => setEditQueueName(e.target.value)}
+                placeholder="e.g. Primary ClaimBook Queue"
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                }}
+                required
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label
+                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
+              >
+                Target Product <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              </label>
+              <select
+                value={editQueueProductId}
+                onChange={(e) => setEditQueueProductId(e.target.value)}
+                className="form-control"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: !editQueueProductId ? '1.5px solid rgba(239, 68, 68, 0.5)' : '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '13px',
+                  backgroundColor: 'var(--bg-surface, #ffffff)',
+                }}
+                required
+              >
+                <option value="" disabled>-- Select a Product --</option>
+                {availableProducts.map((p) => {
+                  const isClaimBook = p.name?.toLowerCase().includes('claimbook');
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{isClaimBook ? ' (Recommended)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+
+          {/* Futuristic Algorithm Selector */}
+          <div>
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Routing Algorithm <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {/* Card 1: Least Loaded */}
+              <div
+                onClick={() => setEditQueueRouting('LEAST_LOADED')}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-lg, 10px)',
+                  border: editQueueRouting === 'LEAST_LOADED' ? '2px solid #10b981' : '1px solid var(--border-medium, #e2e8f0)',
+                  backgroundColor: editQueueRouting === 'LEAST_LOADED' ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-surface, #ffffff)',
+                  boxShadow: editQueueRouting === 'LEAST_LOADED' ? '0 0 0 1px #10b981, 0 3px 10px rgba(16, 185, 129, 0.12)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        backgroundColor: editQueueRouting === 'LEAST_LOADED' ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Zap size={14} color={editQueueRouting === 'LEAST_LOADED' ? '#059669' : '#64748b'} />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: editQueueRouting === 'LEAST_LOADED' ? '#047857' : 'var(--text-primary)' }}>
+                      Least Loaded
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: editQueueRouting === 'LEAST_LOADED' ? '5px solid #10b981' : '2px solid var(--border-medium, #cbd5e1)',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Smart Capacity
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
+                  Routes tickets dynamically to the active L1 agent with the lowest open ticket count.
+                </div>
+              </div>
+
+              {/* Card 2: Round Robin */}
+              <div
+                onClick={() => setEditQueueRouting('ROUND_ROBIN')}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-lg, 10px)',
+                  border: editQueueRouting === 'ROUND_ROBIN' ? '2px solid #2563eb' : '1px solid var(--border-medium, #e2e8f0)',
+                  backgroundColor: editQueueRouting === 'ROUND_ROBIN' ? 'rgba(37, 99, 235, 0.05)' : 'var(--bg-surface, #ffffff)',
+                  boxShadow: editQueueRouting === 'ROUND_ROBIN' ? '0 0 0 1px #2563eb, 0 3px 10px rgba(37, 99, 235, 0.12)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        backgroundColor: editQueueRouting === 'ROUND_ROBIN' ? 'rgba(37,99,235,0.15)' : 'rgba(100,116,139,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <RefreshCw size={14} color={editQueueRouting === 'ROUND_ROBIN' ? '#2563eb' : '#64748b'} />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: editQueueRouting === 'ROUND_ROBIN' ? '#1d4ed8' : 'var(--text-primary)' }}>
+                      Round Robin
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: editQueueRouting === 'ROUND_ROBIN' ? '5px solid #2563eb' : '2px solid var(--border-medium, #cbd5e1)',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Strict Rotation
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
+                  Distributes tickets in sequential circular order one-by-one across active L1 product agents.
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label
               style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
             >
-              Queue Name <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
+              Link to Brand <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
             </label>
-            <input
-              type="text"
-              value={editQueueName}
-              onChange={(e) => setEditQueueName(e.target.value)}
-              placeholder="e.g. Critical Billing Queue"
+            <select
+              value={editQueueBrandId}
+              onChange={(e) => setEditQueueBrandId(e.target.value)}
               className="form-control"
               style={{
                 width: '100%',
@@ -8275,150 +9281,130 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                 borderRadius: 'var(--radius-md)',
                 fontSize: '13px',
               }}
-              required
-              autoFocus
-            />
+            >
+              <option value="">All Brands</option>
+              {brandsList.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Routing Method <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 700 }}>*</span>
-              </label>
-              <select
-                value={editQueueRouting}
-                onChange={(e) => setEditQueueRouting(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="LEAST_LOADED">Least Loaded (Smart Capacity)</option>
-                <option value="ROUND_ROBIN">Round Robin (Strict Rotation)</option>
-                <option value="MANUAL">Manual Triage (Queue Hold)</option>
-              </select>
-            </div>
-
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Support Tier <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
-              </label>
-              <select
-                value={editQueueTier}
-                onChange={(e) => setEditQueueTier(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                {SUPPORT_TIER_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Assign to Team <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
-              </label>
-              <select
-                value={editQueueTeamId}
-                onChange={(e) => setEditQueueTeamId(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="">No Team (All Agents)</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label
-                style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
-              >
-                Link to Brand <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
-              </label>
-              <select
-                value={editQueueBrandId}
-                onChange={(e) => setEditQueueBrandId(e.target.value)}
-                className="form-control"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  border: '1px solid var(--border-medium)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="">All Brands</option>
-                {brandsList.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
+          {/* Modern Engine On/Off Switch */}
           <div
+            onClick={() => setEditQueueIsDefault(!editQueueIsDefault)}
             style={{
-              padding: '12px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
-              border: '1px solid var(--border-subtle)',
+              padding: '12px 14px',
+              borderRadius: 'var(--radius-lg, 10px)',
+              border: editQueueIsDefault ? '1.5px solid #10b981' : '1px solid var(--border-medium, #e2e8f0)',
+              backgroundColor: editQueueIsDefault ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-surface-elevated, #f8fafc)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '14px',
+              transition: 'all 0.2s ease',
+              boxShadow: editQueueIsDefault ? '0 2px 8px rgba(16,185,129,0.08)' : 'none',
             }}
           >
-            <label
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  backgroundColor: editQueueIsDefault ? '#dcfce7' : '#e2e8f0',
+                  color: editQueueIsDefault ? '#166534' : '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                {editQueueIsDefault ? <Zap size={16} color="#166534" /> : <Power size={16} color="#64748b" />}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: editQueueIsDefault ? '#047857' : 'var(--text-primary)' }}>
+                    {editQueueIsDefault ? 'Automated Intake Engine: ACTIVE' : 'Standby Mode'}
+                  </span>
+                  {editQueueIsDefault && (
+                    <span
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        backgroundColor: '#10b981',
+                        color: '#ffffff',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Default
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)' }}>
+                  {editQueueIsDefault
+                    ? 'Incoming unassigned tickets will automatically route through this queue.'
+                    : 'Click to enable this queue as the primary automated intake engine.'}
+                </span>
+              </div>
+            </div>
+
+            {/* Pill Switch */}
+            <div
               style={{
+                width: '40px',
+                height: '22px',
+                borderRadius: '11px',
+                backgroundColor: editQueueIsDefault ? '#10b981' : '#cbd5e1',
+                padding: '2px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                color: 'var(--text-primary)',
+                transition: 'background-color 0.2s ease',
+                flexShrink: 0,
               }}
             >
-              <input
-                type="checkbox"
-                checked={editQueueIsDefault}
-                onChange={(e) => setEditQueueIsDefault(e.target.checked)}
-                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+              <div
+                style={{
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                  transform: editQueueIsDefault ? 'translateX(18px)' : 'translateX(0px)',
+                  transition: 'transform 0.2s ease',
+                }}
               />
-              <span>Set as Default Queue (incoming unrouted tickets land here)</span>
-            </label>
+            </div>
           </div>
 
+          {editQueueIsDefault && editQueueProductId && queuesList.some((q: any) => q.id !== editingQueueId && q.isDefault && (q.productId === editQueueProductId || q.product?.id === editQueueProductId)) && (
+            <div
+              style={{
+                padding: '9px 12px',
+                borderRadius: 'var(--radius-md, 8px)',
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fde68a',
+                color: '#b45309',
+                fontSize: '11.5px',
+                lineHeight: 1.4,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+              }}
+            >
+              <span style={{ fontSize: '14px', flexShrink: 0 }}>⚠️</span>
+              <div>
+                <strong>Notice:</strong> Another queue (<strong>"{queuesList.find((q: any) => q.id !== editingQueueId && q.isDefault && (q.productId === editQueueProductId || q.product?.id === editQueueProductId))?.name}"</strong>) is currently the active default engine for this product. Saving will set this queue as default and put the existing one into standby.
+              </div>
+            </div>
+          )}
+
           <div
-            style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}
+            style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}
           >
             <button
               type="button"

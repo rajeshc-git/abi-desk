@@ -9,6 +9,7 @@ interface StaffUser {
   displayName?: string;
   email: string;
   roles?: Array<{ role: { name: string; key: string; tier?: string } }>;
+  products?: Array<{ product: { id: string; name: string; slug?: string } }>;
   teamMembers?: Array<{ team: { id: string; name: string; tier?: string } }>;
 }
 
@@ -16,6 +17,8 @@ interface Team {
   id: string;
   name: string;
   tier?: string;
+  productId?: string;
+  product?: { id: string; name: string };
   description?: string;
 }
 
@@ -24,6 +27,7 @@ interface AssignmentPopoverProps {
   currentAssignee?: { id: string; fullName?: string; email?: string } | null;
   currentTeam?: { id: string; name?: string } | null;
   currentTier?: string;
+  ticketProduct?: string | null;
   onAssigned?: (assignment: { assignee?: any; team?: any; status?: string }) => void;
   align?: 'left' | 'right' | 'auto';
 }
@@ -31,11 +35,11 @@ interface AssignmentPopoverProps {
 const normalizeTier = (tier?: string): string => {
   if (!tier) return '';
   const t = tier.trim().toUpperCase();
+  if (t.includes('DEVOPS')) return 'DEVOPS';
+  if (t.includes('DEV') && !t.includes('DEVOPS')) return 'DEV';
   if (t.includes('L1')) return 'L1';
   if (t.includes('L2')) return 'L2';
   if (t.includes('L3')) return 'L3';
-  if (t.includes('DEVOPS')) return 'DEVOPS';
-  if (t.includes('DEV')) return 'DEV';
   if (t.includes('QA')) return 'QA';
   return t;
 };
@@ -48,15 +52,25 @@ const userMatchesTier = (user: StaffUser, tier?: string): boolean => {
   if (Array.isArray(user.roles)) {
     const hasMatchingRole = user.roles.some((r) => {
       const roleTier = normalizeTier(r.role?.tier || '');
-      const roleKey = (r.role?.key || '').toUpperCase();
-      const roleName = (r.role?.name || '').toUpperCase();
+      const roleKey = (r.role?.key || (r as any).key || '').toUpperCase();
+      const roleName = (r.role?.name || (r as any).name || '').toUpperCase();
 
-      if (roleTier === norm) return true;
+      if (roleTier && roleTier === norm) return true;
       if (norm === 'L1' && (roleKey === 'L1_SUPPORT' || roleName.includes('L1'))) return true;
       if (norm === 'L2' && (roleKey === 'L2_SUPPORT' || roleName.includes('L2'))) return true;
       if (norm === 'L3' && (roleKey === 'L3_SUPPORT' || roleName.includes('L3'))) return true;
-      if (norm === 'DEV' && (roleKey === 'DEV_TEAM' || roleName.includes('DEV'))) return true;
-      if (norm === 'DEVOPS' && (roleKey === 'DEVOPS_TEAM' || roleName.includes('DEVOPS') || roleName.includes('INFRA'))) return true;
+      if (
+        norm === 'DEV' &&
+        (roleKey === 'DEV_TEAM' || (roleName.includes('DEV') && !roleName.includes('DEVOPS')))
+      ) {
+        return true;
+      }
+      if (
+        norm === 'DEVOPS' &&
+        (roleKey === 'DEVOPS_TEAM' || roleName.includes('DEVOPS') || roleName.includes('INFRA'))
+      ) {
+        return true;
+      }
       if (norm === 'QA' && (roleKey === 'QA_TEAM' || roleName.includes('QA'))) return true;
       return false;
     });
@@ -75,11 +89,65 @@ const userMatchesTier = (user: StaffUser, tier?: string): boolean => {
   return false;
 };
 
+const userMatchesProduct = (user: StaffUser, ticketProduct?: string | null): boolean => {
+  if (!ticketProduct) return true;
+  const prodTrim = (typeof ticketProduct === 'string' ? ticketProduct : (ticketProduct as any)?.name || '').trim().toLowerCase();
+  if (!prodTrim) return true;
+
+  // 1. Tenant Admins & Platform Admins have full access across all products
+  const isAdmin = user.roles?.some((r) => {
+    const key = (r.role?.key || '').toUpperCase();
+    const name = (r.role?.name || '').toUpperCase();
+    return (
+      key === 'TENANT_ADMIN' ||
+      key === 'PLATFORM_ADMIN' ||
+      key === 'SUPER_ADMIN' ||
+      key === 'ADMIN' ||
+      name.includes('ADMIN')
+    );
+  });
+  if (isAdmin) return true;
+
+  // 2. Check user's assigned products (strict exact match)
+  if (Array.isArray(user.products) && user.products.length > 0) {
+    const hasProduct = user.products.some((p) => {
+      const pName = (p.product?.name || '').trim().toLowerCase();
+      const pSlug = (p.product?.slug || '').trim().toLowerCase();
+      return pName === prodTrim || pSlug === prodTrim;
+    });
+    if (hasProduct) return true;
+  }
+
+  // 3. Check user's team product memberships (strict exact match)
+  if (Array.isArray(user.teamMembers) && user.teamMembers.length > 0) {
+    const hasTeamProduct = user.teamMembers.some((tm) => {
+      const teamProdName = ((tm.team as any)?.product?.name || '').trim().toLowerCase();
+      return teamProdName && teamProdName === prodTrim;
+    });
+    if (hasTeamProduct) return true;
+  }
+
+  return false;
+};
+
 const teamMatchesTier = (team: Team, tier?: string): boolean => {
   const norm = normalizeTier(tier);
   if (!norm) return true;
   const teamTier = normalizeTier(team.tier || team.name || '');
   return teamTier === norm;
+};
+
+const teamMatchesProduct = (team: Team, ticketProduct?: string | null): boolean => {
+  if (!ticketProduct) return true;
+  const prodTrim = (typeof ticketProduct === 'string' ? ticketProduct : (ticketProduct as any)?.name || '').trim().toLowerCase();
+  if (!prodTrim) return true;
+
+  if (team.product?.name) {
+    const pName = team.product.name.trim().toLowerCase();
+    return pName === prodTrim;
+  }
+
+  return true;
 };
 
 const getAgentRoleLabel = (user: StaffUser): string => {
@@ -90,11 +158,28 @@ const getAgentRoleLabel = (user: StaffUser): string => {
   return '';
 };
 
+const isUserTenantAdmin = (user: StaffUser): boolean => {
+  return Boolean(
+    user.roles?.some((r) => {
+      const key = (r.role?.key || (r as any).key || '').toUpperCase();
+      const name = (r.role?.name || (r as any).name || '').toUpperCase();
+      return (
+        key === 'TENANT_ADMIN' ||
+        key === 'PLATFORM_ADMIN' ||
+        key === 'SUPER_ADMIN' ||
+        key === 'ADMIN' ||
+        name.includes('TENANT ADMIN')
+      );
+    }),
+  );
+};
+
 export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
   ticketId,
   currentAssignee,
   currentTeam,
   currentTier,
+  ticketProduct,
   onAssigned,
   align = 'left',
 }) => {
@@ -120,7 +205,11 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
         ]);
 
         if (Array.isArray(usersRes)) {
-          setAgents(usersRes.filter((u: any) => u.kind === 'STAFF' && u.status === 'ACTIVE'));
+          setAgents(
+            usersRes.filter(
+              (u: any) => u.kind === 'STAFF' && u.status === 'ACTIVE' && !isUserTenantAdmin(u),
+            ),
+          );
         }
         if (Array.isArray(teamsRes)) {
           setTeams(teamsRes);
@@ -220,6 +309,9 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
   const filteredAgents = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     return agents.filter((a) => {
+      // Exclude Tenant Admins from ticket assignee popover list in all cases
+      if (isUserTenantAdmin(a)) return false;
+
       const matchesSearch =
         !q ||
         a.fullName?.toLowerCase().includes(q) ||
@@ -230,16 +322,22 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
             r.role?.name?.toLowerCase().includes(q) ||
             r.role?.key?.toLowerCase().includes(q) ||
             r.role?.tier?.toLowerCase().includes(q)
-        );
+        ) ||
+        a.products?.some((p) => p.product?.name?.toLowerCase().includes(q));
 
       if (!matchesSearch) return false;
+
+      // Product scoping: Only agents assigned to this ticket's product
+      if (ticketProduct && !userMatchesProduct(a, ticketProduct)) {
+        return false;
+      }
 
       if (filterByTier && normalizedCurrentTier) {
         return userMatchesTier(a, normalizedCurrentTier);
       }
       return true;
     });
-  }, [agents, searchQuery, filterByTier, normalizedCurrentTier]);
+  }, [agents, searchQuery, filterByTier, normalizedCurrentTier, ticketProduct]);
 
   const filteredTeams = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -252,17 +350,26 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
 
       if (!matchesSearch) return false;
 
+      // Product scoping: Only teams assigned to this ticket's product
+      if (ticketProduct && !teamMatchesProduct(t, ticketProduct)) {
+        return false;
+      }
+
       if (filterByTier && normalizedCurrentTier) {
         return teamMatchesTier(t, normalizedCurrentTier);
       }
       return true;
     });
-  }, [teams, searchQuery, filterByTier, normalizedCurrentTier]);
+  }, [teams, searchQuery, filterByTier, normalizedCurrentTier, ticketProduct]);
 
   const matchingTierAgentCount = useMemo(() => {
-    if (!normalizedCurrentTier) return agents.length;
-    return agents.filter((a) => userMatchesTier(a, normalizedCurrentTier)).length;
-  }, [agents, normalizedCurrentTier]);
+    let pool = agents.filter((a) => !isUserTenantAdmin(a));
+    if (ticketProduct) {
+      pool = pool.filter((a) => userMatchesProduct(a, ticketProduct));
+    }
+    if (!normalizedCurrentTier) return pool.length;
+    return pool.filter((a) => userMatchesTier(a, normalizedCurrentTier)).length;
+  }, [agents, normalizedCurrentTier, ticketProduct]);
 
   return (
     <div style={{ position: 'relative', display: 'inline-block' }} ref={popoverRef}>
@@ -617,16 +724,43 @@ export const AssignmentPopover: React.FC<AssignmentPopoverProps> = ({
                             )}
                           </div>
                           <div
-                            className="assignment-popover-subtext"
                             style={{
-                              fontSize: '11px',
-                              color: '#64748b',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '6px',
+                              marginTop: '1px',
                             }}
                           >
-                            {agent.email}
+                            <span
+                              className="assignment-popover-subtext"
+                              style={{
+                                fontSize: '11px',
+                                color: '#64748b',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {agent.email}
+                            </span>
+                            {Array.isArray(agent.products) && agent.products.length > 0 && (
+                              <span
+                                style={{
+                                  fontSize: '9.5px',
+                                  fontWeight: 600,
+                                  padding: '1px 4px',
+                                  borderRadius: '3px',
+                                  backgroundColor: '#f1f5f9',
+                                  color: '#475569',
+                                  border: '1px solid #e2e8f0',
+                                  whiteSpace: 'nowrap',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                📦 {agent.products.map((p) => p.product?.name || '').filter(Boolean).join(', ')}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

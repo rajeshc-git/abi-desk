@@ -121,8 +121,9 @@ export const CreateQueueSchema = z.object({
     .optional(),
   description: z.string().max(500).optional(),
   tier: SupportTierEnum.default('L1'),
-  brandId: z.string().uuid().optional(),
-  teamId: z.string().uuid().optional(),
+  brandId: z.string().uuid().nullable().optional(),
+  teamId: z.string().uuid().nullable().optional(),
+  productId: z.string().uuid().nullable().optional(),
   routing: z.enum(['MANUAL', 'ROUND_ROBIN', 'LEAST_LOADED']).default('LEAST_LOADED'),
   isDefault: z.boolean().default(false),
   isActive: z.boolean().default(true),
@@ -140,6 +141,7 @@ export const InviteUserSchema = z.object({
   email: z.string().email().max(320),
   roleId: z.string().uuid(),
   brandId: z.string().uuid().optional(),
+  productIds: z.array(z.string().uuid()).optional(),
   message: z.string().max(1000).optional(),
 });
 export type InviteUserDto = z.infer<typeof InviteUserSchema>;
@@ -150,6 +152,7 @@ export const UpdateUserAdminSchema = z.object({
   maxConcurrentTickets: z.number().int().min(1).max(100).nullable().optional(),
   roleId: z.string().uuid().optional(),
   brandId: z.string().uuid().nullable().optional(),
+  productIds: z.array(z.string().uuid()).optional(),
 });
 export type UpdateUserAdminDto = z.infer<typeof UpdateUserAdminSchema>;
 

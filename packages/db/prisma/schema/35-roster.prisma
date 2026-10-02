@@ -76,9 +76,11 @@ model Product {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  brand  Brand? @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  teams  Team[]
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  brand        Brand?        @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  teams        Team[]
+  userProducts UserProduct[]
+  queues       Queue[]
 
   @@unique([tenantId, slug])
   @@index([tenantId, brandId])

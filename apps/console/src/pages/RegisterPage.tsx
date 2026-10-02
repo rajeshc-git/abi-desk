@@ -39,6 +39,7 @@ export const RegisterPage: React.FC = () => {
     tenantName: string;
     roleName: string;
     brandName: string | null;
+    productNames?: string[];
   } | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
@@ -779,6 +780,27 @@ export const RegisterPage: React.FC = () => {
                       Role: 🔑 <strong>{invitationDetails.roleName}</strong>{' '}
                       {invitationDetails.brandName && `| Brand: 🏷️ ${invitationDetails.brandName}`}
                     </div>
+                    {Array.isArray(invitationDetails.productNames) && invitationDetails.productNames.length > 0 && (
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600 }}>Assigned Products:</span>
+                        {invitationDetails.productNames.map((pName: string) => (
+                          <span
+                            key={pName}
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              backgroundColor: '#eff6ff',
+                              color: '#2563eb',
+                              border: '1px solid #bfdbfe',
+                            }}
+                          >
+                            📦 {pName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div>

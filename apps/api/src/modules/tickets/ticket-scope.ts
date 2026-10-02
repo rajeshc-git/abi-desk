@@ -49,11 +49,44 @@ export function toPolicySubject(principal: AuthenticatedPrincipal): PolicySubjec
     permissions: principal.permissions,
     isPlatformAdmin: principal.isPlatformAdmin,
     brandId: principal.brandId ?? null,
+    productIds: principal.productIds,
+    productNames: principal.productNames,
     roles: principal.roles,
   };
 }
 
 /** Convenience: principal straight to a Prisma filter. */
 export function ticketFilterFor(principal: AuthenticatedPrincipal): Prisma.TicketWhereInput | null {
-  return ticketScopeFilter(resolveTicketScope(toPolicySubject(principal)));
+  const baseFilter = ticketScopeFilter(resolveTicketScope(toPolicySubject(principal)));
+  if (!baseFilter) return null;
+
+  // If the agent is assigned to specific products (and is not platform admin or tenant admin),
+  // restrict the tickets to those products OR tickets directly assigned to this agent
+  const isTenantAdmin = principal.roles?.includes('TENANT_ADMIN') || principal.isPlatformAdmin;
+  if (!isTenantAdmin && principal.productNames && principal.productNames.length > 0) {
+    const productFilters: Prisma.TicketWhereInput[] = principal.productNames.flatMap((pName) => [
+      { customFields: { path: ['product'], equals: pName } },
+      { customFields: { path: ['product'], equals: pName.toLowerCase() } },
+      { customFields: { path: ['product'], equals: pName.toUpperCase() } },
+    ]);
+
+    const teamProductFilter: Prisma.TicketWhereInput[] =
+      principal.productIds && principal.productIds.length > 0
+        ? [{ team: { productId: { in: [...principal.productIds] } } }]
+        : [];
+
+    return {
+      AND: [
+        baseFilter,
+        {
+          OR: [
+            ...productFilters,
+            ...teamProductFilter,
+          ],
+        },
+      ],
+    };
+  }
+
+  return baseFilter;
 }

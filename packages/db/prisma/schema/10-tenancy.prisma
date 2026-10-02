@@ -42,6 +42,7 @@ model Tenant {
   sequence TicketSequence?
 
   users              User[]
+  userProducts       UserProduct[]
   identities         UserIdentity[]
   sessions           Session[]
   invitations        Invitation[]

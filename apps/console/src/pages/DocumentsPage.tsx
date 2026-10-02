@@ -1719,6 +1719,12 @@ export const DocumentsPage: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
 
+  const isAdmin = Boolean(
+    user?.roles?.some((r: string) =>
+      ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(r.toUpperCase()),
+    ),
+  );
+
   // Loading States
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(true);
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
@@ -3333,7 +3339,7 @@ export const DocumentsPage: React.FC = () => {
                 </h1>
               </div>
               <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '2px 0 0', lineHeight: 1.4 }}>
-                Filter, customize, and export any permutation of tickets to Excel CSV, or upload and beautify CSV reports.
+                Filter, customize, and export ticket reports or CSV files.
               </p>
             </div>
           </div>
@@ -3626,27 +3632,29 @@ export const DocumentsPage: React.FC = () => {
               <RotateCw size={13} /> Reset Filters
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsReportModalOpen(true)}
-              className="btn btn-primary"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '12px',
-                fontWeight: 750,
-                height: '34px',
-                padding: '0 13px',
-                borderRadius: '7px',
-                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)',
-                whiteSpace: 'nowrap',
-              }}
-              title="Open Detailed Team & Agent Performance Reports"
-            >
-              <BarChart3 size={14} />
-              Performance Reports
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsReportModalOpen(true)}
+                className="btn btn-primary"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  fontWeight: 750,
+                  height: '34px',
+                  padding: '0 13px',
+                  borderRadius: '7px',
+                  boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Open Detailed Team & Agent Performance Reports"
+              >
+                <BarChart3 size={14} />
+                Performance Reports
+              </button>
+            )}
           </div>
         </div>
 
@@ -4564,17 +4572,34 @@ export const DocumentsPage: React.FC = () => {
                   type="button"
                   onClick={handleLoadCurrentPermutationIntoViewer}
                   disabled={isLoadingViewerData}
-                  className="btn btn-secondary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 650 }}
+                  className="btn btn-primary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    height: '34px',
+                    padding: '0 13px',
+                    background: 'var(--primary, #2563eb)',
+                    color: '#ffffff',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.28)',
+                    cursor: isLoadingViewerData ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
                 >
                   {isLoadingViewerData ? (
-                    <RefreshCw size={14} className="spin-animation" style={{ color: 'var(--primary, #2563eb)' }} />
+                    <RefreshCw size={14} className="spin-animation" style={{ color: '#ffffff' }} />
                   ) : (
-                    <Sparkles size={14} style={{ color: 'var(--primary, #2563eb)' }} />
+                    <Sparkles size={14} style={{ color: '#ffffff' }} />
                   )}
-                  {isLoadingViewerData && loadingProgress
-                    ? `Loading (${loadingProgress.loaded.toLocaleString()}/${loadingProgress.total.toLocaleString()})...`
-                    : `Load Current CSV (${totalMatchCount.toLocaleString()})`}
+                  <span>
+                    {isLoadingViewerData && loadingProgress
+                      ? `Loading (${loadingProgress.loaded.toLocaleString()}/${loadingProgress.total.toLocaleString()})...`
+                      : `Load Current CSV (${totalMatchCount.toLocaleString()})`}
+                  </span>
                 </button>
 
                 <button
@@ -5306,11 +5331,13 @@ export const DocumentsPage: React.FC = () => {
           </div>
         )}
 
-        {/* Full-Width Performance & Productivity Reports Modal */}
-        <PerformanceReportsModal
-          isOpen={isReportModalOpen}
-          onClose={() => setIsReportModalOpen(false)}
-        />
+        {/* Full-Width Performance & Productivity Reports Modal - Restricted to Admins */}
+        {isAdmin && (
+          <PerformanceReportsModal
+            isOpen={isReportModalOpen}
+            onClose={() => setIsReportModalOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

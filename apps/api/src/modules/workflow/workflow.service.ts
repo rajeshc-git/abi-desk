@@ -347,7 +347,7 @@ export class WorkflowService {
     const candidates = await this.loadTransitions(this.prisma.client, tenantId, ticket.status);
     const match = candidates.find((transition) => transition.targetTier === targetTier);
 
-    if (match) {
+    if (match && match.toStatus !== ticket.status) {
       return this.transition(principal, ticketId, {
         toStatus: match.toStatus,
         comment: dto.reason,
@@ -355,13 +355,15 @@ export class WorkflowService {
     }
 
     // 2. Flexible Zoho Desk-style fallback: determine the standard status for the target tier
-    let targetStatus: TicketStatus = 'OPEN';
-    if (targetTier === 'L2') targetStatus = 'ESCALATED_L2';
-    else if (targetTier === 'L3') targetStatus = 'ESCALATED_L3';
-    else if (targetTier === 'DEV') targetStatus = 'IN_DEVELOPMENT';
-    else if (targetTier === 'DEVOPS') targetStatus = 'IN_DEVELOPMENT';
-    else if (targetTier === 'QA') targetStatus = 'IN_QA';
-    else if (targetTier === 'L1') targetStatus = 'OPEN';
+    let targetStatus: TicketStatus = match?.toStatus || ticket.status;
+    if (!match) {
+      if (targetTier === 'L2') targetStatus = 'ESCALATED_L2';
+      else if (targetTier === 'L3') targetStatus = 'ESCALATED_L3';
+      else if (targetTier === 'DEV') targetStatus = 'IN_DEVELOPMENT';
+      else if (targetTier === 'DEVOPS') targetStatus = 'IN_DEVELOPMENT';
+      else if (targetTier === 'QA') targetStatus = 'IN_QA';
+      else if (targetTier === 'L1') targetStatus = 'OPEN';
+    }
 
     // Verify caller has permission to reassign/escalate/update tickets
     if (
@@ -377,7 +379,7 @@ export class WorkflowService {
 
     const result = await this.prisma.run(async (tx) => {
       const syntheticTransition: WorkflowTransition = {
-        id: 'synthetic-tier-change',
+        id: match?.id || 'synthetic-tier-change',
         tenantId: null,
         fromStatus: ticket.status,
         toStatus: targetStatus,
@@ -385,9 +387,9 @@ export class WorkflowService {
         requiredTier: null,
         requiredPermission: 'ticket:escalate',
         requiresComment: true,
-        requiresApproval: false,
-        approverRoleKey: null,
-        approvalMode: 'ANY',
+        requiresApproval: match?.requiresApproval || false,
+        approverRoleKey: match?.approverRoleKey || null,
+        approvalMode: match?.approvalMode || 'ANY',
         isTerminal: false,
         label: `Transfer to ${targetTier}`,
         sortOrder: 0,

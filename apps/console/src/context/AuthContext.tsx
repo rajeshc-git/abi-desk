@@ -12,6 +12,8 @@ export interface UserSession {
   tenantId: string;
   tenantName?: string;
   permissions?: string[];
+  products?: string[];
+  productIds?: string[];
   preferences?: {
     themeColor?: string | null;
     docCenterPresets?: any[];
@@ -108,6 +110,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             tenantId: data.tenantId || prev?.tenantId || '',
             tenantName: validTenantName,
             permissions: data.permissions || data.user.permissions || prev?.permissions || [],
+            products: data.user.products || data.productNames || prev?.products || [],
+            productIds: data.user.productIds || data.productIds || prev?.productIds || [],
             preferences:
               data.user.preferences && Object.keys(data.user.preferences).length > 0
                 ? data.user.preferences
@@ -136,11 +140,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ApiClient.setRefreshToken(urlRefresh);
 
           const res = await ApiClient.get<{
-            user: { id: string; email: string; fullName: string; avatarUrl?: string; kind: 'STAFF' | 'CUSTOMER' };
+            user: {
+              id: string;
+              email: string;
+              fullName: string;
+              avatarUrl?: string;
+              kind: 'STAFF' | 'CUSTOMER';
+              products?: string[];
+              productIds?: string[];
+            };
             roles: string[];
             tenantId: string;
             tenantName?: string;
             permissions?: string[];
+            productNames?: string[];
+            productIds?: string[];
           }>('/auth/me');
 
           const session: UserSession = {
@@ -153,6 +167,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             tenantId: res.tenantId,
             tenantName: res.tenantName,
             permissions: res.permissions,
+            products: res.user.products || res.productNames || [],
+            productIds: res.user.productIds || res.productIds || [],
           };
 
           ApiClient.setAuth(urlToken, session.tenantId);
@@ -187,12 +203,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fullName: string;
           avatarUrl?: string;
           kind: 'STAFF' | 'CUSTOMER';
+          products?: string[];
+          productIds?: string[];
           preferences?: { themeColor?: string | null };
         };
         roles: string[];
         tenantId: string;
         tenantName?: string;
         permissions: string[];
+        productNames?: string[];
+        productIds?: string[];
       }>('/auth/me')
         .then((meRes) => {
           setUser((prev) => {
@@ -201,8 +221,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...prev,
               fullName: meRes.user.fullName,
               avatarUrl: meRes.user.avatarUrl,
+              tenantName: meRes.tenantName || prev.tenantName,
               permissions: meRes.permissions,
               preferences: meRes.user.preferences,
+              products: meRes.user.products || meRes.productNames || prev.products || [],
+              productIds: meRes.user.productIds || meRes.productIds || prev.productIds || [],
             };
             localStorage.setItem('abidesk_user', JSON.stringify(updated));
             return updated;
@@ -291,12 +314,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             fullName: string;
             avatarUrl?: string;
             kind: 'STAFF' | 'CUSTOMER';
+            products?: string[];
+            productIds?: string[];
             preferences?: { themeColor?: string | null };
           };
           roles: string[];
           tenantId: string;
           tenantName?: string;
           permissions: string[];
+          productNames?: string[];
+          productIds?: string[];
         }>('/auth/me');
 
         const session: UserSession = {
@@ -310,6 +337,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenantName: meRes.tenantName,
           permissions: meRes.permissions,
           preferences: meRes.user.preferences,
+          products: meRes.user.products || meRes.productNames || [],
+          productIds: meRes.user.productIds || meRes.productIds || [],
         };
         setUser(session);
         localStorage.setItem('abidesk_user', JSON.stringify(session));
@@ -328,6 +357,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenantId: res.tenantId,
           tenantName: res.tenantName,
           permissions: res.permissions,
+          products: (res.user as any).products || (res as any).productNames || [],
+          productIds: (res.user as any).productIds || (res as any).productIds || [],
         };
         setUser(session);
         localStorage.setItem('abidesk_user', JSON.stringify(session));
@@ -522,12 +553,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fullName: string;
           avatarUrl?: string;
           kind: 'STAFF' | 'CUSTOMER';
+          products?: string[];
+          productIds?: string[];
           preferences?: { themeColor?: string | null };
         };
         roles: string[];
         tenantId: string;
         tenantName?: string;
         permissions: string[];
+        productNames?: string[];
+        productIds?: string[];
       }>('/auth/me');
 
       setUser((prev) => {
@@ -539,6 +574,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenantName: meRes.tenantName || prev.tenantName,
           permissions: meRes.permissions,
           preferences: meRes.user.preferences,
+          products: meRes.user.products || meRes.productNames || prev.products || [],
+          productIds: meRes.user.productIds || meRes.productIds || prev.productIds || [],
         };
         localStorage.setItem('abidesk_user', JSON.stringify(updated));
         return updated;
