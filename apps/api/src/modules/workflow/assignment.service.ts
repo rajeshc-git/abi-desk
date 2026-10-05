@@ -452,12 +452,8 @@ export class AssignmentService {
         subject = `[Ticket #${ticket.number}] Reopened: ${ticket.subject}`;
         title = 'Ticket Reopened';
         message = `Your ticket <strong>#${ticket.number}</strong> has been reopened and placed back in the active support queue.`;
-      } else if (toStatus === 'ON_HOLD') {
-        subject = `[Ticket #${ticket.number}] On Hold: ${ticket.subject}`;
-        title = 'Ticket On Hold';
-        message = `Your ticket <strong>#${ticket.number}</strong> has been placed on hold while our team coordinates next steps.`;
-      } else if (toStatus.startsWith('ESCALATED') || toStatus.startsWith('IN_DEV') || toStatus === 'IN_QA') {
-        // Escalations, In Dev, and In QA are internal workflow states - skip customer outbound email
+      } else if (toStatus === 'ON_HOLD' || toStatus.startsWith('ESCALATED') || toStatus.startsWith('IN_DEV') || toStatus === 'IN_QA') {
+        // On Hold, Escalations, In Dev, and In QA are internal workflow states - skip customer outbound email
         return;
       }
 

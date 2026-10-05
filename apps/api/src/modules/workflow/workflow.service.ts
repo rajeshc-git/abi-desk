@@ -780,9 +780,9 @@ export class WorkflowService {
     toStatus: TicketStatus,
     comment?: string,
   ) {
-    // Send email ONLY for customer-facing status changes (Resolved, Closed, Awaiting Customer, Reopened, On Hold)
-    // Internal workflow escalations (ESCALATED_L2, ESCALATED_L3, IN_DEVELOPMENT, IN_QA) NEVER send customer emails
-    if (!['RESOLVED', 'CLOSED', 'AWAITING_CUSTOMER_CONFIRMATION', 'PENDING_CUSTOMER', 'REOPENED', 'ON_HOLD'].includes(toStatus)) {
+    // Send email ONLY for customer-facing status changes (Resolved, Closed, Awaiting Customer, Reopened)
+    // Internal workflow escalations (ESCALATED_L2, ESCALATED_L3, IN_DEVELOPMENT, IN_QA, ON_HOLD) NEVER send customer emails
+    if (!['RESOLVED', 'CLOSED', 'AWAITING_CUSTOMER_CONFIRMATION', 'PENDING_CUSTOMER', 'REOPENED'].includes(toStatus)) {
       return;
     }
 
@@ -819,12 +819,8 @@ export class WorkflowService {
         subject = `[Ticket #${ticket.number}] Reopened: ${ticket.subject}`;
         title = 'Ticket Reopened';
         message = `Your ticket <strong>#${ticket.number}</strong> has been reopened and placed back in the active support queue.`;
-      } else if (toStatus === 'ON_HOLD') {
-        subject = `[Ticket #${ticket.number}] On Hold: ${ticket.subject}`;
-        title = 'Ticket On Hold';
-        message = `Your ticket <strong>#${ticket.number}</strong> has been placed on hold while our team coordinates next steps.`;
-      } else if (toStatus.startsWith('ESCALATED') || toStatus.startsWith('IN_DEV') || toStatus === 'IN_QA') {
-        // Internal escalation states are strictly internal - never send customer email
+      } else if (toStatus === 'ON_HOLD' || toStatus.startsWith('ESCALATED') || toStatus.startsWith('IN_DEV') || toStatus === 'IN_QA') {
+        // On Hold and internal escalation states are strictly internal - never send customer email
         return;
       }
 

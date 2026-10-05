@@ -30,6 +30,23 @@ export const ALL_STATUSES: StatusOption[] = [
   { value: 'CANCELLED', label: 'Cancelled', color: '#ef4444', category: 'closed' },
 ];
 
+export const NOTE_REQUIRED_STATUSES: string[] = [
+  'PENDING_CUSTOMER',
+  'ON_HOLD',
+  'CANCELLED',
+  'RESOLVED',
+  'CLOSED',
+  'REOPENED',
+  'ESCALATED_L2',
+  'ESCALATED_L3',
+  'IN_DEVELOPMENT',
+  'IN_QA',
+  'PENDING_RELEASE',
+  'RELEASED',
+  'PENDING_VERIFICATION',
+  'AWAITING_CUSTOMER_CONFIRMATION',
+];
+
 export const getStatusMeta = (status: string): StatusOption => {
   const found = ALL_STATUSES.find((s) => s.value === status);
   if (found) return found;

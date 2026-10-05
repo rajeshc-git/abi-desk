@@ -33,8 +33,10 @@ import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { TicketCard, TicketSummary } from '../components/tickets/TicketCard';
 import { CreateTicketModal } from '../components/tickets/CreateTicketModal';
 import { MergeTicketsModal } from '../components/tickets/MergeTicketsModal';
-import { StatusPopover } from '../components/tickets/StatusPopover';
+import { StatusPopover, NOTE_REQUIRED_STATUSES } from '../components/tickets/StatusPopover';
 import { PriorityPopover } from '../components/tickets/PriorityPopover';
+import { TierPopover } from '../components/tickets/TierPopover';
+import { TransferTierModal } from '../components/tickets/TransferTierModal';
 import { StatusTransitionModal } from '../components/tickets/StatusTransitionModal';
 import { TicketTagManager } from '../components/tickets/TicketTagManager';
 import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
@@ -373,6 +375,7 @@ export const InboxPage: React.FC = () => {
     toStatus: string;
     requiresComment?: boolean;
   } | null>(null);
+  const [pendingTier, setPendingTier] = useState<string | null>(null);
   const [unreadTicketIds, setUnreadTicketIds] = useState<Set<string>>(() => {
     try {
       const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
@@ -920,12 +923,34 @@ export const InboxPage: React.FC = () => {
 
   const handleQuickStatusChange = async (newStatus: string) => {
     if (!selectedTicket || newStatus === selectedTicket.status) return;
-    const requiresComment = ['PENDING_CUSTOMER', 'ON_HOLD', 'CANCELLED'].includes(newStatus);
+    const requiresComment = NOTE_REQUIRED_STATUSES.includes(newStatus);
     if (requiresComment) {
       setPendingStatusTransition({ toStatus: newStatus, requiresComment });
       return;
     }
     await executeStatusTransition(newStatus);
+  };
+
+  const handleTierEscalate = (newTier: string) => {
+    if (!selectedTicket || newTier === selectedTicket.tier) return;
+    setPendingTier(newTier);
+  };
+
+  const handleConfirmTierTransfer = async (reason: string) => {
+    if (!selectedTicket || !pendingTier) return;
+    try {
+      await ApiClient.post(`/tickets/${selectedTicket.id}/escalate`, { toTier: pendingTier, reason });
+      setSelectedTicket((prev: any) => ({ ...prev, tier: pendingTier }));
+      setTickets((prev) =>
+        prev.map((t) => (t.id === selectedTicket.id ? { ...t, tier: pendingTier } : t))
+      );
+      toast.success(`Ticket #${selectedTicket.number} successfully moved to tier ${pendingTier}!`);
+      setPendingTier(null);
+      loadTickets();
+    } catch (err: any) {
+      toast.error(`Tier transfer failed: ${err.message}`);
+      throw err;
+    }
   };
 
   const executeStatusTransition = async (newStatus: string, comment?: string) => {
@@ -1307,7 +1332,11 @@ export const InboxPage: React.FC = () => {
               <span className="ticket-id-badge">
                 #{selectedTicket.number}
               </span>
-              <TierBadge tier={selectedTicket.tier} />
+              <TierPopover
+                tier={selectedTicket.tier}
+                onTierSelect={handleTierEscalate}
+                align="left"
+              />
               <StatusPopover
                 status={selectedTicket.status}
                 onStatusChange={handleQuickStatusChange}
@@ -2544,6 +2573,18 @@ export const InboxPage: React.FC = () => {
           requiresComment={pendingStatusTransition?.requiresComment}
           onClose={() => setPendingStatusTransition(null)}
           onConfirm={(comment) => executeStatusTransition(pendingStatusTransition!.toStatus, comment)}
+        />
+      )}
+
+      {/* Transfer Tier Modal */}
+      {selectedTicket && (
+        <TransferTierModal
+          isOpen={!!pendingTier}
+          ticketNumber={String(selectedTicket.number)}
+          fromTier={selectedTicket.tier}
+          toTier={pendingTier || ''}
+          onClose={() => setPendingTier(null)}
+          onConfirm={handleConfirmTierTransfer}
         />
       )}
 

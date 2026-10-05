@@ -34,7 +34,7 @@ import { TicketCategoryManager } from '../components/tickets/TicketCategoryManag
 import { OrganizationProductManager } from '../components/tickets/OrganizationProductManager';
 import { TicketRcaCapaManager } from '../components/tickets/TicketRcaCapaManager';
 import { AssignmentPopover } from '../components/tickets/AssignmentPopover';
-import { StatusPopover } from '../components/tickets/StatusPopover';
+import { StatusPopover, NOTE_REQUIRED_STATUSES } from '../components/tickets/StatusPopover';
 import { PriorityPopover } from '../components/tickets/PriorityPopover';
 import { TierPopover } from '../components/tickets/TierPopover';
 import { TransferTierModal } from '../components/tickets/TransferTierModal';
@@ -288,7 +288,7 @@ export const TicketDetailPage: React.FC = () => {
     const transition = availableTransitions.find((t: any) => t.toStatus === newStatus);
     const requiresComment =
       Boolean(transition?.requiresComment) ||
-      ['PENDING_CUSTOMER', 'ON_HOLD', 'CANCELLED'].includes(newStatus);
+      NOTE_REQUIRED_STATUSES.includes(newStatus);
 
     if (requiresComment) {
       setPendingStatusTransition({ toStatus: newStatus, requiresComment });

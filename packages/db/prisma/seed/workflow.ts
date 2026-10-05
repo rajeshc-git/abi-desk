@@ -58,6 +58,14 @@ const TRANSITIONS: TransitionSeed[] = [
     sortOrder: 900,
   },
   {
+    fromStatus: 'NEW',
+    toStatus: 'RESOLVED',
+    requiredPermission: 'ticket:close',
+    label: 'Resolve',
+    requiresComment: true,
+    sortOrder: 850,
+  },
+  {
     fromStatus: 'TRIAGE',
     toStatus: 'OPEN',
     requiredPermission: 'ticket:update:tenant',
