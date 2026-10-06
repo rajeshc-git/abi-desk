@@ -52,7 +52,14 @@ export class WidgetUI {
   private attachedMedia: UploadResult[] = [];
   private currentConversationId: string | null = null;
   private isConversationClosed = false;
+  private knownChatMessageIds = new Set<string>();
   private static urlCache = new Map<string, { url: string; expiresAt: number }>();
+
+  // Real-time Ticket Detail Polling State
+  private ticketPollTimer: ReturnType<typeof setInterval> | null = null;
+  private currentViewingTicketId: string | null = null;
+  private lastTicketTimelineCount = 0;
+  private lastTicketStatus = '';
 
   // Form draft persistence state (preserves inputs across screenshots, recordings, tab changes, attachments)
   private ticketDraft = {
@@ -192,8 +199,31 @@ export class WidgetUI {
       <div class="abi-modal-panel ${this.config.position} ${this.isOpen ? 'open' : ''}" id="abi-panel">
         <div class="abi-header">
           <div class="abi-header-title">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <svg width="20" height="20" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0;">
+              <defs>
+                <linearGradient id="abiRed" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#ef4444" />
+                  <stop offset="100%" stop-color="#dc2626" />
+                </linearGradient>
+                <linearGradient id="abiBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#3b82f6" />
+                  <stop offset="100%" stop-color="#1d4ed8" />
+                </linearGradient>
+                <linearGradient id="abiGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#10b981" />
+                  <stop offset="100%" stop-color="#047857" />
+                </linearGradient>
+                <linearGradient id="abiYellow" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#f59e0b" />
+                  <stop offset="100%" stop-color="#d97706" />
+                </linearGradient>
+              </defs>
+              <rect x="4" y="6" width="18" height="18" rx="5" fill="url(#abiRed)" />
+              <rect x="26" y="6" width="18" height="18" rx="5" fill="url(#abiGreen)" />
+              <rect x="4" y="26" width="18" height="18" rx="5" fill="url(#abiBlue)" />
+              <rect x="26" y="26" width="18" height="18" rx="5" fill="url(#abiYellow)" />
+              <circle cx="24" cy="24" r="9" fill="#ffffff" />
+              <path d="M19.5 24L22.5 27L28.5 21" stroke="var(--abi-primary, #2563eb)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             ${this.config.brandName}
           </div>
@@ -244,6 +274,18 @@ export class WidgetUI {
     `;
 
     this.bindEvents();
+
+    if (this.isOpen && isVerified) {
+      if (this.activeTab === 'chat') {
+        this.initChatSocket();
+      } else if (this.activeTab === 'tickets') {
+        if (this.currentViewingTicketId) {
+          this.loadTicketDetail(this.currentViewingTicketId);
+        } else {
+          this.loadMyTickets();
+        }
+      }
+    }
   }
 
   private renderTabContent(): string {
@@ -462,6 +504,9 @@ export class WidgetUI {
   }
 
   private async loadMyTickets() {
+    this.stopTicketPolling();
+    this.currentViewingTicketId = null;
+
     const container = this.shadow.querySelector('#abi-my-tickets-container');
     if (!container) return;
 
@@ -603,9 +648,342 @@ export class WidgetUI {
     }
   }
 
+  private renderTimelineItemsHtml(timelineItems: any[]): string {
+    if (timelineItems.length === 0) {
+      return `<p style="font-size: 12px; color: var(--abi-text-muted); text-align: center;">No activity yet.</p>`;
+    }
+
+    return timelineItems
+      .map((event: any) => {
+        if (event.type !== 'COMMENT') {
+          return this.renderTimelineMilestone(event);
+        }
+
+        if (event.visibility === 'INTERNAL') {
+          return '';
+        }
+
+        const body = event.body || '';
+
+        // Chat transcript comments render directly as parsed bubbles (no outer wrapper)
+        if (
+          body.includes('### Chat Transcript') ||
+          body.includes('Chat Transcript (')
+        ) {
+          return `
+            <div style="width: 100%; margin-bottom: 12px;">
+              ${this.formatChatTranscript(body)}
+            </div>
+          `;
+        }
+
+        const isCustomer = event.actor?.kind === 'CUSTOMER';
+        const actorName =
+          event.actor?.fullName ||
+          event.actorName ||
+          (isCustomer ? 'You' : 'Support Agent');
+        const initials = actorName.charAt(0).toUpperCase() || 'S';
+
+        return `
+          <div class="abi-chat-bubble-container" style="
+            align-self: ${isCustomer ? 'flex-end' : 'flex-start'};
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 12px;
+            width: 100%;
+            max-width: 90%;
+            margin-${isCustomer ? 'left' : 'right'}: auto;
+          ">
+            <div style="
+              display: flex;
+              gap: 8px;
+              flex-direction: ${isCustomer ? 'row-reverse' : 'row'};
+              align-items: flex-end;
+            ">
+              <div style="
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 9px;
+                font-weight: 700;
+                color: #ffffff;
+                flex-shrink: 0;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                background: ${isCustomer ? 'linear-gradient(135deg, #64748b, #475569)' : 'linear-gradient(135deg, var(--abi-primary), var(--abi-primary-hover))'};
+              ">
+                ${initials}
+              </div>
+              <div class="abi-chat-msg ${isCustomer ? 'customer' : 'agent'}" style="
+                border-radius: ${isCustomer ? '18px 18px 4px 18px' : '18px 18px 18px 4px'};
+                max-width: 85%;
+                text-align: left;
+              ">
+                ${this.formatCommentBody(body)}
+                ${
+                  event.attachments && event.attachments.length > 0
+                    ? `
+                  <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed ${isCustomer ? 'rgba(255,255,255,0.3)' : 'var(--abi-border)'}; padding-top: 8px; width: 100%;">
+                    ${event.attachments
+                      .map(
+                        (att: any) => `
+                      <div class="abi-media-container" data-media-id="${att.id}" data-filename="${this.escapeHtml(att.originalFilename)}" data-mime-type="${this.escapeHtml(att.mimeType)}" data-is-customer="${isCustomer ? 'true' : 'false'}" style="width: 100%;">
+                        <button class="abi-attachment-btn" data-media-id="${att.id}" style="
+                          display: inline-flex;
+                          align-items: center;
+                          gap: 6px;
+                          padding: 4px 8px;
+                          border: 1px solid ${isCustomer ? 'rgba(255,255,255,0.2)' : 'var(--abi-border)'};
+                          border-radius: 4px;
+                          background: ${isCustomer ? 'rgba(255,255,255,0.1)' : 'var(--abi-surface-alt, #f8fafc)'};
+                          font-size: 11px;
+                          color: ${isCustomer ? '#ffffff' : 'var(--abi-text-main)'};
+                          cursor: pointer;
+                          font-family: inherit;
+                          width: fit-content;
+                        ">
+                          <span>📎</span>
+                          <span style="text-decoration: underline;">${this.escapeHtml(att.originalFilename)}</span>
+                        </button>
+                      </div>
+                    `,
+                      )
+                      .join('')}
+                  </div>
+                `
+                    : ''
+                }
+              </div>
+            </div>
+            <div class="abi-chat-msg-meta" style="
+              align-self: ${isCustomer ? 'flex-end' : 'flex-start'};
+              padding-left: ${isCustomer ? '0' : '32px'};
+              padding-right: ${isCustomer ? '32px' : '0'};
+            ">
+              ${this.escapeHtml(actorName)} · ${this.timeAgo(event.createdAt)}
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  private bindAttachmentButtons(container: Element) {
+    container.querySelectorAll('.abi-attachment-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const mediaId = btn.getAttribute('data-media-id');
+        if (!mediaId) return;
+        try {
+          const headers = this.getHeaders();
+          const res = await fetch(`${this.config.apiUrl}/api/v1/media/${mediaId}/download`, {
+            method: 'POST',
+            headers,
+          });
+          if (!res.ok) throw new Error();
+          const { url } = await res.json();
+          window.open(url, '_blank');
+        } catch {
+          alert('Failed to download file. Please try again.');
+        }
+      });
+    });
+  }
+
+  private bindConfirmationButtons(container: Element, ticketId: string, headers: any) {
+    const confirmBtn = container.querySelector('#abi-btn-confirm-resolve');
+    const reopenBtn = container.querySelector('#abi-btn-reopen-ticket');
+
+    confirmBtn?.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to mark this ticket as resolved and close it?'))
+        return;
+      try {
+        (confirmBtn as HTMLButtonElement).textContent = 'Processing...';
+        (confirmBtn as HTMLButtonElement).disabled = true;
+        if (reopenBtn) (reopenBtn as HTMLButtonElement).disabled = true;
+
+        const res = await fetch(`${this.config.apiUrl}/api/v1/tickets/${ticketId}/confirm`, {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ confirmed: true }),
+        });
+
+        if (!res.ok) throw new Error();
+
+        // Reload ticket detail
+        this.loadTicketDetail(ticketId);
+      } catch {
+        alert('Failed to confirm resolution. Please try again.');
+        (confirmBtn as HTMLButtonElement).textContent = 'Yes, Close Ticket';
+        (confirmBtn as HTMLButtonElement).disabled = false;
+        if (reopenBtn) (reopenBtn as HTMLButtonElement).disabled = false;
+      }
+    });
+
+    reopenBtn?.addEventListener('click', async () => {
+      const comment = prompt('Please enter a reason for reopening this ticket:');
+      if (comment === null) return; // User cancelled
+      const trimmedComment = comment.trim();
+      if (!trimmedComment) {
+        alert('A comment is required to reopen the ticket.');
+        return;
+      }
+
+      try {
+        (reopenBtn as HTMLButtonElement).textContent = 'Reopening...';
+        (reopenBtn as HTMLButtonElement).disabled = true;
+        if (confirmBtn) (confirmBtn as HTMLButtonElement).disabled = true;
+
+        const res = await fetch(`${this.config.apiUrl}/api/v1/tickets/${ticketId}/confirm`, {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ confirmed: false, comment: trimmedComment }),
+        });
+
+        if (!res.ok) throw new Error();
+
+        // Reload ticket detail
+        this.loadTicketDetail(ticketId);
+      } catch {
+        alert('Failed to reopen ticket. Please try again.');
+        (reopenBtn as HTMLButtonElement).textContent = 'No, Reopen';
+        (reopenBtn as HTMLButtonElement).disabled = false;
+        if (confirmBtn) (confirmBtn as HTMLButtonElement).disabled = false;
+      }
+    });
+  }
+
+  private startTicketPolling(ticketId: string) {
+    this.stopTicketPolling();
+
+    this.ticketPollTimer = setInterval(async () => {
+      if (
+        !this.isOpen ||
+        this.activeTab !== 'tickets' ||
+        this.currentViewingTicketId !== ticketId
+      ) {
+        return;
+      }
+
+      const headers = this.getHeaders();
+      try {
+        const [ticketRes, timelineRes] = await Promise.all([
+          fetch(`${this.config.apiUrl}/api/v1/tickets/${ticketId}`, { headers }),
+          fetch(`${this.config.apiUrl}/api/v1/tickets/${ticketId}/timeline`, { headers }),
+        ]);
+
+        if (!ticketRes.ok || !timelineRes.ok) return;
+
+        const ticket = await ticketRes.json();
+        const timeline = await timelineRes.json();
+        const timelineItems = Array.isArray(timeline)
+          ? timeline
+          : timeline.events || timeline.data || [];
+
+        const hasStatusChanged = ticket.status !== this.lastTicketStatus;
+        const hasTimelineChanged = timelineItems.length !== this.lastTicketTimelineCount;
+
+        if (hasStatusChanged || hasTimelineChanged) {
+          this.lastTicketStatus = ticket.status;
+          this.lastTicketTimelineCount = timelineItems.length;
+
+          // Update Status Badge if changed
+          const statusBadge = this.shadow.querySelector('#abi-ticket-status-badge') as HTMLElement | null;
+          if (statusBadge) {
+            const statusColor = this.getStatusColor(ticket.status);
+            statusBadge.textContent = this.formatStatus(ticket.status);
+            statusBadge.style.background = statusColor.bg;
+            statusBadge.style.color = statusColor.text;
+          }
+
+          // If confirmation state changed, re-render confirmation slot
+          if (
+            ticket.status === 'AWAITING_CUSTOMER_CONFIRMATION' ||
+            hasStatusChanged
+          ) {
+            const slot = this.shadow.querySelector('#abi-confirmation-card-slot');
+            if (slot) {
+              if (ticket.status === 'AWAITING_CUSTOMER_CONFIRMATION') {
+                slot.innerHTML = `
+                  <div id="abi-confirmation-card" style="
+                    background: #fffbeb;
+                    border: 1px solid #fef3c7;
+                    border-radius: 8px;
+                    padding: 12px;
+                    margin: 12px 0 6px 0;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                  ">
+                    <div style="font-size: 12px; font-weight: 700; color: #b45309; margin-bottom: 4px;">Resolution Proposed</div>
+                    <div style="font-size: 11px; color: #78350f; line-height: 1.4; margin-bottom: 8px;">
+                      An agent has proposed a resolution. Please confirm if this resolves your issue:
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                      <button id="abi-btn-confirm-resolve" style="
+                        background: #10b981; color: #ffffff; border: none; border-radius: 4px;
+                        padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+                        font-family: inherit; transition: background 0.15s;
+                      ">Yes, Close Ticket</button>
+                      <button id="abi-btn-reopen-ticket" style="
+                        background: #ef4444; color: #ffffff; border: none; border-radius: 4px;
+                        padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+                        font-family: inherit; transition: background 0.15s;
+                      ">No, Reopen</button>
+                    </div>
+                  </div>
+                `;
+                const container = this.shadow.querySelector('#abi-my-tickets-container');
+                if (container) this.bindConfirmationButtons(container, ticketId, headers);
+              } else {
+                slot.innerHTML = '';
+              }
+            }
+          }
+
+          // Update Timeline Stream
+          const stream = this.shadow.querySelector('#abi-ticket-timeline-stream');
+          if (stream) {
+            const parentScroll = stream.parentElement;
+            const wasNearBottom = parentScroll
+              ? parentScroll.scrollHeight - parentScroll.scrollTop <= parentScroll.clientHeight + 100
+              : true;
+
+            stream.innerHTML = this.renderTimelineItemsHtml(timelineItems);
+            this.bindAttachmentButtons(stream);
+            this.loadMediaPreviews(stream);
+
+            if (wasNearBottom && parentScroll) {
+              parentScroll.scrollTop = parentScroll.scrollHeight;
+            }
+          }
+        }
+      } catch {
+        /* silently ignore poll errors */
+      }
+    }, 3000);
+  }
+
+  private stopTicketPolling() {
+    if (this.ticketPollTimer) {
+      clearInterval(this.ticketPollTimer);
+      this.ticketPollTimer = null;
+    }
+  }
+
   private async loadTicketDetail(ticketId: string) {
     const container = this.shadow.querySelector('#abi-my-tickets-container');
     if (!container) return;
+
+    this.stopTicketPolling();
+    this.currentViewingTicketId = ticketId;
 
     container.innerHTML = `
       <p style="font-size: 13px; color: var(--abi-text-muted); text-align: center; margin-top: 20px;">
@@ -632,6 +1010,9 @@ export class WidgetUI {
         ? timeline
         : timeline.events || timeline.data || [];
 
+      this.lastTicketStatus = ticket.status;
+      this.lastTicketTimelineCount = timelineItems.length;
+
       container.innerHTML = `
         <div style="display: flex; flex-direction: column; height: 100%;">
           <!-- Back button -->
@@ -646,44 +1027,48 @@ export class WidgetUI {
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
               <span style="font-size: 12px;">${priorityIcon}</span>
               <span style="font-size: 15px; font-weight: 700; color: var(--abi-text-main);">Ticket #${ticket.number}</span>
-              <span style="
+              <span id="abi-ticket-status-badge" style="
                 font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 6px;
                 background: ${statusColor.bg}; color: ${statusColor.text};
                 text-transform: uppercase; letter-spacing: 0.3px;
+                transition: background-color 0.2s, color 0.2s;
               ">${this.formatStatus(ticket.status)}</span>
             </div>
 
-            ${
-              ticket.status === 'AWAITING_CUSTOMER_CONFIRMATION'
-                ? `
-            <div id="abi-confirmation-card" style="
-              background: #fffbeb;
-              border: 1px solid #fef3c7;
-              border-radius: 8px;
-              padding: 12px;
-              margin: 12px 0 6px 0;
-              box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            ">
-              <div style="font-size: 12px; font-weight: 700; color: #b45309; margin-bottom: 4px;">Resolution Proposed</div>
-              <div style="font-size: 11px; color: #78350f; line-height: 1.4; margin-bottom: 8px;">
-                An agent has proposed a resolution. Please confirm if this resolves your issue:
+            <div id="abi-confirmation-card-slot">
+              ${
+                ticket.status === 'AWAITING_CUSTOMER_CONFIRMATION'
+                  ? `
+              <div id="abi-confirmation-card" style="
+                background: #fffbeb;
+                border: 1px solid #fef3c7;
+                border-radius: 8px;
+                padding: 12px;
+                margin: 12px 0 6px 0;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+              ">
+                <div style="font-size: 12px; font-weight: 700; color: #b45309; margin-bottom: 4px;">Resolution Proposed</div>
+                <div style="font-size: 11px; color: #78350f; line-height: 1.4; margin-bottom: 8px;">
+                  An agent has proposed a resolution. Please confirm if this resolves your issue:
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button id="abi-btn-confirm-resolve" style="
+                    background: #10b981; color: #ffffff; border: none; border-radius: 4px;
+                    padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+                    font-family: inherit; transition: background 0.15s;
+                  ">Yes, Close Ticket</button>
+                  <button id="abi-btn-reopen-ticket" style="
+                    background: #ef4444; color: #ffffff; border: none; border-radius: 4px;
+                    padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+                    font-family: inherit; transition: background 0.15s;
+                  ">No, Reopen</button>
+                </div>
               </div>
-              <div style="display: flex; gap: 8px;">
-                <button id="abi-btn-confirm-resolve" style="
-                  background: #10b981; color: #ffffff; border: none; border-radius: 4px;
-                  padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
-                  font-family: inherit; transition: background 0.15s;
-                ">Yes, Close Ticket</button>
-                <button id="abi-btn-reopen-ticket" style="
-                  background: #ef4444; color: #ffffff; border: none; border-radius: 4px;
-                  padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
-                  font-family: inherit; transition: background 0.15s;
-                ">No, Reopen</button>
-              </div>
+              `
+                  : ''
+              }
             </div>
-            `
-                : ''
-            }
+
             ${
               ticket.subject && ticket.channel !== 'CHAT'
                 ? `
@@ -752,233 +1137,29 @@ export class WidgetUI {
             <div style="font-size: 11px; font-weight: 600; color: var(--abi-text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
               Activity History
             </div>
-            ${
-              timelineItems.length === 0
-                ? `
-              <p style="font-size: 12px; color: var(--abi-text-muted); text-align: center;">No activity yet.</p>
-            `
-                : timelineItems
-                    .map((event: any) => {
-                      if (event.type !== 'COMMENT') {
-                        return `
-                  <div style="text-align: center; font-size: 11px; color: var(--abi-text-muted); padding: 6px 0; margin-bottom: 8px; width: 100%;">
-                    ── ${this.escapeHtml(event.summary || event.type || 'Activity')} ──
-                  </div>
-                `;
-                      }
-
-                      if (event.visibility === 'INTERNAL') {
-                        return '';
-                      }
-
-                      const body = event.body || '';
-
-                      // Chat transcript comments render directly as parsed bubbles (no outer wrapper)
-                      if (
-                        body.includes('### Chat Transcript') ||
-                        body.includes('Chat Transcript (')
-                      ) {
-                        return `
-                  <div style="width: 100%; margin-bottom: 12px;">
-                    ${this.formatChatTranscript(body)}
-                  </div>
-                `;
-                      }
-
-                      const isCustomer = event.actor?.kind === 'CUSTOMER';
-                      const actorName =
-                        event.actor?.fullName ||
-                        event.actorName ||
-                        (isCustomer ? 'You' : 'Support Agent');
-                      const initials = actorName.charAt(0).toUpperCase() || 'S';
-
-                      return `
-                <div class="abi-chat-bubble-container" style="
-                  align-self: ${isCustomer ? 'flex-end' : 'flex-start'};
-                  display: flex;
-                  flex-direction: column;
-                  gap: 4px;
-                  margin-bottom: 12px;
-                  width: 100%;
-                  max-width: 90%;
-                  margin-${isCustomer ? 'left' : 'right'}: auto;
-                ">
-                  <div style="
-                    display: flex;
-                    gap: 8px;
-                    flex-direction: ${isCustomer ? 'row-reverse' : 'row'};
-                    align-items: flex-end;
-                  ">
-                    <div style="
-                      width: 24px;
-                      height: 24px;
-                      border-radius: 50%;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      font-size: 9px;
-                      font-weight: 700;
-                      color: #ffffff;
-                      flex-shrink: 0;
-                      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-                      background: ${isCustomer ? 'linear-gradient(135deg, #64748b, #475569)' : 'linear-gradient(135deg, var(--abi-primary), var(--abi-primary-hover))'};
-                    ">
-                      ${initials}
-                    </div>
-                    <div class="abi-chat-msg ${isCustomer ? 'customer' : 'agent'}" style="
-                      border-radius: ${isCustomer ? '18px 18px 4px 18px' : '18px 18px 18px 4px'};
-                      max-width: 85%;
-                      text-align: left;
-                    ">
-                      ${this.formatCommentBody(body)}
-                      ${
-                        event.attachments && event.attachments.length > 0
-                          ? `
-                        <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed ${isCustomer ? 'rgba(255,255,255,0.3)' : 'var(--abi-border)'}; padding-top: 8px; width: 100%;">
-                          ${event.attachments
-                            .map(
-                              (att: any) => `
-                            <div class="abi-media-container" data-media-id="${att.id}" data-filename="${this.escapeHtml(att.originalFilename)}" data-mime-type="${this.escapeHtml(att.mimeType)}" data-is-customer="${isCustomer ? 'true' : 'false'}" style="width: 100%;">
-                              <button class="abi-attachment-btn" data-media-id="${att.id}" style="
-                                display: inline-flex;
-                                align-items: center;
-                                gap: 6px;
-                                padding: 4px 8px;
-                                border: 1px solid ${isCustomer ? 'rgba(255,255,255,0.2)' : 'var(--abi-border)'};
-                                border-radius: 4px;
-                                background: ${isCustomer ? 'rgba(255,255,255,0.1)' : 'var(--abi-surface-alt, #f8fafc)'};
-                                font-size: 11px;
-                                color: ${isCustomer ? '#ffffff' : 'var(--abi-text-main)'};
-                                cursor: pointer;
-                                font-family: inherit;
-                                width: fit-content;
-                              ">
-                                <span>📎</span>
-                                <span style="text-decoration: underline;">${this.escapeHtml(att.originalFilename)}</span>
-                              </button>
-                            </div>
-                          `,
-                            )
-                            .join('')}
-                        </div>
-                      `
-                          : ''
-                      }
-                    </div>
-                  </div>
-                  <div class="abi-chat-msg-meta" style="
-                    align-self: ${isCustomer ? 'flex-end' : 'flex-start'};
-                    padding-left: ${isCustomer ? '0' : '32px'};
-                    padding-right: ${isCustomer ? '32px' : '0'};
-                  ">
-                    ${this.escapeHtml(actorName)} · ${this.timeAgo(event.createdAt)}
-                  </div>
-                </div>
-              `;
-                    })
-                    .join('')
-            }
+            <div id="abi-ticket-timeline-stream" style="display: flex; flex-direction: column; width: 100%;">
+              ${this.renderTimelineItemsHtml(timelineItems)}
+            </div>
           </div>
         </div>
       `;
 
       this.shadow.querySelector('#abi-back-to-list')?.addEventListener('click', () => {
+        this.stopTicketPolling();
+        this.currentViewingTicketId = null;
         this.render();
         this.loadMyTickets();
       });
 
-      if (ticket.status === 'AWAITING_CUSTOMER_CONFIRMATION') {
-        const confirmBtn = container.querySelector('#abi-btn-confirm-resolve');
-        const reopenBtn = container.querySelector('#abi-btn-reopen-ticket');
-
-        confirmBtn?.addEventListener('click', async () => {
-          if (!confirm('Are you sure you want to mark this ticket as resolved and close it?'))
-            return;
-          try {
-            (confirmBtn as HTMLButtonElement).textContent = 'Processing...';
-            (confirmBtn as HTMLButtonElement).disabled = true;
-            if (reopenBtn) (reopenBtn as HTMLButtonElement).disabled = true;
-
-            const res = await fetch(`${this.config.apiUrl}/api/v1/tickets/${ticketId}/confirm`, {
-              method: 'POST',
-              headers: {
-                ...headers,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ confirmed: true }),
-            });
-
-            if (!res.ok) throw new Error();
-
-            // Reload ticket detail
-            this.loadTicketDetail(ticketId);
-          } catch {
-            alert('Failed to confirm resolution. Please try again.');
-            (confirmBtn as HTMLButtonElement).textContent = 'Yes, Close Ticket';
-            (confirmBtn as HTMLButtonElement).disabled = false;
-            if (reopenBtn) (reopenBtn as HTMLButtonElement).disabled = false;
-          }
-        });
-
-        reopenBtn?.addEventListener('click', async () => {
-          const comment = prompt('Please enter a reason for reopening this ticket:');
-          if (comment === null) return; // User cancelled
-          const trimmedComment = comment.trim();
-          if (!trimmedComment) {
-            alert('A comment is required to reopen the ticket.');
-            return;
-          }
-
-          try {
-            (reopenBtn as HTMLButtonElement).textContent = 'Reopening...';
-            (reopenBtn as HTMLButtonElement).disabled = true;
-            if (confirmBtn) (confirmBtn as HTMLButtonElement).disabled = true;
-
-            const res = await fetch(`${this.config.apiUrl}/api/v1/tickets/${ticketId}/confirm`, {
-              method: 'POST',
-              headers: {
-                ...headers,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ confirmed: false, comment: trimmedComment }),
-            });
-
-            if (!res.ok) throw new Error();
-
-            // Reload ticket detail
-            this.loadTicketDetail(ticketId);
-          } catch {
-            alert('Failed to reopen ticket. Please try again.');
-            (reopenBtn as HTMLButtonElement).textContent = 'No, Reopen';
-            (reopenBtn as HTMLButtonElement).disabled = false;
-            if (confirmBtn) (confirmBtn as HTMLButtonElement).disabled = false;
-          }
-        });
-      }
-
-      container.querySelectorAll('.abi-attachment-btn').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const mediaId = btn.getAttribute('data-media-id');
-          if (!mediaId) return;
-          try {
-            const headers = this.getHeaders();
-            const res = await fetch(`${this.config.apiUrl}/api/v1/media/${mediaId}/download`, {
-              method: 'POST',
-              headers,
-            });
-            if (!res.ok) throw new Error();
-            const { url } = await res.json();
-            window.open(url, '_blank');
-          } catch {
-            alert('Failed to download file. Please try again.');
-          }
-        });
-      });
-
-      // Load media previews (images, videos, audio) asynchronously
+      this.bindConfirmationButtons(container, ticketId, headers);
+      this.bindAttachmentButtons(container);
       this.loadMediaPreviews(container);
+
+      // Start real-time background polling for new incoming messages & status changes
+      this.startTicketPolling(ticketId);
     } catch {
+      this.stopTicketPolling();
+      this.currentViewingTicketId = null;
       container.innerHTML = `
         <div style="text-align: center; padding: 30px 16px;">
           <div style="font-size: 28px; margin-bottom: 8px;">⚠️</div>
@@ -993,6 +1174,8 @@ export class WidgetUI {
         </div>
       `;
       this.shadow.querySelector('#abi-back-to-list-err')?.addEventListener('click', () => {
+        this.stopTicketPolling();
+        this.currentViewingTicketId = null;
         this.render();
         this.loadMyTickets();
       });
@@ -1347,6 +1530,172 @@ export class WidgetUI {
       CANCELLED: { bg: '#fef2f2', text: '#dc2626' },
     };
     return map[status] || { bg: '#f1f5f9', text: '#475569' };
+  }
+
+  private renderTimelineMilestone(event: any): string {
+    const type = event.type || event.eventType || event.rawType;
+    const timeStr = event.createdAt
+      ? `<span style="opacity: 0.6; font-size: 10px; margin-left: 4px;">• ${this.timeAgo(event.createdAt)}</span>`
+      : '';
+
+    if (type === 'CREATED' || type === 'TICKET_CREATED') {
+      return `
+        <div style="display: flex; align-items: center; justify-content: center; margin: 10px 0; width: 100%;">
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: var(--abi-surface, #f8fafc);
+            border: 1px solid var(--abi-border, #e2e8f0);
+            border-radius: 14px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--abi-text-muted, #64748b);
+          ">
+            <span>✨ Ticket created</span>
+            ${timeStr}
+          </div>
+        </div>
+      `;
+    }
+
+    if (
+      type === 'STATUS_CHANGED' ||
+      type === 'RESOLVED' ||
+      type === 'CLOSED' ||
+      type === 'REOPENED' ||
+      type === 'CANCELLED'
+    ) {
+      const targetStatus =
+        event.toValue ||
+        (type === 'RESOLVED'
+          ? 'RESOLVED'
+          : type === 'CLOSED'
+            ? 'CLOSED'
+            : type === 'REOPENED'
+              ? 'REOPENED'
+              : type === 'CANCELLED'
+                ? 'CANCELLED'
+                : '');
+      const formattedStatus = targetStatus ? this.formatStatus(targetStatus) : 'Updated';
+      const statusColor = targetStatus
+        ? this.getStatusColor(targetStatus)
+        : { bg: '#f1f5f9', text: '#475569' };
+
+      return `
+        <div style="display: flex; align-items: center; justify-content: center; margin: 10px 0; width: 100%;">
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: ${statusColor.bg};
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 14px;
+            font-size: 11px;
+            font-weight: 500;
+            color: ${statusColor.text};
+          ">
+            <span style="width: 6px; height: 6px; border-radius: 50%; background: ${statusColor.text}; display: inline-block;"></span>
+            <span>Status changed to <strong>${formattedStatus}</strong></span>
+            ${timeStr}
+          </div>
+        </div>
+      `;
+    }
+
+    if (type === 'ASSIGNED') {
+      return `
+        <div style="display: flex; align-items: center; justify-content: center; margin: 8px 0; width: 100%;">
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 10px;
+            background: var(--abi-surface, #f8fafc);
+            border: 1px solid var(--abi-border, #e2e8f0);
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--abi-text-muted, #64748b);
+          ">
+            <span>👤 Support agent assigned</span>
+            ${timeStr}
+          </div>
+        </div>
+      `;
+    }
+
+    if (type === 'CONFIRMATION_REQUESTED') {
+      return `
+        <div style="display: flex; align-items: center; justify-content: center; margin: 10px 0; width: 100%;">
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: #fffbeb;
+            border: 1px solid #fef3c7;
+            border-radius: 14px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #b45309;
+          ">
+            <span>📋 Resolution confirmation requested</span>
+            ${timeStr}
+          </div>
+        </div>
+      `;
+    }
+
+    if (type === 'CUSTOMER_CONFIRMED') {
+      return `
+        <div style="display: flex; align-items: center; justify-content: center; margin: 10px 0; width: 100%;">
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: #ecfdf5;
+            border: 1px solid #d1fae5;
+            border-radius: 14px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #047857;
+          ">
+            <span>✅ Resolution confirmed by you</span>
+            ${timeStr}
+          </div>
+        </div>
+      `;
+    }
+
+    if (type === 'CUSTOMER_REJECTED') {
+      return `
+        <div style="display: flex; align-items: center; justify-content: center; margin: 10px 0; width: 100%;">
+          <div style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: #fff1f2;
+            border: 1px solid #ffe4e6;
+            border-radius: 14px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #e11d48;
+          ">
+            <span>🔄 Reopen requested by you</span>
+            ${timeStr}
+          </div>
+        </div>
+      `;
+    }
+
+    // All internal operational actions (TAG_ADDED, TAG_REMOVED, ESCALATED, DEESCALATED,
+    // CATEGORY_CHANGED, TEAM_CHANGED, PRIORITY_CHANGED, SLA_*, etc.) are filtered out.
+    return '';
   }
 
   private getPriorityIcon(priority: string): string {
@@ -1886,10 +2235,11 @@ export class WidgetUI {
     this.shadow.querySelectorAll('.abi-nav-tab').forEach((tab) => {
       tab.addEventListener('click', (e) => {
         const target = (e.currentTarget as HTMLElement).getAttribute('data-tab') as any;
+        this.stopChatPolling();
+        this.stopTicketPolling();
+        this.currentViewingTicketId = null;
         this.activeTab = target;
         this.render();
-        if (target === 'chat') this.initChatSocket();
-        if (target === 'tickets') this.loadMyTickets();
       });
     });
 
@@ -2105,6 +2455,8 @@ export class WidgetUI {
   }
 
   close() {
+    this.stopChatPolling();
+    this.stopTicketPolling();
     this.isOpen = false;
     this.render();
   }
@@ -2650,33 +3002,58 @@ export class WidgetUI {
       if (!text) return;
       input.value = '';
 
-      // Immediately show the user's message in the stream
-      this.appendChatBubble(stream, text, true, 'You', new Date().toISOString());
-
       try {
-        // If no conversation exists yet, create one
         if (!this.currentConversationId) {
           await this.createChatConversation(text);
-          // Start polling for agent replies
-          this.startChatPolling(stream);
+          await this.loadChatHistory();
+          this.startChatPolling();
         } else {
           await this.sendChatMessage(text);
+          // Fast-sync latest messages immediately
+          const res = await fetch(
+            `${this.config.apiUrl}/api/v1/chat/conversations/${this.currentConversationId}/messages?pageSize=50`,
+            { headers: this.getHeaders() },
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const msgs = data.messages || [];
+            const newMsgs = msgs.filter((m: any) => !this.knownChatMessageIds.has(m.id));
+            const liveStream = this.shadow.querySelector('#abi-chat-stream');
+            if (liveStream) {
+              for (const m of newMsgs) {
+                this.knownChatMessageIds.add(m.id);
+                const isMe = m.sender?.kind === 'CUSTOMER';
+                this.appendChatBubble(
+                  liveStream,
+                  m.body || '',
+                  isMe,
+                  m.sender?.fullName || (isMe ? 'You' : 'Support Agent'),
+                  m.createdAt,
+                );
+              }
+              liveStream.scrollTop = liveStream.scrollHeight;
+            }
+          }
         }
       } catch (err) {
-        this.appendChatBubble(
-          stream,
-          `⚠️ Failed to send: ${err instanceof Error ? err.message : 'Unknown error'}`,
-          false,
-          'System',
-          new Date().toISOString(),
-        );
+        const liveStream = this.shadow.querySelector('#abi-chat-stream');
+        if (liveStream) {
+          this.appendChatBubble(
+            liveStream,
+            `⚠️ Failed to send: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            false,
+            'System',
+            new Date().toISOString(),
+          );
+        }
       }
     });
 
-    // If there's already an active conversation, resume polling
+    // If there's already an active conversation, load history with spinner and start polling
     if (this.currentConversationId) {
-      this.loadChatHistory(stream);
-      this.startChatPolling(stream);
+      this.loadChatHistory().then(() => {
+        this.startChatPolling();
+      });
     }
   }
 
@@ -2703,7 +3080,7 @@ export class WidgetUI {
     const conv = await res.json();
     this.currentConversationId = conv.id;
     localStorage.setItem('abi-widget-chat-conv-id', conv.id);
-    this.lastMessageCount = 1; // The initial message
+    this.lastMessageCount = 1;
   }
 
   private async sendChatMessage(body: string) {
@@ -2730,8 +3107,19 @@ export class WidgetUI {
     this.lastMessageCount++;
   }
 
-  private async loadChatHistory(stream: Element) {
+  private async loadChatHistory() {
     if (!this.currentConversationId) return;
+
+    const stream = this.shadow.querySelector('#abi-chat-stream');
+    if (!stream) return;
+
+    // Show clean animated spinner while conversation loads
+    stream.innerHTML = `
+      <div id="abi-chat-loading-spinner" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 180px; gap: 10px; width: 100%;">
+        <div style="width: 26px; height: 26px; border: 3px solid var(--abi-border, #e2e8f0); border-top-color: var(--abi-primary, #2563eb); border-radius: 50%; animation: abi-spin 0.8s linear infinite;"></div>
+        <span style="font-size: 12px; font-weight: 500; color: var(--abi-text-muted, #64748b);">Loading conversation...</span>
+      </div>
+    `;
 
     const headers = this.getHeaders();
 
@@ -2745,10 +3133,7 @@ export class WidgetUI {
         const conv = await convRes.json();
         if (conv.status === 'CLOSED') {
           this.isConversationClosed = true;
-          if (this.chatPollTimer) {
-            clearInterval(this.chatPollTimer);
-            this.chatPollTimer = null;
-          }
+          this.stopChatPolling();
         } else {
           this.isConversationClosed = false;
         }
@@ -2759,13 +3144,17 @@ export class WidgetUI {
         { headers },
       );
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        stream.innerHTML = `<p style="font-size: 12px; color: var(--abi-text-muted); text-align: center;">Could not load chat messages.</p>`;
+        return;
+      }
 
       const data = await res.json();
       const msgs = data.messages || [];
+      this.knownChatMessageIds = new Set(msgs.map((m: any) => m.id));
       this.lastMessageCount = msgs.length;
 
-      // Clear existing bubbles except the welcome message
+      // Clear spinner and render all messages
       stream.innerHTML = '';
 
       for (const m of msgs) {
@@ -2786,16 +3175,27 @@ export class WidgetUI {
           );
         }
       }
+
+      stream.scrollTop = stream.scrollHeight;
     } catch {
-      /* silently ignore poll errors */
+      stream.innerHTML = `<p style="font-size: 12px; color: var(--abi-text-muted); text-align: center;">Could not load chat history.</p>`;
     }
   }
 
-  private startChatPolling(stream: Element) {
-    if (this.chatPollTimer) return;
+  private startChatPolling() {
+    this.stopChatPolling();
 
     this.chatPollTimer = setInterval(async () => {
-      if (!this.currentConversationId) return;
+      if (
+        !this.isOpen ||
+        this.activeTab !== 'chat' ||
+        !this.currentConversationId
+      ) {
+        return;
+      }
+
+      const stream = this.shadow.querySelector('#abi-chat-stream');
+      if (!stream) return;
 
       const headers = this.getHeaders();
 
@@ -2808,15 +3208,9 @@ export class WidgetUI {
           const conv = await convRes.json();
           if (conv.status === 'CLOSED') {
             this.isConversationClosed = true;
-            if (this.chatPollTimer) {
-              clearInterval(this.chatPollTimer);
-              this.chatPollTimer = null;
-            }
+            this.stopChatPolling();
             this.render();
-            const newStream = this.shadow.querySelector('#abi-chat-stream');
-            if (newStream) {
-              this.loadChatHistory(newStream);
-            }
+            await this.loadChatHistory();
             return;
           }
         }
@@ -2831,10 +3225,13 @@ export class WidgetUI {
         const data = await res.json();
         const msgs = data.messages || [];
 
-        if (msgs.length > this.lastMessageCount) {
-          // Only append new messages (messages we haven't seen)
-          const newMsgs = msgs.slice(this.lastMessageCount);
+        const newMsgs = msgs.filter((m: any) => !this.knownChatMessageIds.has(m.id));
+        if (newMsgs.length > 0) {
+          const wasNearBottom =
+            stream.scrollHeight - stream.scrollTop <= stream.clientHeight + 100;
+
           for (const m of newMsgs) {
+            this.knownChatMessageIds.add(m.id);
             if (m.kind === 'SYSTEM') {
               const sys = document.createElement('div');
               sys.style.cssText =
@@ -2843,24 +3240,33 @@ export class WidgetUI {
               stream.appendChild(sys);
             } else {
               const isMe = m.sender?.kind === 'CUSTOMER';
-              // Only show agent messages via polling — customer messages are shown immediately on send
-              if (!isMe) {
-                this.appendChatBubble(
-                  stream,
-                  m.body || '',
-                  false,
-                  m.sender?.fullName || 'Support Agent',
-                  m.createdAt,
-                );
-              }
+              this.appendChatBubble(
+                stream,
+                m.body || '',
+                isMe,
+                m.sender?.fullName || (isMe ? 'You' : 'Support Agent'),
+                m.createdAt,
+              );
             }
           }
+
           this.lastMessageCount = msgs.length;
+
+          if (wasNearBottom) {
+            stream.scrollTop = stream.scrollHeight;
+          }
         }
       } catch {
-        /* silently ignore */
+        /* silently ignore poll errors */
       }
     }, 3000);
+  }
+
+  private stopChatPolling() {
+    if (this.chatPollTimer) {
+      clearInterval(this.chatPollTimer);
+      this.chatPollTimer = null;
+    }
   }
 
   private appendChatBubble(
@@ -2932,6 +3338,10 @@ export class WidgetUI {
     if (this.chatPollTimer) {
       clearInterval(this.chatPollTimer);
       this.chatPollTimer = null;
+    }
+    if (this.ticketPollTimer) {
+      clearInterval(this.ticketPollTimer);
+      this.ticketPollTimer = null;
     }
     this.socket?.disconnect();
     this.rootEl.remove();
