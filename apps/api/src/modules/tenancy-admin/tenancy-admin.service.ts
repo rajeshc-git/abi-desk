@@ -404,10 +404,17 @@ export class TenancyAdminService {
 
     return this.db.run(async (tx) => {
       if (dto.isDefault) {
-        await tx.queue.updateMany({
-          where: { tenantId },
-          data: { isDefault: false },
-        });
+        if (dto.productId) {
+          await tx.queue.updateMany({
+            where: { tenantId, productId: dto.productId },
+            data: { isDefault: false },
+          });
+        } else {
+          await tx.queue.updateMany({
+            where: { tenantId, productId: null },
+            data: { isDefault: false },
+          });
+        }
       }
 
       let slug = dto.slug ? dto.slug.toLowerCase().trim() : dto.name
@@ -423,13 +430,6 @@ export class TenancyAdminService {
       });
       if (existingSlug) {
         slug = `${slug}-${Math.floor(1000 + Math.random() * 9000)}`;
-      }
-
-      if (dto.isDefault && dto.productId) {
-        await tx.queue.updateMany({
-          where: { tenantId, productId: dto.productId },
-          data: { isDefault: false },
-        });
       }
 
       return tx.queue.create({
@@ -473,11 +473,18 @@ export class TenancyAdminService {
       }
 
       const targetProductId = dto.productId !== undefined ? dto.productId : existing.productId;
-      if (dto.isDefault && targetProductId) {
-        await tx.queue.updateMany({
-          where: { tenantId, id: { not: queueId }, productId: targetProductId },
-          data: { isDefault: false },
-        });
+      if (dto.isDefault) {
+        if (targetProductId) {
+          await tx.queue.updateMany({
+            where: { tenantId, id: { not: queueId }, productId: targetProductId },
+            data: { isDefault: false },
+          });
+        } else {
+          await tx.queue.updateMany({
+            where: { tenantId, id: { not: queueId }, productId: null },
+            data: { isDefault: false },
+          });
+        }
       }
 
       return tx.queue.update({

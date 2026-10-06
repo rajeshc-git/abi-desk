@@ -113,6 +113,10 @@ export class TicketService {
     this.gateway = gateway;
   }
 
+  getGateway(): any {
+    return this.gateway;
+  }
+
   // =========================================================================
   // Create
   // =========================================================================
@@ -2343,22 +2347,53 @@ export class TicketService {
       let product: string | undefined;
       const matchingTags: Array<{ id: string; name: string }> = [];
 
-      // 1. Check registered Client Organizations with associated sender email domains
+      // 1. Check all registered Client Organizations for this tenant
       const allOrgs = await tx.organization.findMany({
-        where: { tenantId, domains: { not: null } },
+        where: { tenantId },
       });
 
       for (const org of allOrgs) {
-        if (!org.domains) continue;
-        const domainList = org.domains
-          .split(/[\s,;]+/)
-          .map((d) => d.toLowerCase().trim())
-          .filter(Boolean);
+        let isMatch = false;
 
-        const isMatch = domainList.some((rule) => {
-          const cleanRule = rule.replace(/^@/, '');
-          return rule === cleanEmail || cleanRule === cleanEmail || cleanRule === emailDomain;
-        });
+        // A. Match against domains list (e.g. "apollohospitals.com, apollo.org" or "@apollohospitals.com")
+        if (org.domains) {
+          const domainList = org.domains
+            .split(/[\s,;]+/)
+            .map((d) => d.toLowerCase().trim().replace(/^@/, '').replace(/^\*\.?/, ''))
+            .filter(Boolean);
+
+          isMatch = domainList.some((rule) => {
+            return rule === cleanEmail || rule === emailDomain || emailDomain.endsWith(`.${rule}`);
+          });
+        }
+
+        // B. Match against contactEmail
+        if (!isMatch && org.contactEmail) {
+          const contactEmailClean = org.contactEmail.toLowerCase().trim();
+          if (contactEmailClean === cleanEmail) {
+            isMatch = true;
+          }
+        }
+
+        // C. Match against website
+        if (!isMatch && org.website) {
+          const rawWebsite = org.website;
+          const hostPart = rawWebsite.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0] || '';
+          const websiteDomain = hostPart.toLowerCase().trim();
+          if (websiteDomain && (websiteDomain === emailDomain || emailDomain.endsWith(`.${websiteDomain}`))) {
+            isMatch = true;
+          }
+        }
+
+        // D. Match against slug / name if domain is a direct match (e.g. user@apollohospitals.com -> apollo-hospitals)
+        if (!isMatch) {
+          const domainPrefix = emailDomain.split('.')[0] || '';
+          const orgSlugClean = org.slug.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const orgNameClean = org.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (domainPrefix && (orgSlugClean === domainPrefix || orgNameClean === domainPrefix)) {
+            isMatch = true;
+          }
+        }
 
         if (isMatch) {
           if (!organization) organization = org.name;
@@ -2376,12 +2411,11 @@ export class TicketService {
         if (!tag.domains) continue;
         const ruleList = tag.domains
           .split(/[\s,;]+/)
-          .map((d) => d.toLowerCase().trim())
+          .map((d) => d.toLowerCase().trim().replace(/^@/, '').replace(/^\*\.?/, ''))
           .filter(Boolean);
 
         const isMatch = ruleList.some((rule) => {
-          const cleanRule = rule.replace(/^@/, '');
-          return rule === cleanEmail || cleanRule === cleanEmail || cleanRule === emailDomain;
+          return rule === cleanEmail || rule === emailDomain || emailDomain.endsWith(`.${rule}`);
         });
 
         if (isMatch) {
@@ -3228,6 +3262,7 @@ export class TicketService {
         select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
       });
     } else if (productName) {
+      // 1. Check for product-specific default queue
       resolvedQueue = await tx.queue.findFirst({
         where: {
           tenantId,
@@ -3240,29 +3275,74 @@ export class TicketService {
         select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
       });
 
+      // 2. Check for ANY active queue specifically for this product
+      if (!resolvedQueue) {
+        resolvedQueue = await tx.queue.findFirst({
+          where: {
+            tenantId,
+            isActive: true,
+            product: { name: { equals: productName, mode: 'insensitive' } },
+            ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
+          },
+          orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
+        });
+      }
+
+      // 3. Fallback to general default queue (productId: null)
       if (!resolvedQueue) {
         resolvedQueue = await tx.queue.findFirst({
           where: {
             tenantId,
             isActive: true,
             isDefault: true,
+            productId: null,
             ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
           },
-          orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { isDefault: 'desc' }],
+          orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
+        });
+      }
+
+      // 4. Fallback to any active general queue (productId: null)
+      if (!resolvedQueue) {
+        resolvedQueue = await tx.queue.findFirst({
+          where: {
+            tenantId,
+            isActive: true,
+            productId: null,
+            ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
+          },
+          orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { createdAt: 'desc' }],
           select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
         });
       }
     } else {
+      // General ticket (no product specified) -> Prefer general default queue (productId: null)
       resolvedQueue = await tx.queue.findFirst({
         where: {
           tenantId,
           isActive: true,
           isDefault: true,
+          productId: null,
           ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
         },
         orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { isDefault: 'desc' }],
         select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
       });
+
+      if (!resolvedQueue) {
+        resolvedQueue = await tx.queue.findFirst({
+          where: {
+            tenantId,
+            isActive: true,
+            productId: null,
+            ...(brandId ? { OR: [{ brandId }, { brandId: null }] } : {}),
+          },
+          orderBy: [{ brandId: brandId ? 'asc' : 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, teamId: true, tier: true, routing: true, product: { select: { name: true } } },
+        });
+      }
     }
 
     const queueId = resolvedQueue?.id ?? null;
@@ -3309,7 +3389,14 @@ export class TicketService {
 
     if (productName) {
       andFilters.push({
-        products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } },
+        OR: [
+          { products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } } },
+          { products: { none: {} } },
+        ],
+      });
+    } else {
+      andFilters.push({
+        products: { none: {} },
       });
     }
 
@@ -3326,7 +3413,7 @@ export class TicketService {
 
     const candidateFilter: Prisma.UserWhereInput = { AND: andFilters };
 
-    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    // Strictly select active staff who are currently online & available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
         ...candidateFilter,
@@ -3336,33 +3423,9 @@ export class TicketService {
       orderBy: { id: 'asc' },
     });
 
-    // 2. Fallback: If no available agents online, fallback to active staff sorted by most recent login/activity
-    if (candidates.length === 0) {
-      candidates = await tx.user.findMany({
-        where: candidateFilter,
-        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
-        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
-      });
-    }
-
-    // 3. Fallback without strict product filter if no agents found for product
-    if (candidates.length === 0 && productName) {
-      const fallbackFilter: Prisma.UserWhereInput = {
-        AND: [
-          { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
-          {
-            OR: [
-              { roles: { some: { role: { tier: targetTier } } } },
-              { teamMembers: { some: { team: { tier: targetTier } } } },
-            ],
-          },
-        ],
-      };
-      candidates = await tx.user.findMany({
-        where: fallbackFilter,
-        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
-        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
-      });
+    // Strictly filter to agents who are currently connected/online in the portal (WebSocket presence)
+    if (this.gateway && typeof this.gateway.isUserOnline === 'function') {
+      candidates = candidates.filter((c) => this.gateway.isUserOnline(c.id));
     }
 
     if (candidates.length === 0) return null;
@@ -3437,7 +3500,14 @@ export class TicketService {
 
     if (productName) {
       andFilters.push({
-        products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } },
+        OR: [
+          { products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } } },
+          { products: { none: {} } },
+        ],
+      });
+    } else {
+      andFilters.push({
+        products: { none: {} },
       });
     }
 
@@ -3454,7 +3524,7 @@ export class TicketService {
 
     const candidateFilter: Prisma.UserWhereInput = { AND: andFilters };
 
-    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    // Strictly select active staff who are currently online & available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
         ...candidateFilter,
@@ -3463,33 +3533,9 @@ export class TicketService {
       select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
     });
 
-    // 2. Fallback: If no available agents online, fallback to all active staff by recency of login/activity
-    if (candidates.length === 0) {
-      candidates = await tx.user.findMany({
-        where: candidateFilter,
-        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
-        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
-      });
-    }
-
-    // 3. Fallback without strict product filter if no agents found for product
-    if (candidates.length === 0 && productName) {
-      const fallbackFilter: Prisma.UserWhereInput = {
-        AND: [
-          { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
-          {
-            OR: [
-              { roles: { some: { role: { tier: targetTier } } } },
-              { teamMembers: { some: { team: { tier: targetTier } } } },
-            ],
-          },
-        ],
-      };
-      candidates = await tx.user.findMany({
-        where: fallbackFilter,
-        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
-        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
-      });
+    // Strictly filter to agents who are currently connected/online in the portal (WebSocket presence)
+    if (this.gateway && typeof this.gateway.isUserOnline === 'function') {
+      candidates = candidates.filter((c) => this.gateway.isUserOnline(c.id));
     }
 
     if (candidates.length === 0) return null;

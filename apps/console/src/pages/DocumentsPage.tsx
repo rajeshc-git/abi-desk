@@ -2076,12 +2076,22 @@ export const DocumentsPage: React.FC = () => {
 
       const productSet = new Set<string>();
 
+      const addProductTokens = (raw: any) => {
+        if (!raw) return;
+        const str = typeof raw === 'string' ? raw : raw.name || raw.slug || '';
+        if (!str) return;
+        String(str)
+          .split(/[,;\/]+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((token) => productSet.add(token));
+      };
+
       // Products strictly from Shift Roster Products matrix
       if (rosterProdsRes.status === 'fulfilled') {
         const list = extractList(rosterProdsRes.value);
         list.forEach((p: any) => {
-          const name = typeof p === 'string' ? p : p.name || p.slug;
-          if (name) productSet.add(String(name).trim());
+          addProductTokens(p);
         });
       }
 
@@ -2090,7 +2100,7 @@ export const DocumentsPage: React.FC = () => {
         const list = extractList(tagsRes.value);
         setTags(list);
         list.forEach((t: any) => {
-          if (t.product) productSet.add(String(t.product).trim());
+          if (t.product) addProductTokens(t.product);
         });
       }
 

@@ -116,16 +116,19 @@ export const DbExplorerPage: React.FC = () => {
   } | null>(null);
   const [copiedCell, setCopiedCell] = useState(false);
 
-  // Text selection tracking (for partial query execution like SSMS / pgAdmin)
+  // Text selection tracking (for partial query execution like SSMS / pgAdmin / DBeaver)
   const updateSelection = () => {
     if (!textareaRef.current) return;
     const { selectionStart, selectionEnd } = textareaRef.current;
     if (selectionStart !== selectionEnd) {
       const highlighted = sql.substring(selectionStart, selectionEnd).trim();
-      setSelectedText(highlighted);
-    } else {
-      setSelectedText('');
+      // Only treat as snippet if it is a meaningful selection (> 2 characters)
+      if (highlighted.length > 2) {
+        setSelectedText(highlighted);
+        return;
+      }
     }
+    setSelectedText('');
   };
 
   const handleConnect = async () => {
@@ -164,27 +167,19 @@ export const DbExplorerPage: React.FC = () => {
     });
   };
 
-  const handleExecute = async (overrideSql?: string) => {
+  const handleExecute = async (overrideSql?: string, forceFullQuery = false) => {
     let queryToRun = '';
     let isSnippet = false;
 
-    if (overrideSql) {
+    if (overrideSql && overrideSql.trim()) {
       queryToRun = overrideSql.trim();
-    } else if (selectedText && selectedText.trim().length > 0) {
+    } else if (!forceFullQuery && selectedText && selectedText.trim().length > 2) {
       queryToRun = selectedText.trim();
       isSnippet = true;
-    } else if (textareaRef.current) {
-      const { selectionStart, selectionEnd } = textareaRef.current;
-      if (selectionStart !== selectionEnd) {
-        const highlighted = sql.substring(selectionStart, selectionEnd).trim();
-        if (highlighted) {
-          queryToRun = highlighted;
-          isSnippet = true;
-        }
-      }
+    } else {
+      queryToRun = sql.trim();
     }
 
-    if (!queryToRun) queryToRun = sql.trim();
     if (!queryToRun) return;
 
     setIsExecuting(true);
@@ -202,11 +197,7 @@ export const DbExplorerPage: React.FC = () => {
       setQueryResult(resultWithMeta);
 
       if (res.success) {
-        if (res.rows && res.rows.length > 0) {
-          setActiveTab('data');
-        } else {
-          setActiveTab('messages');
-        }
+        setActiveTab('data');
       } else {
         setError(res.error || 'SQL query execution failed.');
         setActiveTab('messages');
@@ -802,6 +793,41 @@ ORDER BY ordinal_position;`;
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {selectedText && (
+                    <>
+                      <button
+                        onClick={() => setSelectedText('')}
+                        style={{
+                          padding: '5px 8px',
+                          backgroundColor: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          color: '#475569',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Clear Selection
+                      </button>
+                      <button
+                        onClick={() => handleExecute(undefined, true)}
+                        disabled={isExecuting || !isConnected}
+                        style={{
+                          padding: '5px 10px',
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: '#334155',
+                          cursor: isConnected ? 'pointer' : 'not-allowed',
+                        }}
+                      >
+                        Run Full Query
+                      </button>
+                    </>
+                  )}
+
                   <button
                     onClick={() => {
                       setSql('');

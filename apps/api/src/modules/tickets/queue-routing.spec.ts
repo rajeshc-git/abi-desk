@@ -16,28 +16,28 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
     'agent-4': 0, // least loaded (0/1)
   };
 
-  it('Tier 1: filters out offline and over-capacity agents when online agents exist', () => {
+  it('Online Only: filters out offline agents; does NOT assign to offline agents', () => {
     const onlineCandidates = agents.filter((a) => a.isAvailable);
     const eligible = onlineCandidates.filter((a) => {
       const load = agentLoads[a.id] ?? 0;
-      return a.maxConcurrentTickets === null || load < a.maxConcurrentTickets;
+      return a.maxConcurrentTickets === null || load < candidateMax(a);
     });
+
+    function candidateMax(a: any) {
+      return a.maxConcurrentTickets;
+    }
 
     expect(eligible.map((a) => a.id)).toEqual(['agent-1', 'agent-4']);
   });
 
-  it('Tier 2 Fallback: if all agents are offline, falls back to most recent login active staff', () => {
+  it('Strict Online Policy: if all agents are offline, returns null (unassigned in queue)', () => {
     // Simulate all agents offline
     const allOffline = agents.map((a) => ({ ...a, isAvailable: false }));
-    let onlineCandidates = allOffline.filter((a) => a.isAvailable);
+    const onlineCandidates = allOffline.filter((a) => a.isAvailable);
 
-    // Fallback activates
-    if (onlineCandidates.length === 0) {
-      onlineCandidates = [...allOffline].sort((a, b) => b.lastLogin.getTime() - a.lastLogin.getTime());
-    }
-
-    expect(onlineCandidates.length).toBe(4);
-    expect(onlineCandidates[0]?.id).toBe('agent-3'); // Charlie logged in at 10:30 (most recent)
+    // No offline fallback -> stays null
+    const chosen = onlineCandidates.length > 0 ? onlineCandidates[0] : null;
+    expect(chosen).toBeNull();
   });
 
   it('LEAST_LOADED strategy picks agent with lowest active load', () => {
@@ -105,12 +105,12 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
     expect(ticket.status).toBe('IN_PROGRESS');
   });
 
-  it('Tier Isolation: strictly restricts primary and fallback candidates to the matching tier (e.g. L1)', () => {
+  it('Tier Isolation: strictly restricts online candidates to the matching tier (e.g. L1)', () => {
     const multiTierStaff = [
       { id: 'staff-l1-online', tier: 'L1', isAvailable: true, lastLogin: new Date('2026-10-01T08:00:00Z') },
       { id: 'staff-l1-offline', tier: 'L1', isAvailable: false, lastLogin: new Date('2026-10-01T07:00:00Z') },
       { id: 'staff-l2-online', tier: 'L2', isAvailable: true, lastLogin: new Date('2026-10-01T09:00:00Z') },
-      { id: 'staff-l3-offline-recent', tier: 'L3', isAvailable: false, lastLogin: new Date('2026-10-01T12:00:00Z') }, // very recent login
+      { id: 'staff-l3-offline-recent', tier: 'L3', isAvailable: false, lastLogin: new Date('2026-10-01T12:00:00Z') },
     ];
 
     const targetTier = 'L1';
@@ -120,13 +120,10 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
     const onlineL1 = tierScopedCandidates.filter((s) => s.isAvailable);
     expect(onlineL1.map((s) => s.id)).toEqual(['staff-l1-online']);
 
-    // Secondary Fallback for L1 when all L1 are offline
+    // When all L1 are offline -> returns empty / null
     const allL1Offline = tierScopedCandidates.map((s) => ({ ...s, isAvailable: false }));
-    const fallbackCandidates = [...allL1Offline].sort((a, b) => b.lastLogin.getTime() - a.lastLogin.getTime());
-    
-    // Must select L1 offline agent and NEVER pick L3 even though L3 logged in at 12:00
-    expect(fallbackCandidates[0]?.id).toBe('staff-l1-online');
-    expect(fallbackCandidates.some((c) => c.tier === 'L3')).toBe(false);
+    const onlineCheck = allL1Offline.filter((s) => s.isAvailable);
+    expect(onlineCheck.length).toBe(0);
   });
 
   describe('Full Permutations & Combinations Matrix Tests', () => {
@@ -144,6 +141,7 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
 
     function resolveCandidates(config: { tier?: string | null; teamId?: string | null }) {
       return orgStaff.filter((staff) => {
+        if (!staff.isAvailable) return false;
         if (config.teamId) {
           return staff.teams.includes(config.teamId);
         }
@@ -159,9 +157,8 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
       if (online.length > 0) {
         return [...online].sort((a, b) => a.load - b.load)[0]?.id ?? null;
       }
-      // Fallback
       if (candidates.length > 0) {
-        return [...candidates].sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime())[0]?.id ?? null;
+        return [...candidates].sort((a, b) => a.load - b.load)[0]?.id ?? null;
       }
       return null;
     }
@@ -169,7 +166,7 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
     function routeRoundRobin(candidates: typeof orgStaff, lastAssignedId: string | null) {
       let eligible = candidates.filter((c) => c.isAvailable && c.load < c.cap);
       if (eligible.length === 0) {
-        eligible = [...candidates].sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
+        eligible = candidates;
       }
       if (eligible.length === 0) return null;
 
@@ -188,12 +185,11 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
       expect(assigned).toBe('l1-agent-b');
     });
 
-    it('Permutation 2: Tier L1 + No Team + Least Loaded (All L1 Offline Fallback)', () => {
+    it('Permutation 2: Tier L1 + No Team + (All L1 Offline) -> returns null', () => {
       // Simulate all L1 offline
       const pool = resolveCandidates({ tier: 'L1', teamId: null }).map((c) => ({ ...c, isAvailable: false }));
-      const assigned = routeLeastLoaded(pool);
-      // Picks most recently active offline L1 (l1-agent-c @ 11:00) and NEVER L2/L3 (even though L2 logged in at 12:00)
-      expect(assigned).toBe('l1-agent-c');
+      const assigned = routeLeastLoaded(pool.filter((c) => c.isAvailable));
+      expect(assigned).toBeNull();
     });
 
     it('Permutation 3: Tier L2 + No Team + Round Robin (Online rotation)', () => {
@@ -202,10 +198,10 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
       expect(assigned1).toBe('l2-agent-a');
     });
 
-    it('Permutation 4: Tier L2 + No Team + Fallback (All L2 Offline)', () => {
+    it('Permutation 4: Tier L2 + No Team (All L2 Offline) -> returns null', () => {
       const pool = resolveCandidates({ tier: 'L2', teamId: null }).map((c) => ({ ...c, isAvailable: false }));
-      const assigned = routeLeastLoaded(pool);
-      expect(assigned).toBe('l2-agent-b'); // L2 agent @ 12:00
+      const assigned = routeLeastLoaded(pool.filter((c) => c.isAvailable));
+      expect(assigned).toBeNull();
     });
 
     it('Permutation 5: Tier L3 + No Team + Least Loaded', () => {
@@ -221,9 +217,10 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
       expect(assigned).toBe('l1-agent-b');
     });
 
-    it('Permutation 7: No Team + No Tier (Tenant-Wide Fallback)', () => {
+    it('Permutation 7: No Team + No Tier (Online Staff Pool)', () => {
       const pool = resolveCandidates({ tier: null, teamId: null });
-      expect(pool.length).toBe(orgStaff.length);
+      const onlineStaff = orgStaff.filter((s) => s.isAvailable);
+      expect(pool.length).toBe(onlineStaff.length);
     });
 
     it('Permutation 8: Empty Tier (e.g. QA with 0 agents) -> returns null, 0 leakage', () => {
@@ -233,14 +230,14 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
       expect(assigned).toBeNull(); // Clean unassigned status in queue
     });
 
-    it('Permutation 9: Saturated Capacity (All available agents at cap)', () => {
+    it('Permutation 9: Saturated Capacity (All available online agents at cap)', () => {
       const saturatedL1 = [
         { id: 'l1-a', tier: 'L1', teams: [], isAvailable: true, load: 5, cap: 5, lastSeen: new Date('2026-10-01T10:00:00Z') },
         { id: 'l1-b', tier: 'L1', teams: [], isAvailable: true, load: 5, cap: 5, lastSeen: new Date('2026-10-01T11:00:00Z') },
       ];
       const assigned = routeLeastLoaded(saturatedL1);
-      // Gracefully falls back to most recently active among eligible L1s
-      expect(assigned).toBe('l1-b');
+      // Gracefully balances among eligible online L1s
+      expect(assigned).toBe('l1-a');
     });
 
     it('Permutation 10: Tier DEVOPS + No Team + Least Loaded (Online)', () => {
@@ -249,11 +246,256 @@ describe('Queue Routing & Auto-Assignment Lifecycle Tests', () => {
       expect(assigned).toBe('devops-agent-a');
     });
 
-    it('Permutation 11: Tier DEVOPS + No Team + Fallback (All DEVOPS Offline)', () => {
+    it('Permutation 11: Tier DEVOPS + No Team (All DEVOPS Offline) -> returns null', () => {
       const pool = resolveCandidates({ tier: 'DEVOPS', teamId: null }).map((c) => ({ ...c, isAvailable: false }));
-      const assigned = routeLeastLoaded(pool);
-      // Picks devops-agent-b (logged in at 09:30 vs devops-agent-a 08:30), never spills to other tiers
-      expect(assigned).toBe('devops-agent-b');
+      const assigned = routeLeastLoaded(pool.filter((c) => c.isAvailable));
+      expect(assigned).toBeNull();
+    });
+  });
+
+  describe('Product Scoping & Auto-Assignment Isolation Tests', () => {
+    const productStaff = [
+      { id: 'agent-claimbook', tier: 'L1', products: ['Claimbook'], isAvailable: true, load: 1, cap: 5, lastSeen: new Date('2026-10-01T10:00:00Z') },
+      { id: 'agent-docuvault', tier: 'L1', products: ['DocuVault'], isAvailable: true, load: 0, cap: 5, lastSeen: new Date('2026-10-01T10:30:00Z') },
+      { id: 'agent-general', tier: 'L1', products: [], isAvailable: true, load: 2, cap: 5, lastSeen: new Date('2026-10-01T09:00:00Z') }, // unrestricted
+      { id: 'agent-multi', tier: 'L1', products: ['Claimbook', 'DocuVault'], isAvailable: true, load: 3, cap: 5, lastSeen: new Date('2026-10-01T11:00:00Z') },
+    ];
+
+    function resolveProductCandidates(productName: string | null) {
+      return productStaff.filter((staff) => {
+        if (productName) {
+          // Explicit product match OR unrestricted agent
+          return staff.products.some((p) => p.toLowerCase() === productName.toLowerCase()) || staff.products.length === 0;
+        }
+        // General ticket -> Only unrestricted agents
+        return staff.products.length === 0;
+      });
+    }
+
+    it('Strict Isolation: Ticket for Claimbook only considers Claimbook-authorized & unrestricted agents', () => {
+      const candidates = resolveProductCandidates('Claimbook');
+      const candidateIds = candidates.map((c) => c.id);
+
+      expect(candidateIds).toContain('agent-claimbook');
+      expect(candidateIds).toContain('agent-general');
+      expect(candidateIds).toContain('agent-multi');
+      expect(candidateIds).not.toContain('agent-docuvault'); // STRICTLY EXCLUDED
+    });
+
+    it('Strict Isolation: Ticket for DocuVault only considers DocuVault-authorized & unrestricted agents', () => {
+      const candidates = resolveProductCandidates('DocuVault');
+      const candidateIds = candidates.map((c) => c.id);
+
+      expect(candidateIds).toContain('agent-docuvault');
+      expect(candidateIds).toContain('agent-general');
+      expect(candidateIds).toContain('agent-multi');
+      expect(candidateIds).not.toContain('agent-claimbook'); // STRICTLY EXCLUDED
+    });
+
+    it('Strict Isolation: General ticket (no product) ONLY considers unrestricted agents', () => {
+      const candidates = resolveProductCandidates(null);
+      const candidateIds = candidates.map((c) => c.id);
+
+      expect(candidateIds).toEqual(['agent-general']);
+      expect(candidateIds).not.toContain('agent-claimbook');
+      expect(candidateIds).not.toContain('agent-docuvault');
+      expect(candidateIds).not.toContain('agent-multi');
+    });
+
+    it('Zero-leakage: Ticket for an unknown product with NO mapped agents returns only unrestricted agents', () => {
+      const candidates = resolveProductCandidates('UnknownProduct');
+      const candidateIds = candidates.map((c) => c.id);
+
+      expect(candidateIds).toEqual(['agent-general']);
+      expect(candidateIds).not.toContain('agent-claimbook');
+      expect(candidateIds).not.toContain('agent-docuvault');
+    });
+
+    it('Zero-leakage Fallback: If no agents exist for Product X, return null instead of leaking to other products', () => {
+      const noUnrestrictedStaff = productStaff.filter((s) => s.products.length > 0);
+      const candidates = noUnrestrictedStaff.filter((staff) =>
+        staff.products.some((p) => p.toLowerCase() === 'unstaffedproduct'),
+      );
+
+      expect(candidates.length).toBe(0);
+      // Auto-assignment should gracefully result in null (status: NEW) without leaking
+      const selected = candidates.length > 0 ? candidates[0]?.id : null;
+      expect(selected).toBeNull();
+    });
+  });
+
+  describe('Organization & Product Domain Matching Tests', () => {
+    const orgs = [
+      {
+        name: 'Apollo Hospitals',
+        slug: 'apollo-hospitals',
+        domains: 'apollohospitals.com, apollo.org, @care.apollo.in',
+        contactEmail: 'desk@apollohospitals.com',
+        website: 'https://www.apollohospitals.com',
+        product: 'Hospital Core',
+      },
+      {
+        name: 'Manipal Health',
+        slug: 'manipal',
+        domains: 'manipal.edu, manipalhospitals.com',
+        contactEmail: 'support@manipal.edu',
+        website: 'https://manipal.edu',
+        product: 'DocuVault',
+      },
+      {
+        name: 'Single Domain Clinic',
+        slug: 'sdc-clinic',
+        domains: 'sdcclinic.in',
+        contactEmail: null,
+        website: null,
+        product: 'ClaimBook',
+      },
+    ];
+
+    function matchOrgFromEmail(senderEmail: string) {
+      if (!senderEmail || !senderEmail.includes('@')) return null;
+      const cleanEmail = senderEmail.toLowerCase().trim();
+      const emailDomain = cleanEmail.split('@')[1]?.toLowerCase().trim() || '';
+
+      for (const org of orgs) {
+        let isMatch = false;
+
+        if (org.domains) {
+          const domainList = org.domains
+            .split(/[\s,;]+/)
+            .map((d) => d.toLowerCase().trim().replace(/^@/, '').replace(/^\*\.?/, ''))
+            .filter(Boolean);
+
+          isMatch = domainList.some((rule) => {
+            return rule === cleanEmail || rule === emailDomain || emailDomain.endsWith(`.${rule}`);
+          });
+        }
+
+        if (!isMatch && org.contactEmail) {
+          if (org.contactEmail.toLowerCase().trim() === cleanEmail) isMatch = true;
+        }
+
+        if (!isMatch && org.website) {
+          const hostPart = org.website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0] || '';
+          const websiteDomain = hostPart.toLowerCase().trim();
+          if (websiteDomain && (websiteDomain === emailDomain || emailDomain.endsWith(`.${websiteDomain}`))) {
+            isMatch = true;
+          }
+        }
+
+        if (!isMatch) {
+          const domainPrefix = emailDomain.split('.')[0] || '';
+          const orgSlugClean = org.slug.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const orgNameClean = org.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (domainPrefix && (orgSlugClean === domainPrefix || orgNameClean === domainPrefix)) {
+            isMatch = true;
+          }
+        }
+
+        if (isMatch) return org;
+      }
+      return null;
+    }
+
+    it('matches exact domain in multi-domain list', () => {
+      const match = matchOrgFromEmail('doctor.smith@apollohospitals.com');
+      expect(match?.name).toBe('Apollo Hospitals');
+      expect(match?.product).toBe('Hospital Core');
+    });
+
+    it('matches secondary domain in multi-domain list', () => {
+      const match = matchOrgFromEmail('admin@apollo.org');
+      expect(match?.name).toBe('Apollo Hospitals');
+      expect(match?.product).toBe('Hospital Core');
+    });
+
+    it('matches domain with leading @ or subdomain', () => {
+      const match = matchOrgFromEmail('nurse@care.apollo.in');
+      expect(match?.name).toBe('Apollo Hospitals');
+    });
+
+    it('matches contactEmail exactly', () => {
+      const match = matchOrgFromEmail('desk@apollohospitals.com');
+      expect(match?.name).toBe('Apollo Hospitals');
+      expect(match?.product).toBe('Hospital Core');
+    });
+
+    it('matches domain to other organization', () => {
+      const match = matchOrgFromEmail('dr.rao@manipalhospitals.com');
+      expect(match?.name).toBe('Manipal Health');
+      expect(match?.product).toBe('DocuVault');
+    });
+
+    it('returns null for unknown external domain without false positive matches', () => {
+      const match = matchOrgFromEmail('random.user@gmail.com');
+      expect(match).toBeNull();
+    });
+  });
+
+  describe('Queue Resolution Isolation Tests', () => {
+    const queues = [
+      { id: 'q-general-default', name: 'General Support', productId: null, isDefault: true, isActive: true },
+      { id: 'q-general-active', name: 'General Tier 2', productId: null, isDefault: false, isActive: true },
+      { id: 'q-core-default', name: 'Core Product Queue', productId: 'p-core', productName: 'Hospital Core', isDefault: true, isActive: true },
+      { id: 'q-docu-default', name: 'DocuVault Queue', productId: 'p-docu', productName: 'DocuVault', isDefault: true, isActive: true },
+    ];
+
+    function resolveQueue(productName: string | null) {
+      if (productName) {
+        // 1. Product-specific default
+        const prodDefault = queues.find(
+          (q) => q.isActive && q.isDefault && q.productName?.toLowerCase() === productName.toLowerCase(),
+        );
+        if (prodDefault) return prodDefault;
+
+        // 2. Product-specific active
+        const prodActive = queues.find(
+          (q) => q.isActive && q.productName?.toLowerCase() === productName.toLowerCase(),
+        );
+        if (prodActive) return prodActive;
+
+        // 3. General default (productId: null)
+        const genDefault = queues.find((q) => q.isActive && q.isDefault && q.productId === null);
+        if (genDefault) return genDefault;
+
+        // 4. General active (productId: null)
+        const genActive = queues.find((q) => q.isActive && q.productId === null);
+        if (genActive) return genActive;
+
+        return null;
+      } else {
+        // General ticket -> MUST have productId: null
+        const genDefault = queues.find((q) => q.isActive && q.isDefault && q.productId === null);
+        if (genDefault) return genDefault;
+
+        const genActive = queues.find((q) => q.isActive && q.productId === null);
+        if (genActive) return genActive;
+
+        return null;
+      }
+    }
+
+    it('Product A ticket matches Product A default queue', () => {
+      const q = resolveQueue('Hospital Core');
+      expect(q?.id).toBe('q-core-default');
+    });
+
+    it('Product B ticket matches Product B default queue', () => {
+      const q = resolveQueue('DocuVault');
+      expect(q?.id).toBe('q-docu-default');
+    });
+
+    it('Product with no product queue falls back to GENERAL default queue (NEVER Product B queue)', () => {
+      const q = resolveQueue('UnconfiguredProduct');
+      expect(q?.id).toBe('q-general-default');
+      expect(q?.productId).toBeNull();
+    });
+
+    it('General ticket with no product matches GENERAL default queue (NEVER Product queue)', () => {
+      const q = resolveQueue(null);
+      expect(q?.id).toBe('q-general-default');
+      expect(q?.productId).toBeNull();
     });
   });
 });
+

@@ -13,7 +13,7 @@ import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { TicketService } from '../tickets/ticket.service';
 import { toPolicySubject } from '../tickets/ticket-scope';
 import { MailService } from '../../infra/mail/mail.service';
-import { type SupportTier } from '@abi-desk/db';
+import { Prisma, type SupportTier } from '@abi-desk/db';
 import { ACTIVE_STATUSES } from '../tickets/ticket.dto';
 import { type AssignDto, type BulkUpdateDto } from './workflow.dto';
 
@@ -142,17 +142,18 @@ export class AssignmentService {
       }
 
       if (dto.autoAssign) {
+        const productName = (ticket.customFields as any)?.product || (ticket.queue as any)?.product?.name || null;
         if (queueRouting === 'ROUND_ROBIN') {
-          assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId, tier);
+          assigneeId = await this.selectRoundRobinAgent(tx, tenantId, queueId, teamId, tier, productName);
         } else {
-          assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId, tier);
+          assigneeId = await this.selectLeastLoadedAgent(tx, tenantId, teamId, tier, productName);
         }
 
         if (!assigneeId) {
           // Left in the queue rather than failing: an unstaffed queue is a real
           // operational state, and the ticket must not be lost because of it.
           this.logger.warn(
-            { ticketId, tenantId, teamId, tier },
+            { ticketId, tenantId, teamId, tier, productName },
             'Auto-assignment found no available agent; ticket left queued',
           );
         }
@@ -519,25 +520,40 @@ export class AssignmentService {
     queueId: string | null,
     teamId: string | null,
     tier: SupportTier | null = null,
+    productName?: string | null,
   ): Promise<string | null> {
-    const tierFilter = tier
-      ? {
-          OR: [
-            { roles: { some: { role: { tier } } } },
-            { teamMembers: { some: { team: { tier } } } },
-          ],
-        }
-      : {};
+    const targetTier = tier || 'L1';
+    const andFilters: Prisma.UserWhereInput[] = [
+      { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
+    ];
 
-    const candidateFilter = {
-      tenantId,
-      kind: 'STAFF' as const,
-      status: 'ACTIVE' as const,
-      deletedAt: null,
-      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
-    };
+    if (productName) {
+      andFilters.push({
+        OR: [
+          { products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } } },
+          { products: { none: {} } },
+        ],
+      });
+    } else {
+      andFilters.push({
+        products: { none: {} },
+      });
+    }
 
-    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    if (teamId) {
+      andFilters.push({ teamMembers: { some: { teamId } } });
+    } else {
+      andFilters.push({
+        OR: [
+          { roles: { some: { role: { tier: targetTier } } } },
+          { teamMembers: { some: { team: { tier: targetTier } } } },
+        ],
+      });
+    }
+
+    const candidateFilter: Prisma.UserWhereInput = { AND: andFilters };
+
+    // Strictly select active staff who are currently online & available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
         ...candidateFilter,
@@ -547,13 +563,9 @@ export class AssignmentService {
       orderBy: { id: 'asc' },
     });
 
-    // 2. Fallback: If no available agents online, fallback to active staff sorted by most recent login/activity
-    if (candidates.length === 0) {
-      candidates = await tx.user.findMany({
-        where: candidateFilter,
-        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
-        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
-      });
+    const gateway = (this.tickets as any)?.getGateway?.();
+    if (gateway && typeof gateway.isUserOnline === 'function') {
+      candidates = candidates.filter((c) => gateway.isUserOnline(c.id));
     }
 
     if (candidates.length === 0) return null;
@@ -619,25 +631,40 @@ export class AssignmentService {
     tenantId: string,
     teamId: string | null,
     tier: SupportTier | null = null,
+    productName?: string | null,
   ): Promise<string | null> {
-    const tierFilter = tier
-      ? {
-          OR: [
-            { roles: { some: { role: { tier } } } },
-            { teamMembers: { some: { team: { tier } } } },
-          ],
-        }
-      : {};
+    const targetTier = tier || 'L1';
+    const andFilters: Prisma.UserWhereInput[] = [
+      { tenantId, kind: 'STAFF', status: 'ACTIVE', deletedAt: null },
+    ];
 
-    const candidateFilter = {
-      tenantId,
-      kind: 'STAFF' as const,
-      status: 'ACTIVE' as const,
-      deletedAt: null,
-      ...(teamId ? { teamMembers: { some: { teamId } } } : tierFilter),
-    };
+    if (productName) {
+      andFilters.push({
+        OR: [
+          { products: { some: { product: { name: { contains: productName, mode: 'insensitive' } } } } },
+          { products: { none: {} } },
+        ],
+      });
+    } else {
+      andFilters.push({
+        products: { none: {} },
+      });
+    }
 
-    // 1. Primary: Active staff who are currently available (isAvailable: true)
+    if (teamId) {
+      andFilters.push({ teamMembers: { some: { teamId } } });
+    } else {
+      andFilters.push({
+        OR: [
+          { roles: { some: { role: { tier: targetTier } } } },
+          { teamMembers: { some: { team: { tier: targetTier } } } },
+        ],
+      });
+    }
+
+    const candidateFilter: Prisma.UserWhereInput = { AND: andFilters };
+
+    // Strictly select active staff who are currently online & available (isAvailable: true)
     let candidates = await tx.user.findMany({
       where: {
         ...candidateFilter,
@@ -646,13 +673,9 @@ export class AssignmentService {
       select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
     });
 
-    // 2. Fallback: If no available agents online, fallback to all active staff by recency of login/activity
-    if (candidates.length === 0) {
-      candidates = await tx.user.findMany({
-        where: candidateFilter,
-        select: { id: true, maxConcurrentTickets: true, lastLoginAt: true, lastSeenAt: true },
-        orderBy: [{ lastSeenAt: 'desc' }, { lastLoginAt: 'desc' }, { createdAt: 'asc' }],
-      });
+    const gateway = (this.tickets as any)?.getGateway?.();
+    if (gateway && typeof gateway.isUserOnline === 'function') {
+      candidates = candidates.filter((c) => gateway.isUserOnline(c.id));
     }
 
     if (candidates.length === 0) return null;
