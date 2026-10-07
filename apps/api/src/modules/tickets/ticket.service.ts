@@ -47,6 +47,9 @@ const TICKET_LIST_SELECT = {
   type: true,
   channel: true,
   category: true,
+  subcategory: true,
+  rootCause: true,
+  capaNotes: true,
   brandId: true,
   queueId: true,
   teamId: true,
@@ -63,7 +66,9 @@ const TICKET_LIST_SELECT = {
   publicCommentCount: true,
   internalNoteCount: true,
   attachmentCount: true,
+  requesterId: true,
   requester: { select: { id: true, fullName: true, email: true } },
+  assigneeId: true,
   assignee: { select: { id: true, fullName: true, email: true } },
   brand: { select: { id: true, name: true, slug: true, supportEmail: true } },
   tags: { select: { tag: { select: { name: true, slug: true, color: true } } } },
@@ -617,33 +622,33 @@ export class TicketService {
     const [comments, users] = await Promise.all([
       commentIds.length > 0
         ? this.prisma.client.ticketComment.findMany({
-            where: { id: { in: commentIds } },
-            include: {
-              author: { select: { id: true, fullName: true, email: true, kind: true } },
-              mediaAssets: {
-                select: { id: true, originalFilename: true, mimeType: true },
-              },
+          where: { id: { in: commentIds } },
+          include: {
+            author: { select: { id: true, fullName: true, email: true, kind: true } },
+            mediaAssets: {
+              select: { id: true, originalFilename: true, mimeType: true },
             },
-          })
+          },
+        })
         : [],
       userIds.size > 0
         ? this.prisma.client.user.findMany({
-            where: { id: { in: Array.from(userIds) } },
-            select: {
-              id: true,
-              fullName: true,
-              displayName: true,
-              email: true,
-              kind: true,
-              avatarUrl: true,
-              jobTitle: true,
-              roles: {
-                include: {
-                  role: { select: { id: true, name: true, key: true } },
-                },
+          where: { id: { in: Array.from(userIds) } },
+          select: {
+            id: true,
+            fullName: true,
+            displayName: true,
+            email: true,
+            kind: true,
+            avatarUrl: true,
+            jobTitle: true,
+            roles: {
+              include: {
+                role: { select: { id: true, name: true, key: true } },
               },
             },
-          })
+          },
+        })
         : [],
     ]);
 
@@ -858,17 +863,17 @@ export class TicketService {
           ...(dto.subcategory !== undefined ? { subcategory: dto.subcategory } : {}),
           ...(dto.rootCause !== undefined
             ? {
-                rootCause: dto.rootCause,
-                rcaUpdatedAt: new Date(),
-                rcaUpdatedById: principal.userId,
-              }
+              rootCause: dto.rootCause,
+              rcaUpdatedAt: new Date(),
+              rcaUpdatedById: principal.userId,
+            }
             : {}),
           ...(dto.capaNotes !== undefined
             ? {
-                capaNotes: dto.capaNotes,
-                capaUpdatedAt: new Date(),
-                capaUpdatedById: principal.userId,
-              }
+              capaNotes: dto.capaNotes,
+              capaUpdatedAt: new Date(),
+              capaUpdatedById: principal.userId,
+            }
             : {}),
           ...(mergedCustomFields !== undefined
             ? { customFields: mergedCustomFields as Prisma.InputJsonValue }
@@ -1149,7 +1154,9 @@ export class TicketService {
     });
 
     if (this.gateway) {
-      this.gateway.broadcastTicketCommented(tenantId, ticketId, comment, ticket.number);
+      const ticketProduct = (ticket as any).customFields?.product || (ticket as any).product;
+      const ticketProductId = (ticket as any).team?.productId || (ticket as any).productId;
+      this.gateway.broadcastTicketCommented(tenantId, ticketId, comment, ticket.number, ticketProduct, ticketProductId, ticket);
     }
 
     return comment;
@@ -2624,15 +2631,32 @@ export class TicketService {
     if (query.type?.length) where.type = { in: query.type };
     if (query.channel?.length) where.channel = { in: query.channel };
 
-    if (query.assignee === 'me') where.assigneeId = principal.userId;
-    else if (query.assigneeId) where.assigneeId = query.assigneeId;
+    if (query.assignee === 'me') {
+      where.assigneeId = principal.userId;
+    } else if (query.assigneeId) {
+      const ids = query.assigneeId.split(',').map((s) => s.trim()).filter(Boolean);
+      where.assigneeId = ids.length > 1 ? { in: ids } : ids[0];
+    }
 
     if (query.unassigned) where.assigneeId = null;
     if (query.requesterId) where.requesterId = query.requesterId;
-    if (query.queueId) where.queueId = query.queueId;
-    if (query.teamId) where.teamId = query.teamId;
+
+    if (query.queueId) {
+      const qIds = query.queueId.split(',').map((s) => s.trim()).filter(Boolean);
+      where.queueId = qIds.length > 1 ? { in: qIds } : qIds[0];
+    }
+
+    if (query.teamId) {
+      const tIds = query.teamId.split(',').map((s) => s.trim()).filter(Boolean);
+      where.teamId = tIds.length > 1 ? { in: tIds } : tIds[0];
+    }
+
     if (query.brandId) where.brandId = query.brandId;
-    if (query.category) where.category = query.category;
+
+    if (query.category) {
+      const cats = query.category.split(',').map((s) => s.trim()).filter(Boolean);
+      where.category = cats.length > 1 ? { in: cats } : cats[0];
+    }
 
     if (query.openOnly) {
       where.status = { notIn: ['CLOSED', 'CANCELLED', 'RESOLVED'] };
@@ -2645,27 +2669,44 @@ export class TicketService {
     }
 
     if (query.tag) {
-      where.tags = { some: { tag: { slug: slugify(query.tag) } } };
+      const tagSlugs = query.tag.split(',').map((s) => slugify(s.trim())).filter(Boolean);
+      if (tagSlugs.length > 1) {
+        where.tags = { some: { tag: { slug: { in: tagSlugs } } } };
+      } else if (tagSlugs.length === 1) {
+        where.tags = { some: { tag: { slug: tagSlugs[0] } } };
+      }
     }
 
     const andFilters: Prisma.TicketWhereInput[] = [];
 
     if (query.organization) {
-      andFilters.push({
-        customFields: {
-          path: ['organization'],
-          string_contains: query.organization,
-        },
-      });
+      const orgs = query.organization.split(',').map((s) => s.trim()).filter(Boolean);
+      if (orgs.length > 1) {
+        andFilters.push({
+          OR: orgs.map((org) => ({
+            customFields: { path: ['organization'], string_contains: org },
+          })),
+        });
+      } else if (orgs.length === 1) {
+        andFilters.push({
+          customFields: { path: ['organization'], string_contains: orgs[0] },
+        });
+      }
     }
 
     if (query.product) {
-      andFilters.push({
-        customFields: {
-          path: ['product'],
-          string_contains: query.product,
-        },
-      });
+      const prods = query.product.split(',').map((s) => s.trim()).filter(Boolean);
+      if (prods.length > 1) {
+        andFilters.push({
+          OR: prods.map((prod) => ({
+            customFields: { path: ['product'], string_contains: prod },
+          })),
+        });
+      } else if (prods.length === 1) {
+        andFilters.push({
+          customFields: { path: ['product'], string_contains: prods[0] },
+        });
+      }
     }
 
     if (andFilters.length > 0) {
@@ -2839,19 +2880,27 @@ export class TicketService {
 
     const recipient = parseEmailAddress(payload.to);
     const tenantSlug = resolveTenantSlug(recipient);
-    if (!tenantSlug) {
-      throw AppException.badRequest('Inbound email recipient is not formatted correctly with a tenant slug.');
-    }
 
     const ticket = await this.prisma.unsafeRawClient.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.bypass_rls', 'on', true)`;
 
-      const tenant = await tx.tenant.findUnique({
-        where: { slug: tenantSlug },
-        select: { id: true, ticketPrefix: true },
-      });
+      let tenant = tenantSlug
+        ? await tx.tenant.findUnique({
+          where: { slug: tenantSlug },
+          select: { id: true, ticketPrefix: true },
+        })
+        : null;
+
       if (!tenant) {
-        throw AppException.notFound(`Tenant with slug "${tenantSlug}" was not found.`);
+        tenant = await tx.tenant.findFirst({
+          where: { status: 'ACTIVE' },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, ticketPrefix: true },
+        });
+      }
+
+      if (!tenant) {
+        throw AppException.notFound(`No active tenant was found to receive this inbound email.`);
       }
       const tenantId = tenant.id;
 
@@ -2944,124 +2993,127 @@ export class TicketService {
       }
 
       if (existingTicket) {
-          const createdComment = await tx.ticketComment.create({
-            data: {
-              tenantId,
-              ticketId: existingTicket.id,
-              authorId: requester.id,
-              visibility: 'PUBLIC',
-              body: payload.body || '(No content)',
-              bodyFormat: 'PLAIN',
-            },
-            select: { id: true },
-          });
+        const createdComment = await tx.ticketComment.create({
+          data: {
+            tenantId,
+            ticketId: existingTicket.id,
+            authorId: requester.id,
+            visibility: 'PUBLIC',
+            body: payload.body || '(No content)',
+            bodyFormat: 'PLAIN',
+          },
+          select: { id: true },
+        });
 
-          // Upload and record any attachments on the comment
-          let commentAttachmentCount = 0;
-          if (payload.attachments && payload.attachments.length > 0) {
-            for (const att of payload.attachments) {
-              const rawContent = att.content || att.data || att.base64;
-              if (!rawContent) continue;
+        // Upload and record any attachments on the comment
+        let commentAttachmentCount = 0;
+        if (payload.attachments && payload.attachments.length > 0) {
+          for (const att of payload.attachments) {
+            const rawContent = att.content || att.data || att.base64 || (att as any).Content;
+            if (!rawContent) continue;
 
-              const filename = sanitizeFilename(att.file_name || att.fileName || att.filename || att.name || 'attachment');
-              const mimeType = att.content_type || att.contentType || att.type || 'application/octet-stream';
-              const buffer = Buffer.from(rawContent, 'base64');
-              if (buffer.length === 0) continue;
+            const filename = sanitizeFilename(att.file_name || att.fileName || att.filename || att.name || (att as any).Name || 'attachment');
+            const mimeType = att.content_type || att.contentType || att.type || (att as any).ContentType || 'application/octet-stream';
+            const buffer = Buffer.from(rawContent, 'base64');
+            if (buffer.length === 0) continue;
 
-              const mediaId = randomUUID();
-              const storageKey = buildInboundStorageKey(tenantId, mediaId, mimeType);
-              const checksum = createHash('sha256').update(buffer).digest('hex');
+            const mediaId = randomUUID();
+            const storageKey = buildInboundStorageKey(tenantId, mediaId, mimeType);
+            const checksum = createHash('sha256').update(buffer).digest('hex');
 
-              await this.storage.putObjectBuffer(storageKey, buffer, mimeType);
+            await this.storage.putObjectBuffer(storageKey, buffer, mimeType);
 
-              await tx.mediaAsset.create({
-                data: {
-                  id: mediaId,
-                  tenantId,
-                  ticketId: existingTicket.id,
-                  commentId: createdComment.id,
-                  uploadedById: requester.id,
-                  kind: 'ATTACHMENT',
-                  status: 'UPLOADED',
-                  storageKey,
-                  bucket: this.storage.bucket,
-                  originalFilename: filename,
-                  mimeType,
-                  declaredMimeType: mimeType,
-                  sizeBytes: BigInt(buffer.length),
-                  checksumSha256: checksum,
-                  scanStatus: 'CLEAN',
-                  uploadedAt: new Date(),
-                },
-              });
-              commentAttachmentCount++;
-            }
-          }
-
-          const shouldReopen = existingTicket.status === 'CLOSED' || existingTicket.status === 'RESOLVED';
-
-          await tx.ticket.update({
-            where: { id: existingTicket.id },
-            data: {
-              ...(shouldReopen ? { status: 'OPEN' } : {}),
-              lastActivityAt: new Date(),
-              publicCommentCount: { increment: 1 },
-              lastCustomerReplyAt: new Date(),
-              ...(commentAttachmentCount > 0 ? { attachmentCount: { increment: commentAttachmentCount } } : {}),
-            },
-          });
-
-          if (shouldReopen) {
-            await this.recordEvent(tx, {
-              tenantId,
-              ticketId: existingTicket.id,
-              type: 'STATUS_CHANGED',
-              actorId: requester.id,
-              fromValue: existingTicket.status,
-              toValue: 'OPEN',
-              metadata: { reason: 'Customer email reply received' },
+            await tx.mediaAsset.create({
+              data: {
+                id: mediaId,
+                tenantId,
+                ticketId: existingTicket.id,
+                commentId: createdComment.id,
+                uploadedById: requester.id,
+                kind: 'ATTACHMENT',
+                status: 'UPLOADED',
+                storageKey,
+                bucket: this.storage.bucket,
+                originalFilename: filename,
+                mimeType,
+                declaredMimeType: mimeType,
+                sizeBytes: BigInt(buffer.length),
+                checksumSha256: checksum,
+                scanStatus: 'CLEAN',
+                uploadedAt: new Date(),
+              },
             });
+            commentAttachmentCount++;
           }
+        }
 
+        const shouldReopen = existingTicket.status === 'CLOSED' || existingTicket.status === 'RESOLVED';
+
+        await tx.ticket.update({
+          where: { id: existingTicket.id },
+          data: {
+            ...(shouldReopen ? { status: 'OPEN' } : {}),
+            lastActivityAt: new Date(),
+            publicCommentCount: { increment: 1 },
+            lastCustomerReplyAt: new Date(),
+            ...(commentAttachmentCount > 0 ? { attachmentCount: { increment: commentAttachmentCount } } : {}),
+          },
+        });
+
+        if (shouldReopen) {
           await this.recordEvent(tx, {
             tenantId,
             ticketId: existingTicket.id,
-            type: 'COMMENT_ADDED',
+            type: 'STATUS_CHANGED',
             actorId: requester.id,
-            metadata: { commentId: createdComment.id, visibility: 'PUBLIC', attachmentsAdded: commentAttachmentCount },
+            fromValue: existingTicket.status,
+            toValue: 'OPEN',
+            metadata: { reason: 'Customer email reply received' },
           });
-
-          await this.emit(tx, tenantId, 'ticket.commented', existingTicket.id, {
-            ticketId: existingTicket.id,
-            commentId: createdComment.id,
-            visibility: 'PUBLIC',
-            authorId: requester.id,
-            isFirstResponse: false,
-          });
-
-          const ticketToReturn = await tx.ticket.findUniqueOrThrow({
-            where: { id: existingTicket.id },
-            select: { id: true, number: true, subject: true, status: true, priority: true },
-          });
-
-          if (this.gateway) {
-            this.gateway.broadcastTicketCommented(tenantId, existingTicket.id, {
-              id: createdComment.id,
-              body: payload.body,
-              createdAt: new Date(),
-              author: { id: requester.id, fullName: senderName || senderEmail.split('@')[0] || 'Customer', email: senderEmail },
-              visibility: 'PUBLIC',
-            }, existingTicket.number || ticketToReturn.number);
-            if (shouldReopen) {
-              this.gateway.broadcastTicketUpdated(tenantId, existingTicket.id, {
-                id: existingTicket.id,
-                status: 'OPEN',
-              });
-            }
-          }
-
-          return ticketToReturn;
         }
+
+        await this.recordEvent(tx, {
+          tenantId,
+          ticketId: existingTicket.id,
+          type: 'COMMENT_ADDED',
+          actorId: requester.id,
+          metadata: { commentId: createdComment.id, visibility: 'PUBLIC', attachmentsAdded: commentAttachmentCount },
+        });
+
+        await this.emit(tx, tenantId, 'ticket.commented', existingTicket.id, {
+          ticketId: existingTicket.id,
+          commentId: createdComment.id,
+          visibility: 'PUBLIC',
+          authorId: requester.id,
+          isFirstResponse: false,
+        });
+
+        const ticketToReturn = await tx.ticket.findUniqueOrThrow({
+          where: { id: existingTicket.id },
+          select: { id: true, number: true, subject: true, status: true, priority: true },
+        });
+
+        if (this.gateway) {
+          const prodTag = (existingTicket as any).customFields?.product || (existingTicket as any).product;
+          const prodId = (existingTicket as any).team?.productId || (existingTicket as any).productId;
+          this.gateway.broadcastTicketCommented(tenantId, existingTicket.id, {
+            id: createdComment.id,
+            body: payload.body,
+            createdAt: new Date(),
+            author: { id: requester.id, fullName: senderName || senderEmail.split('@')[0] || 'Customer', email: senderEmail },
+            visibility: 'PUBLIC',
+          }, existingTicket.number || ticketToReturn.number, prodTag, prodId, existingTicket);
+          if (shouldReopen) {
+            this.gateway.broadcastTicketUpdated(tenantId, existingTicket.id, {
+              ...existingTicket,
+              id: existingTicket.id,
+              status: 'OPEN',
+            });
+          }
+        }
+
+        return ticketToReturn;
+      }
 
       const sequence = await this.prisma.nextTicketSequence(tx, tenantId);
       const number = `${tenant.ticketPrefix}-${sequence}`;
@@ -3121,11 +3173,11 @@ export class TicketService {
       let ticketAttachmentCount = 0;
       if (payload.attachments && payload.attachments.length > 0) {
         for (const att of payload.attachments) {
-          const rawContent = att.content || att.data || att.base64;
+          const rawContent = att.content || att.data || att.base64 || (att as any).Content;
           if (!rawContent) continue;
 
-          const filename = sanitizeFilename(att.file_name || att.fileName || att.filename || att.name || 'attachment');
-          const mimeType = att.content_type || att.contentType || att.type || 'application/octet-stream';
+          const filename = sanitizeFilename(att.file_name || att.fileName || att.filename || att.name || (att as any).Name || 'attachment');
+          const mimeType = att.content_type || att.contentType || att.type || (att as any).ContentType || 'application/octet-stream';
           const buffer = Buffer.from(rawContent, 'base64');
           if (buffer.length === 0) continue;
 

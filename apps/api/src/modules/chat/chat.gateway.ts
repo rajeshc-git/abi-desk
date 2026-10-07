@@ -207,13 +207,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
-  broadcastTicketCommented(tenantId: string, ticketId: string, comment: any, ticketNumber?: string) {
-    this.server.to([`tenant:${tenantId}`, `ticket:${ticketId}`]).emit('ticket.commented', { ticketId, ticketNumber, comment });
+  broadcastTicketCommented(
+    tenantId: string,
+    ticketId: string,
+    comment: any,
+    ticketNumber?: string,
+    product?: string,
+    productId?: string,
+    ticket?: any,
+  ) {
+    this.server.to([`tenant:${tenantId}`, `ticket:${ticketId}`]).emit('ticket.commented', {
+      ticketId,
+      ticketNumber,
+      comment,
+      product,
+      productId,
+      ticket,
+    });
     this.server.to(`tenant:${tenantId}`).emit('ticket.inbox_updated', {
       action: 'COMMENT_ADDED',
       ticketId,
       ticketNumber,
       comment,
+      product,
+      productId,
+      ticket,
     });
   }
 

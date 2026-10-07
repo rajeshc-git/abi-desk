@@ -2483,13 +2483,16 @@ export const DocumentsPage: React.FC = () => {
     if (f.channels.length > 0 && !f.channels.includes(ticket.channel)) return false;
 
     // 6. Assignment
-    if (f.assignment === 'unassigned' && ticket.assigneeId) return false;
-    if (f.assignment === 'assigned' && !ticket.assigneeId) return false;
-    if (f.assigneeIds.length > 0 && (!ticket.assigneeId || !f.assigneeIds.includes(ticket.assigneeId))) return false;
+    const ticketAssigneeId = ticket.assigneeId || ticket.assignee?.id;
+    if (f.assignment === 'unassigned' && ticketAssigneeId) return false;
+    if (f.assignment === 'assigned' && !ticketAssigneeId) return false;
+    if (f.assigneeIds.length > 0 && (!ticketAssigneeId || !f.assigneeIds.includes(ticketAssigneeId))) return false;
 
     // 7. Team & Queue
-    if (f.teamIds.length > 0 && (!ticket.teamId || !f.teamIds.includes(ticket.teamId))) return false;
-    if (f.queueIds.length > 0 && (!ticket.queueId || !f.queueIds.includes(ticket.queueId))) return false;
+    const ticketTeamId = ticket.teamId || ticket.team?.id;
+    const ticketQueueId = ticket.queueId || ticket.queue?.id;
+    if (f.teamIds.length > 0 && (!ticketTeamId || !f.teamIds.includes(ticketTeamId))) return false;
+    if (f.queueIds.length > 0 && (!ticketQueueId || !f.queueIds.includes(ticketQueueId))) return false;
 
     // 8. Organization (single selection check)
     if (f.organization) {
@@ -2539,15 +2542,15 @@ export const DocumentsPage: React.FC = () => {
       if (filters.statuses.length > 0) params.set('status', filters.statuses.join(','));
       if (filters.priorities.length > 0) params.set('priority', filters.priorities.join(','));
       if (filters.tiers.length > 0) params.set('tier', filters.tiers.join(','));
-      if (filters.channels.length === 1) params.set('channel', filters.channels[0]);
+      if (filters.channels.length > 0) params.set('channel', filters.channels.join(','));
       if (filters.assignment === 'unassigned') params.set('unassigned', 'true');
-      else if (filters.assigneeIds.length === 1) params.set('assigneeId', filters.assigneeIds[0]);
-      if (filters.teamIds.length === 1) params.set('teamId', filters.teamIds[0]);
-      if (filters.queueIds.length === 1) params.set('queueId', filters.queueIds[0]);
+      else if (filters.assigneeIds.length > 0) params.set('assigneeId', filters.assigneeIds.join(','));
+      if (filters.teamIds.length > 0) params.set('teamId', filters.teamIds.join(','));
+      if (filters.queueIds.length > 0) params.set('queueId', filters.queueIds.join(','));
       if (filters.organization) params.set('organization', filters.organization);
-      if (filters.products.length === 1) params.set('product', filters.products[0]);
-      if (filters.categories.length === 1) params.set('category', filters.categories[0]);
-      if (filters.tags.length === 1) params.set('tag', filters.tags[0]);
+      if (filters.products.length > 0) params.set('product', filters.products.join(','));
+      if (filters.categories.length > 0) params.set('category', filters.categories.join(','));
+      if (filters.tags.length > 0) params.set('tag', filters.tags.join(','));
       if (filters.slaBreach === 'breached') params.set('breached', 'true');
 
       const res = await ApiClient.get(`/tickets?${params.toString()}`);
@@ -2555,7 +2558,10 @@ export const DocumentsPage: React.FC = () => {
       const rawList = res?.tickets || res?.items || res?.data || (Array.isArray(res) ? res : []);
       const matched = rawList.filter((t: any) => filterTicketMatches(t, filters, calculatedDates));
 
-      const totalCount = typeof res?.total === 'number' ? res.total : matched.length;
+      const totalCount =
+        typeof res?.total === 'number' && res.total > rawList.length
+          ? res.total
+          : matched.length;
 
       setMatchedTicketsCache(matched);
       setTotalMatchCount(totalCount);
@@ -2890,15 +2896,15 @@ export const DocumentsPage: React.FC = () => {
       if (filters.statuses.length > 0) baseParams.set('status', filters.statuses.join(','));
       if (filters.priorities.length > 0) baseParams.set('priority', filters.priorities.join(','));
       if (filters.tiers.length > 0) baseParams.set('tier', filters.tiers.join(','));
-      if (filters.channels.length === 1) baseParams.set('channel', filters.channels[0]);
+      if (filters.channels.length > 0) baseParams.set('channel', filters.channels.join(','));
       if (filters.assignment === 'unassigned') baseParams.set('unassigned', 'true');
-      else if (filters.assigneeIds.length === 1) baseParams.set('assigneeId', filters.assigneeIds[0]);
-      if (filters.teamIds.length === 1) baseParams.set('teamId', filters.teamIds[0]);
-      if (filters.queueIds.length === 1) baseParams.set('queueId', filters.queueIds[0]);
+      else if (filters.assigneeIds.length > 0) baseParams.set('assigneeId', filters.assigneeIds.join(','));
+      if (filters.teamIds.length > 0) baseParams.set('teamId', filters.teamIds.join(','));
+      if (filters.queueIds.length > 0) baseParams.set('queueId', filters.queueIds.join(','));
       if (filters.organization) baseParams.set('organization', filters.organization);
-      if (filters.products.length === 1) baseParams.set('product', filters.products[0]);
-      if (filters.categories.length === 1) baseParams.set('category', filters.categories[0]);
-      if (filters.tags.length === 1) baseParams.set('tag', filters.tags[0]);
+      if (filters.products.length > 0) baseParams.set('product', filters.products.join(','));
+      if (filters.categories.length > 0) baseParams.set('category', filters.categories.join(','));
+      if (filters.tags.length > 0) baseParams.set('tag', filters.tags.join(','));
       if (filters.slaBreach === 'breached') baseParams.set('breached', 'true');
     }
 
@@ -3155,6 +3161,8 @@ export const DocumentsPage: React.FC = () => {
         rows,
         rawText: rawCsvText,
       });
+      setTotalMatchCount(rows.length);
+      setMatchedTicketsCache(records);
       setViewerPage(1);
       setViewerSearchQuery('');
       toast.success(`Loaded all ${rows.length.toLocaleString()} filtered ticket records into CSV Beautifier!`);

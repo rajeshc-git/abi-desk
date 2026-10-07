@@ -8,6 +8,7 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { AbiDeskWidget } from '@abi-desk/widget';
 import { SearchProvider } from '../../context/SearchContext';
+import { isUserScopedToTicket } from '../../utils/ticketScope';
 
 export const Shell: React.FC = () => {
   const { user, token, isLoading, activeBrandId, brands } = useAuth();
@@ -36,6 +37,7 @@ export const Shell: React.FC = () => {
     const handleTicketCreated = (data: any) => {
       const incoming = data.ticket;
       if (!incoming) return;
+      if (!isUserScopedToTicket(incoming, user)) return;
 
       try {
         const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';

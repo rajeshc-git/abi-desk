@@ -31,6 +31,7 @@ import { ApiKeysSettings } from '../settings/ApiKeysSettings';
 import { WebhooksSettings } from '../settings/WebhooksSettings';
 import { ComplianceSettings } from '../settings/ComplianceSettings';
 import { ProfileModal } from './ProfileModal';
+import { isUserScopedToTicket } from '../../utils/ticketScope';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -130,6 +131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
     const handleTicketCreated = (data: any) => {
       const incoming = data?.ticket;
       if (!incoming?.id) return;
+      if (!isUserScopedToTicket(incoming, user)) return;
       try {
         const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
         const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');

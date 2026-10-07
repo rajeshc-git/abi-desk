@@ -10,6 +10,8 @@ export interface AppNotification {
   message: string;
   ticketId: string;
   ticketNumber?: number | string;
+  product?: string;
+  productId?: string;
   authorName?: string;
   authorEmail?: string;
   authorKind?: string;
@@ -29,6 +31,8 @@ interface NotificationContextType {
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+import { isUserScopedToTicket } from '../utils/ticketScope';
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -65,7 +69,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     } catch {}
   }, [notifications, storageKey]);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  // Compute unread count strictly for notifications relevant to this user
+  const isTenantAdmin = user?.roles?.some((r: string) => r === 'TENANT_ADMIN' || r === 'PLATFORM_ADMIN');
+  const userProducts = (user?.products || []).map((p: string) => String(p).toLowerCase().trim()).filter(Boolean);
+  const userProductIds = (user?.productIds || []).map((p: string) => String(p).toLowerCase().trim()).filter(Boolean);
+
+  const scopedNotifications = notifications.filter((n) => {
+    if (n.type === 'MENTION') return true;
+    if (isTenantAdmin) return true;
+    if (userProducts.length > 0 || userProductIds.length > 0) {
+      if (n.product) return userProducts.includes(n.product.toLowerCase().trim());
+      if (n.productId) return userProductIds.includes(n.productId.toLowerCase().trim());
+      // Automatically hide legacy untagged notifications for product-restricted agents
+      return false;
+    }
+    return true;
+  });
+
+  const unreadCount = scopedNotifications.filter((n) => !n.isRead).length;
 
   const markAsRead = useCallback((id: string) => {
     setNotifications((prev) =>
@@ -190,12 +211,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       // If customer replied publicly (or a teammate replied on public ticket)
       if (comment.author?.kind === 'CUSTOMER' || comment.visibility === 'PUBLIC') {
+        const prodTag = data?.ticket?.customFields?.product || data?.ticket?.product || data?.product;
+        const prodId = data?.ticket?.team?.productId || data?.ticket?.productId || data?.productId;
+
+        // Product-based scoping: Do not alert agents for comments on tickets outside their assigned products
+        if (data?.ticket) {
+          if (!isUserScopedToTicket(data.ticket, user)) return;
+        } else if (prodTag || prodId) {
+          if (!isUserScopedToTicket({ product: prodTag, productId: prodId, team: { productId: prodId } }, user)) return;
+        }
+
         addNotification({
           type: 'REPLY',
           title: `💬 New reply on #${cleanNumber}`,
           message: `${authorName}: "${commentBody.replace(/<[^>]*>/g, '').trim().slice(0, 80)}"`,
           ticketId: data.ticketId,
           ticketNumber: cleanNumber,
+          product: prodTag,
+          productId: prodId,
           authorName,
           authorEmail: comment.author?.email,
           authorKind: comment.author?.kind,
@@ -211,6 +244,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const incoming = data?.ticket;
       if (!incoming?.id) return;
 
+      // Product-based scoping: Do not alert agents for products they are not assigned to
+      if (!isUserScopedToTicket(incoming, user)) {
+        return;
+      }
+
       const ticketKey = `ticket_created_${incoming.id}`;
       if (processedEventsRef.current.has(ticketKey)) {
         return;
@@ -218,6 +256,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       processedEventsRef.current.add(ticketKey);
 
       const cleanNumber = String(incoming.number || '').replace(/^#/, '');
+      const prodTag = incoming.customFields?.product || incoming.product;
+      const prodId = incoming.team?.productId || incoming.productId;
 
       addNotification({
         type: 'TICKET_CREATED',
@@ -225,6 +265,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         message: incoming.subject || 'New ticket received in queue',
         ticketId: incoming.id,
         ticketNumber: cleanNumber,
+        product: prodTag,
+        productId: prodId,
         authorName: incoming.requester?.fullName || incoming.requester?.email || 'Customer',
         authorEmail: incoming.requester?.email,
         isInternal: false,

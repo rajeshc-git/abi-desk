@@ -75,18 +75,30 @@ export class TicketController {
       throw AppException.permissionDenied('Invalid inbound email webhook secret.');
     }
 
-    const headers = body.headers || {};
+    const rawHeaders = body.Headers || body.headers || {};
 
     const extractHeader = (key: string): string | undefined => {
-      if (!headers || typeof headers !== 'object') return undefined;
-      if (headers[key] !== undefined) {
-        const val = headers[key];
-        return Array.isArray(val) ? val[0] : (typeof val === 'string' ? val : undefined);
-      }
+      if (!rawHeaders) return undefined;
       const lowerKey = key.toLowerCase();
-      for (const [k, v] of Object.entries(headers)) {
-        if (k.toLowerCase() === lowerKey) {
-          return Array.isArray(v) ? v[0] : (typeof v === 'string' ? v : undefined);
+
+      // Format A: Postmark array format [{ Name: 'In-Reply-To', Value: '...' }]
+      if (Array.isArray(rawHeaders)) {
+        const found = rawHeaders.find(
+          (h: any) => h && typeof h.Name === 'string' && h.Name.toLowerCase() === lowerKey,
+        );
+        return found ? (typeof found.Value === 'string' ? found.Value : String(found.Value)) : undefined;
+      }
+
+      // Format B: CloudMailin / Standard Object format { "in-reply-to": "..." }
+      if (typeof rawHeaders === 'object') {
+        if (rawHeaders[key] !== undefined) {
+          const val = rawHeaders[key];
+          return Array.isArray(val) ? val[0] : (typeof val === 'string' ? val : undefined);
+        }
+        for (const [k, v] of Object.entries(rawHeaders)) {
+          if (k.toLowerCase() === lowerKey) {
+            return Array.isArray(v) ? v[0] : (typeof v === 'string' ? v : undefined);
+          }
         }
       }
       return undefined;
@@ -95,7 +107,11 @@ export class TicketController {
     const extractEmailString = (val: any): string | undefined => {
       if (!val) return undefined;
       if (typeof val === 'string') return val.trim() || undefined;
+      if (Array.isArray(val) && val.length > 0) return extractEmailString(val[0]);
       if (typeof val === 'object') {
+        if (val.Email) {
+          return val.Name ? `"${val.Name}" <${val.Email}>` : String(val.Email);
+        }
         if (val.address) {
           return val.name ? `"${val.name}" <${val.address}>` : String(val.address);
         }
@@ -110,7 +126,7 @@ export class TicketController {
     // is rewritten by email forwarders (e.g., Gmail's +caf_= SRS forwarding).
     const headerFrom = extractHeader('from');
     const headerReplyTo = extractHeader('reply-to') || extractHeader('reply_to');
-    const bodyFrom = extractEmailString(body.from);
+    const bodyFrom = extractEmailString(body.From || body.from || body.FromFull || body.from_email);
     const envelopeFrom = extractEmailString(body.envelope?.from);
 
     const isForwardingEnvelope = (addr?: string) =>
@@ -127,20 +143,27 @@ export class TicketController {
       }
     }
 
-    // For tenant routing, envelope.to or body.to carries the CloudMailin address (+tenantSlug).
+    // For tenant routing, envelope.to, body.to or OriginalRecipient carries the inbound forwarding address.
     const envelopeTo = extractEmailString(body.envelope?.to);
-    const bodyTo = extractEmailString(body.to);
+    const bodyTo = extractEmailString(body.To || body.to || body.ToFull || body.to_email || body.OriginalRecipient);
     const headerTo = extractHeader('to');
-    const to = envelopeTo || bodyTo || headerTo;
+    const to = envelopeTo || bodyTo || extractEmailString(body.OriginalRecipient) || headerTo;
 
     const subject =
+      (typeof body.Subject === 'string' && body.Subject) ||
       (typeof body.subject === 'string' && body.subject) ||
       extractHeader('subject') ||
       '';
 
     let content = '';
-    if (typeof body.html === 'string' && body.html.trim().length > 0) {
+    if (typeof body.HtmlBody === 'string' && body.HtmlBody.trim().length > 0) {
+      content = body.HtmlBody.trim();
+    } else if (typeof body.html === 'string' && body.html.trim().length > 0) {
       content = body.html.trim();
+    } else if (typeof body.StrippedTextReply === 'string' && body.StrippedTextReply.trim().length > 0) {
+      content = body.StrippedTextReply.trim();
+    } else if (typeof body.TextBody === 'string' && body.TextBody.trim().length > 0) {
+      content = body.TextBody.trim();
     } else {
       content = (body.text || body.plain || '').trim();
     }
@@ -149,12 +172,12 @@ export class TicketController {
       throw AppException.badRequest('Inbound email must specify "from" and "to" addresses.');
     }
 
-    const rawAttachments = body.attachments || body.attachment || [];
+    const rawAttachments = body.Attachments || body.attachments || body.attachment || [];
     const attachments = Array.isArray(rawAttachments) ? rawAttachments : [rawAttachments];
 
     const inReplyTo = extractHeader('in-reply-to') || extractHeader('in_reply_to');
     const references = extractHeader('references');
-    const messageId = extractHeader('message-id') || extractHeader('message_id');
+    const messageId = body.MessageID || extractHeader('message-id') || extractHeader('message_id');
 
     return this.tickets.createFromInboundEmail({
       from,

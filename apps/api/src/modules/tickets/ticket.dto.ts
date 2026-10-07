@@ -141,17 +141,17 @@ export const listTicketsSchema = z.object({
   type: csvEnum(ticketTypeValues),
   channel: csvEnum(ticketChannelValues),
 
-  assigneeId: uuid.optional(),
+  assigneeId: z.string().trim().optional(),
   /** `me` resolves to the caller, which is what an agent's default view needs. */
   assignee: z.literal('me').optional(),
   requesterId: uuid.optional(),
-  queueId: uuid.optional(),
-  teamId: uuid.optional(),
+  queueId: z.string().trim().optional(),
+  teamId: z.string().trim().optional(),
   brandId: uuid.optional(),
-  tag: z.string().trim().max(60).optional(),
-  category: z.string().trim().max(120).optional(),
-  organization: z.string().trim().max(160).optional(),
-  product: z.string().trim().max(120).optional(),
+  tag: z.string().trim().optional(),
+  category: z.string().trim().optional(),
+  organization: z.string().trim().optional(),
+  product: z.string().trim().optional(),
 
   /** Excludes closed and cancelled, which is what "my open work" means. */
   openOnly: z

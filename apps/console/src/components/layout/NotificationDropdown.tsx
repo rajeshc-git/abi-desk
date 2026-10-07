@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useNotifications, AppNotification } from '../../context/NotificationContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface NotificationDropdownProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   triggerRef,
 }) => {
   const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll } = useNotifications();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'ALL' | 'MENTIONS'>('ALL');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -51,8 +53,21 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
 
   if (!isOpen) return null;
 
+  const isTenantAdmin = user?.roles?.some((r) => r === 'TENANT_ADMIN' || r === 'PLATFORM_ADMIN');
+  const userProducts = (user?.products || []).map((p) => String(p).toLowerCase().trim()).filter(Boolean);
+  const userProductIds = (user?.productIds || []).map((p) => String(p).toLowerCase().trim()).filter(Boolean);
+
   const filteredNotifications = notifications.filter((n) => {
     if (activeTab === 'MENTIONS') return n.type === 'MENTION';
+    if (n.type === 'MENTION') return true;
+    if (isTenantAdmin) return true;
+
+    if (userProducts.length > 0 || userProductIds.length > 0) {
+      if (n.product) return userProducts.includes(n.product.toLowerCase().trim());
+      if (n.productId) return userProductIds.includes(n.productId.toLowerCase().trim());
+      // Automatically hide legacy untagged notifications for product-restricted agents
+      return false;
+    }
     return true;
   });
 

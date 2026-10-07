@@ -47,6 +47,7 @@ import { useSearch } from '../context/SearchContext';
 import { FormattedEmailContent } from '../components/common/FormattedEmailContent';
 import { ActionNoteViewer } from '../components/common/ActionNoteBox';
 import { useSocket } from '../context/SocketContext';
+import { isUserScopedToTicket } from '../utils/ticketScope';
 
 // Gmail-style visual attachment preview card
 const InboxAttachmentCard: React.FC<{
@@ -592,6 +593,11 @@ export const InboxPage: React.FC = () => {
       const incoming = data.ticket;
       if (!incoming) return;
 
+      // Restrict real-time incoming tickets to the user's assigned product scope
+      if (!isUserScopedToTicket(incoming, user)) {
+        return;
+      }
+
       setTickets((prev) => {
         const exists = prev.some((t) => t.id === incoming.id);
         if (exists) return prev;
@@ -607,6 +613,16 @@ export const InboxPage: React.FC = () => {
 
     const handleTicketUpdated = (data: any) => {
       if (!data.ticketId) return;
+
+      // If full ticket info is given and it's outside agent's product scope, remove it
+      if (data.ticket && !isUserScopedToTicket(data.ticket, user)) {
+        setTickets((prev) => prev.filter((t) => t.id !== data.ticketId));
+        if (selectedTicket?.id === data.ticketId) {
+          setSelectedTicket(null);
+        }
+        return;
+      }
+
       setTickets((prev) =>
         prev.map((t) => (t.id === data.ticketId ? { ...t, ...data.ticket } : t))
       );
@@ -618,7 +634,7 @@ export const InboxPage: React.FC = () => {
     const handleTicketCommented = (data: any) => {
       if (!data.ticketId) return;
 
-      // Bump ticket to top of list and update comment count
+      // Bump ticket to top of list and update comment count if present
       setTickets((prev) => {
         const index = prev.findIndex((t) => t.id === data.ticketId);
         if (index === -1) return prev;
@@ -640,10 +656,15 @@ export const InboxPage: React.FC = () => {
           })
           .catch(() => {});
       } else {
-        setUnreadTicketIds((prev) => {
-          const next = new Set(prev);
-          next.add(data.ticketId);
-          return next;
+        setTickets((currentTickets) => {
+          if (currentTickets.some((t) => t.id === data.ticketId)) {
+            setUnreadTicketIds((prev) => {
+              const next = new Set(prev);
+              next.add(data.ticketId);
+              return next;
+            });
+          }
+          return currentTickets;
         });
       }
     };
@@ -657,7 +678,7 @@ export const InboxPage: React.FC = () => {
       socket.off('ticket.updated', handleTicketUpdated);
       socket.off('ticket.commented', handleTicketCommented);
     };
-  }, [socket, selectedTicket?.id]);
+  }, [socket, selectedTicket?.id, user]);
 
   const loadTickets = async (reset = true) => {
     if (reset) {
