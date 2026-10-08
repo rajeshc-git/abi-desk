@@ -63,6 +63,7 @@ x-runtime-env: &runtime-env
   JWT_ISSUER: ${JWT_ISSUER:-abi-desk}
   DB_TRANSACTION_TIMEOUT_MS: ${DB_TRANSACTION_TIMEOUT_MS:-15000}
   INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET}
+  HTTP_BODY_LIMIT_BYTES: ${HTTP_BODY_LIMIT_BYTES:-52428800}
 
 x-logging: &default-logging
   driver: json-file
