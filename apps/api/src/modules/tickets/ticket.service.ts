@@ -1998,10 +1998,27 @@ export class TicketService {
     });
 
     if (!fallback) {
-      // A tenant without a default brand is a provisioning fault, not a client error.
-      throw AppException.internal(`Tenant ${tenantId} has no default brand configured.`, {
-        logContext: { tenantId },
+      // Fallback to any non-deleted brand for this tenant
+      const anyBrand = await tx.brand.findFirst({
+        where: { tenantId, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
       });
+      if (anyBrand) {
+        return anyBrand.id;
+      }
+
+      // Auto-provision a default brand if none exists so inbound ticketing never crashes
+      const autoBrand = await tx.brand.create({
+        data: {
+          tenantId,
+          slug: 'default',
+          name: 'Default Brand',
+          isDefault: true,
+        },
+        select: { id: true },
+      });
+      return autoBrand.id;
     }
 
     return fallback.id;
@@ -2937,6 +2954,8 @@ export class TicketService {
   async createFromInboundEmail(payload: {
     from: string;
     to: string;
+    originalRecipient?: string;
+    mailboxHash?: string;
     subject: string;
     body: string;
     attachments?: Array<{
@@ -2961,7 +2980,12 @@ export class TicketService {
     const senderName = parseEmailName(payload.from);
 
     const recipient = parseEmailAddress(payload.to);
-    const tenantSlug = resolveTenantSlug(recipient);
+    const origRecipient = payload.originalRecipient ? parseEmailAddress(payload.originalRecipient) : undefined;
+    const tenantSlug = resolveTenantSlug({
+      recipient,
+      originalRecipient: origRecipient,
+      mailboxHash: payload.mailboxHash,
+    });
 
     const ticket = await this.prisma.unsafeRawClient.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.bypass_rls', 'on', true)`;
@@ -2972,6 +2996,27 @@ export class TicketService {
           select: { id: true, ticketPrefix: true },
         })
         : null;
+
+      // Also check if slug matches a Brand slug or if recipient matches a Brand supportEmail
+      if (!tenant && (tenantSlug || recipient || origRecipient)) {
+        const brandMatch = await tx.brand.findFirst({
+          where: {
+            OR: [
+              ...(tenantSlug ? [{ slug: tenantSlug }] : []),
+              ...(recipient ? [{ supportEmail: recipient }] : []),
+              ...(origRecipient ? [{ supportEmail: origRecipient }] : []),
+            ],
+            deletedAt: null,
+          },
+          select: {
+            tenantId: true,
+            tenant: { select: { id: true, ticketPrefix: true } },
+          },
+        });
+        if (brandMatch?.tenant) {
+          tenant = brandMatch.tenant;
+        }
+      }
 
       if (!tenant) {
         tenant = await tx.tenant.findFirst({
@@ -3893,25 +3938,57 @@ function parseEmailName(raw: string): string | null {
   return null;
 }
 
-function resolveTenantSlug(email: string): string | null {
-  const localPart = email.split('@')[0];
-  if (!localPart) return null;
-
-  if (localPart.includes('+')) {
-    return localPart.split('+')[1] || null;
+function resolveTenantSlug(params: {
+  recipient?: string;
+  originalRecipient?: string;
+  mailboxHash?: string;
+}): string | null {
+  // Priority 1: Postmark MailboxHash (Postmark extracts "+abi-health" into MailboxHash: "abi-health")
+  if (params.mailboxHash && /^[a-z0-9-_]+$/i.test(params.mailboxHash.trim())) {
+    return params.mailboxHash.trim().toLowerCase();
   }
 
-  if (localPart !== 'support' && localPart !== 'tickets' && localPart !== 'info') {
-    return localPart;
-  }
-
-  const domainPart = email.split('@')[1];
-  if (domainPart) {
-    const parts = domainPart.split('.');
-    if (parts.length > 2) {
-      return parts[0] || null;
+  // Priority 2: OriginalRecipient header (Postmark receives the envelope RCPT TO)
+  if (params.originalRecipient) {
+    const origLocal = params.originalRecipient.split('@')[0];
+    if (origLocal && origLocal.includes('+')) {
+      const tag = origLocal.split('+')[1];
+      if (tag) return tag.trim().toLowerCase();
     }
   }
+
+  // Priority 3: Plus addressing in Recipient / To header
+  if (params.recipient) {
+    const localPart = params.recipient.split('@')[0];
+    if (localPart && localPart.includes('+')) {
+      const tag = localPart.split('+')[1];
+      if (tag) return tag.trim().toLowerCase();
+    }
+
+    // Priority 4: Custom local part (e.g. abi-health@supportdomain.com)
+    if (
+      localPart &&
+      !['support', 'tickets', 'info', 'help', 'contact', 'desk', 'service', 'inbound'].includes(
+        localPart.toLowerCase(),
+      )
+    ) {
+      return localPart.toLowerCase();
+    }
+
+    // Priority 5: Domain name fallback (e.g. support@abi-health.com -> "abi-health")
+    const domainPart = params.recipient.split('@')[1];
+    if (domainPart) {
+      const parts = domainPart.split('.');
+      const domainName = parts[0]?.toLowerCase();
+      if (
+        domainName &&
+        !['gmail', 'yahoo', 'outlook', 'hotmail', 'postmarkapp', 'cloudmailin'].includes(domainName)
+      ) {
+        return domainName;
+      }
+    }
+  }
+
   return null;
 }
 

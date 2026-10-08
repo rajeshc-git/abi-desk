@@ -222,9 +222,22 @@ export class TicketController {
       (email) => email !== parsedFrom && email !== parsedTo,
     );
 
+    const mailboxHash =
+      typeof body.MailboxHash === 'string' && body.MailboxHash.trim()
+        ? body.MailboxHash.trim()
+        : typeof body.mailbox_hash === 'string' && body.mailbox_hash.trim()
+        ? body.mailbox_hash.trim()
+        : undefined;
+
+    const originalRecipient = extractEmailString(
+      body.OriginalRecipient || body.original_recipient || body.envelope?.to,
+    );
+
     return this.tickets.createFromInboundEmail({
       from,
       to,
+      originalRecipient,
+      mailboxHash,
       subject,
       body: content,
       attachments,
