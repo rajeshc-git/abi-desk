@@ -106,12 +106,12 @@ export const envSchema = z.object({
   HOST: z.string().min(1).default('0.0.0.0'),
   PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
   API_PREFIX: z.string().default('api'),
-  /** Max request body in bytes. Media never flows through here (presigned S3). */
+  /** Max request body in bytes. Accommodates large inbound email payloads with attachments (up to 35MB). */
   HTTP_BODY_LIMIT_BYTES: z.coerce
     .number()
     .int()
     .positive()
-    .default(2 * 1024 * 1024),
+    .default(35 * 1024 * 1024),
   TRUST_PROXY: booleanFromEnv(true),
   /** Exact origins allowed to call the API with credentials. */
   CORS_ORIGINS: listFromEnv(),
