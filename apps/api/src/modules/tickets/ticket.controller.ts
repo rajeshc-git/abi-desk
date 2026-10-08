@@ -179,6 +179,49 @@ export class TicketController {
     const references = extractHeader('references');
     const messageId = body.MessageID || extractHeader('message-id') || extractHeader('message_id');
 
+    // Universal CC parsing: Postmark (body.Cc, body.CcFull, headers) & CloudMailin (headers.cc, body.cc)
+    const extractCcList = (): string[] => {
+      const ccSet = new Set<string>();
+
+      const addEmail = (raw: any) => {
+        if (!raw) return;
+        if (typeof raw === 'string') {
+          const tokens = raw.split(/[,;]/);
+          for (const token of tokens) {
+            const parsed = parseEmailAddress(token);
+            if (parsed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parsed)) {
+              ccSet.add(parsed);
+            }
+          }
+        } else if (Array.isArray(raw)) {
+          for (const item of raw) {
+            addEmail(item);
+          }
+        } else if (typeof raw === 'object') {
+          const email = raw.Email || raw.email || raw.address || raw.Address;
+          if (email) {
+            addEmail(email);
+          }
+        }
+      };
+
+      if (body.CcFull) addEmail(body.CcFull);
+      if (body.cc_full) addEmail(body.cc_full);
+      if (body.Cc) addEmail(body.Cc);
+      if (body.cc) addEmail(body.cc);
+
+      const headerCc = extractHeader('cc');
+      if (headerCc) addEmail(headerCc);
+
+      return Array.from(ccSet);
+    };
+
+    const parsedFrom = parseEmailAddress(from);
+    const parsedTo = parseEmailAddress(to);
+    const ccList = extractCcList().filter(
+      (email) => email !== parsedFrom && email !== parsedTo,
+    );
+
     return this.tickets.createFromInboundEmail({
       from,
       to,
@@ -188,6 +231,7 @@ export class TicketController {
       inReplyTo,
       references,
       messageId,
+      cc: ccList.length > 0 ? ccList : undefined,
     });
   }
 
@@ -380,4 +424,13 @@ export class TicketController {
   ) {
     return this.tickets.bulkDelete(principal, dto.ticketIds);
   }
+}
+
+function parseEmailAddress(raw: string): string {
+  if (typeof raw !== 'string') return '';
+  const match = raw.match(/<([^>]+)>/);
+  if (match && match[1]) {
+    return match[1].trim().toLowerCase();
+  }
+  return raw.trim().toLowerCase();
 }

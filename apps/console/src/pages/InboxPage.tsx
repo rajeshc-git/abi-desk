@@ -2155,6 +2155,43 @@ export const InboxPage: React.FC = () => {
                         {/* Expanded Message Content */}
                         {isDescriptionExpanded && (
                           <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {/* Initial CC Badges */}
+                            {(selectedTicket as any).cc && (selectedTicket as any).cc.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  flexWrap: 'wrap',
+                                  gap: '5px',
+                                  marginBottom: '4px',
+                                  paddingBottom: '8px',
+                                  borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                                  fontSize: '11.5px',
+                                  color: 'var(--text-muted, #64748b)',
+                                }}
+                              >
+                                <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                                {(selectedTicket as any).cc.map((email: string) => (
+                                  <span
+                                    key={email}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                                      color: 'var(--primary, #2563eb)',
+                                      border: '1px solid rgba(37, 99, 235, 0.2)',
+                                      borderRadius: '10px',
+                                      padding: '1px 7px',
+                                      fontSize: '11px',
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    {email}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
                             <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
                               <FormattedEmailContent text={selectedTicket.description} />
                             </div>
@@ -2378,6 +2415,43 @@ export const InboxPage: React.FC = () => {
                           {/* Expanded Content View */}
                           {isExpanded && (
                             <div style={{ padding: '14px 16px', backgroundColor: isInternal ? '#fffdf5' : '#ffffff' }}>
+                              {/* CC Badges */}
+                              {comment.cc && comment.cc.length > 0 && (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    flexWrap: 'wrap',
+                                    gap: '5px',
+                                    marginBottom: '10px',
+                                    paddingBottom: '8px',
+                                    borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                                    fontSize: '11.5px',
+                                    color: 'var(--text-muted, #64748b)',
+                                  }}
+                                >
+                                  <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                                  {comment.cc.map((email: string) => (
+                                    <span
+                                      key={email}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                                        color: 'var(--primary, #2563eb)',
+                                        border: '1px solid rgba(37, 99, 235, 0.2)',
+                                        borderRadius: '10px',
+                                        padding: '1px 7px',
+                                        fontSize: '11px',
+                                        fontWeight: 500,
+                                      }}
+                                    >
+                                      {email}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+
                               <div
                                 style={{
                                   fontSize: '13px',

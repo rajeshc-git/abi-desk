@@ -14,6 +14,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { MediaService } from '../media/media.service';
 import { MailService } from '../../infra/mail/mail.service';
+import { escapeHtml } from '../../infra/mail/mail.templates';
 import { StorageService } from '../../infra/storage/storage.service';
 import { SlaService } from '../sla/sla.service';
 import {
@@ -495,7 +496,37 @@ export class TicketService {
       throw AppException.notFound('Ticket', id);
     }
 
-    return ticket;
+    const createdEvent = await this.prisma.client.ticketEvent.findFirst({
+      where: { ticketId: id, type: 'CREATED' },
+      select: { metadata: true },
+    });
+    const eventMeta = createdEvent?.metadata as Record<string, any> | null;
+    const cc = Array.isArray(eventMeta?.cc) ? eventMeta.cc : [];
+
+    return {
+      ...ticket,
+      cc,
+    };
+  }
+
+  private async attachCreationCc(tickets: any[]) {
+    if (!tickets || tickets.length === 0) return tickets;
+    const ticketIds = tickets.map((t) => t.id);
+    const createdEvents = await this.prisma.client.ticketEvent.findMany({
+      where: { ticketId: { in: ticketIds }, type: 'CREATED' },
+      select: { ticketId: true, metadata: true },
+    });
+    const ccByTicketId = new Map<string, string[]>();
+    for (const ev of createdEvents) {
+      const meta = ev.metadata as any;
+      if (Array.isArray(meta?.cc) && meta.cc.length > 0) {
+        ccByTicketId.set(ev.ticketId, meta.cc);
+      }
+    }
+    return tickets.map((t) => ({
+      ...t,
+      cc: ccByTicketId.get(t.id) || [],
+    }));
   }
 
   /**
@@ -553,8 +584,10 @@ export class TicketService {
       this.prisma.client.ticket.count({ where }),
     ]);
 
+    const ticketsWithCc = await this.attachCreationCc(tickets);
+
     return {
-      tickets,
+      tickets: ticketsWithCc,
       total,
       page: query.page,
       pageSize: query.pageSize,
@@ -1125,6 +1158,30 @@ export class TicketService {
 
       // Outbound email notification for staff public comments on email/support tickets:
       if (isPublic && isStaff) {
+        const priorComments = await tx.ticketComment.findMany({
+          where: {
+            ticketId,
+            visibility: 'PUBLIC',
+            id: { not: created.id },
+          },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            body: true,
+            createdAt: true,
+            author: { select: { fullName: true, email: true, kind: true } },
+          },
+        });
+
+        const { textTrail, htmlTrail } = this.buildTicketEmailTrail(ticket, priorComments);
+
+        const emailText = dto.body + (textTrail ? `${textTrail}` : '');
+        const emailHtml = `
+<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #1e293b; max-width: 680px;">
+  <div style="white-space: pre-wrap;">${escapeHtml(dto.body)}</div>
+  ${htmlTrail}
+</div>`.trim();
+
         this.mailService.sendTicketMail({
           to: {
             email: ticket.requester.email,
@@ -1132,15 +1189,18 @@ export class TicketService {
           },
           ...(dto.cc && dto.cc.length > 0 ? { cc: dto.cc } : {}),
           subject: `Re: [Ticket #${ticket.number}] ${ticket.subject}`,
-          text: dto.body,
-          html: `<div style="white-space: pre-wrap; font-family: sans-serif; font-size: 14px; color: #333333;">${dto.body}</div>`,
+          text: emailText,
+          html: emailHtml,
           tag: 'ticket.reply',
         }, ticket.channel).catch((err) => {
           this.logger.error({ err, ticketId }, 'Failed to send outbound reply email to customer');
         });
       }
 
-      return created;
+      return {
+        ...created,
+        cc: dto.cc || [],
+      };
     });
 
     await this.audit.record({
@@ -1197,7 +1257,7 @@ export class TicketService {
 
     const skip = (query.page - 1) * query.pageSize;
 
-    const [comments, total] = await Promise.all([
+    const [comments, total, commentEvents] = await Promise.all([
       this.prisma.client.ticketComment.findMany({
         where,
         orderBy: { createdAt: 'asc' },
@@ -1219,9 +1279,29 @@ export class TicketService {
         },
       }),
       this.prisma.client.ticketComment.count({ where }),
+      this.prisma.client.ticketEvent.findMany({
+        where: {
+          ticketId,
+          type: { in: ['COMMENT_ADDED', 'INTERNAL_NOTE_ADDED'] },
+        },
+        select: { metadata: true },
+      }),
     ]);
 
-    return { comments, total, page: query.page, pageSize: query.pageSize };
+    const ccMap = new Map<string, string[]>();
+    for (const ev of commentEvents) {
+      const meta = ev.metadata as any;
+      if (meta?.commentId && Array.isArray(meta.cc) && meta.cc.length > 0) {
+        ccMap.set(meta.commentId, meta.cc);
+      }
+    }
+
+    const commentsWithCc = comments.map((c) => ({
+      ...c,
+      cc: ccMap.get(c.id) || [],
+    }));
+
+    return { comments: commentsWithCc, total, page: query.page, pageSize: query.pageSize };
   }
 
   // =========================================================================
@@ -2843,9 +2923,10 @@ export class TicketService {
       .filter((row): row is (typeof rows)[number] => row !== undefined);
 
     const count = Number(total[0]?.count ?? 0);
+    const ticketsWithCc = await this.attachCreationCc(tickets);
 
     return {
-      tickets,
+      tickets: ticketsWithCc,
       total: count,
       page: query.page,
       pageSize: query.pageSize,
@@ -2874,6 +2955,7 @@ export class TicketService {
     inReplyTo?: string;
     references?: string;
     messageId?: string;
+    cc?: string[];
   }) {
     const senderEmail = parseEmailAddress(payload.from);
     const senderName = parseEmailName(payload.from);
@@ -3077,7 +3159,12 @@ export class TicketService {
           ticketId: existingTicket.id,
           type: 'COMMENT_ADDED',
           actorId: requester.id,
-          metadata: { commentId: createdComment.id, visibility: 'PUBLIC', attachmentsAdded: commentAttachmentCount },
+          metadata: {
+            commentId: createdComment.id,
+            visibility: 'PUBLIC',
+            attachmentsAdded: commentAttachmentCount,
+            ...(payload.cc && payload.cc.length > 0 ? { cc: payload.cc } : {}),
+          },
         });
 
         await this.emit(tx, tenantId, 'ticket.commented', existingTicket.id, {
@@ -3229,6 +3316,7 @@ export class TicketService {
           priority: 'NORMAL',
           attachmentCount: ticketAttachmentCount,
           ...(autoOrg ? { organization: autoOrg } : {}),
+          ...(payload.cc && payload.cc.length > 0 ? { cc: payload.cc } : {}),
         },
       });
 
@@ -3253,9 +3341,10 @@ export class TicketService {
         });
       }
 
-      // Send automated acknowledgment email to customer via ServiceDesk SMTP
+      // Send automated acknowledgment email to customer & CCs via ServiceDesk SMTP
       this.mailService.sendTicketMail({
         to: { email: senderEmail, name: senderName || senderEmail.split('@')[0] || 'Customer' },
+        ...(payload.cc && payload.cc.length > 0 ? { cc: payload.cc } : {}),
         subject: `[Ticket #${created.number}] Received: ${created.subject}`,
         text: `Hello ${senderName || senderEmail.split('@')[0] || 'Customer'},\n\nWe have received your support request regarding "${created.subject}" (Ticket #${created.number}). Our team is actively reviewing it and will get back to you shortly.\n\nYou can reply directly to this email at any time to provide additional details.\n\nBest regards,\nSupport Team`,
         html: `
@@ -3626,6 +3715,147 @@ export class TicketService {
     eligible.sort((a, b) => a.load - b.load || b.lastLogin - a.lastLogin || a.id.localeCompare(b.id));
 
     return eligible[0]?.id ?? null;
+  }
+
+  /**
+   * Constructs formatted plain text and HTML conversation history trails for outbound reply emails.
+   * Formatted using standard Gmail/Outlook quote structure (`class="gmail_quote"`) so email clients
+   * automatically collapse the trail behind the `...` (three dots) button without displaying raw HTML.
+   */
+  private buildTicketEmailTrail(
+    ticket: {
+      number: string;
+      subject: string;
+      description?: string | null;
+      createdAt: Date;
+      requester?: { fullName?: string | null; email: string } | null;
+    },
+    priorPublicComments: Array<{
+      id: string;
+      body: string;
+      createdAt: Date;
+      author?: { fullName?: string | null; email?: string | null; kind?: string | null } | null;
+    }>,
+  ): { textTrail: string; htmlTrail: string } {
+    const textBlocks: string[] = [];
+    const htmlBlocks: string[] = [];
+
+    // 1. Quoted prior public comments (newest prior reply first)
+    const reversedComments = [...priorPublicComments].reverse();
+
+    for (const c of reversedComments) {
+      const authorName = c.author?.fullName || c.author?.email || 'Support Agent';
+      const dateStr = new Date(c.createdAt).toLocaleString('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+
+      // Plain text block
+      const plainBody = this.stripHtmlToPlainText(c.body);
+      const quotedBody = plainBody
+        .split('\n')
+        .map((line) => `> ${line}`)
+        .join('\n');
+      textBlocks.push(`On ${dateStr}, ${authorName} wrote:\n${quotedBody}`);
+
+      // HTML block with native gmail_quote / outlook blockquote formatting
+      const cleanHtml = this.cleanHtmlForEmailQuote(c.body);
+      htmlBlocks.push(`
+<div class="gmail_quote" style="margin-top: 16px;">
+  <div dir="ltr" class="gmail_attr" style="font-size: 12.5px; color: #5f6368; margin-bottom: 6px;">
+    On ${escapeHtml(dateStr)}, <strong>${escapeHtml(authorName)}</strong> wrote:<br>
+  </div>
+  <blockquote class="gmail_quote" style="margin: 0 0 0 0.8ex; border-left: 1px solid #cbd5e1; padding-left: 1ex;">
+    ${cleanHtml}
+  </blockquote>
+</div>`.trim());
+    }
+
+    // 2. Original Ticket Request Description (at base of trail)
+    const requesterName = ticket.requester?.fullName || ticket.requester?.email || 'Customer';
+    const originalDateStr = new Date(ticket.createdAt).toLocaleString('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+    const originalContent = ticket.description || ticket.subject;
+
+    if (originalContent) {
+      const plainOriginal = this.stripHtmlToPlainText(originalContent);
+      const quotedOriginal = plainOriginal
+        .split('\n')
+        .map((line) => `> ${line}`)
+        .join('\n');
+      textBlocks.push(
+        `On ${originalDateStr}, ${requesterName} (Original Request) wrote:\n${quotedOriginal}`,
+      );
+
+      const cleanOriginalHtml = this.cleanHtmlForEmailQuote(originalContent);
+      htmlBlocks.push(`
+<div class="gmail_quote" style="margin-top: 16px;">
+  <div dir="ltr" class="gmail_attr" style="font-size: 12.5px; color: #5f6368; margin-bottom: 6px;">
+    On ${escapeHtml(originalDateStr)}, <strong>${escapeHtml(requesterName)} (Original Request)</strong> wrote:<br>
+  </div>
+  <blockquote class="gmail_quote" style="margin: 0 0 0 0.8ex; border-left: 1px solid #2563eb; padding-left: 1ex;">
+    ${cleanOriginalHtml}
+  </blockquote>
+</div>`.trim());
+    }
+
+    if (textBlocks.length === 0) {
+      return { textTrail: '', htmlTrail: '' };
+    }
+
+    const textTrail = `\n\n--------------------------------------------------\nConversation History (Ticket #${ticket.number}):\n\n` + textBlocks.join('\n\n');
+    const htmlTrail = `
+<div class="gmail_quote" style="margin-top: 24px;">
+  ${htmlBlocks.join('\n')}
+</div>`.trim();
+
+    return { textTrail, htmlTrail };
+  }
+
+  private cleanHtmlForEmailQuote(raw: string): string {
+    if (!raw) return '';
+    const trimmed = raw.trim();
+
+    // If it contains full HTML document or major HTML block tags
+    if (/<(html|head|body|div|p|span|table|h[1-6]|ul|ol|li|br)[^>]*>/i.test(trimmed)) {
+      let cleaned = trimmed
+        .replace(/<!DOCTYPE[^>]*>/gi, '')
+        .replace(/<\/?(html|head|body)[^>]*>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<meta[^>]*>/gi, '')
+        .replace(/<title[\s\S]*?<\/title>/gi, '')
+        .trim();
+
+      return cleaned || '<p style="color:#64748b;font-style:italic;">(No content)</p>';
+    }
+
+    // Plain text: escape HTML and preserve line breaks
+    return `<div style="white-space: pre-wrap; font-size: 13.5px; color: #334155;">${escapeHtml(trimmed)}</div>`;
+  }
+
+  private stripHtmlToPlainText(raw: string): string {
+    if (!raw) return '';
+    if (!/<[a-z][\s\S]*>/i.test(raw)) {
+      return raw.trim();
+    }
+
+    return raw
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 }
 

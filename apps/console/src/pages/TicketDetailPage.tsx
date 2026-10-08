@@ -942,6 +942,7 @@ export const TicketDetailPage: React.FC = () => {
                           createdAt: ticket.createdAt,
                           channel: ticket.channel,
                           mediaAssets: ticket.mediaAssets || [],
+                          cc: (ticket as any).cc || [],
                         }}
                       />
                     </div>
@@ -1032,6 +1033,11 @@ export const TicketDetailPage: React.FC = () => {
                         canWriteInternal={canWriteInternal}
                         ticket={ticket}
                         initialIsInternal={replyMode === 'internal'}
+                        initialCc={
+                          [...comments].reverse().find((c) => c.cc && c.cc.length > 0)?.cc ||
+                          (ticket as any).cc ||
+                          []
+                        }
                         onClose={() => setIsReplyOpen(false)}
                       />
                     </div>

@@ -38,6 +38,7 @@ interface ReplyComposerProps {
   ticket?: TicketSnippetContext;
   onClose?: () => void;
   initialIsInternal?: boolean;
+  initialCc?: string[];
 }
 
 export const ReplyComposer: React.FC<ReplyComposerProps> = ({
@@ -47,6 +48,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   ticket,
   onClose,
   initialIsInternal = false,
+  initialCc,
 }) => {
   const { user } = useAuth();
   const [isMinimized, setIsMinimized] = useState(false);
@@ -67,7 +69,17 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       return () => clearTimeout(timer);
     }
   }, [isMinimized]);
-  const [ccList, setCcList] = useState<string[]>([]);
+  const [ccList, setCcList] = useState<string[]>(initialCc || []);
+  const initialCcSet = useMemo(
+    () => new Set((initialCc || []).map((e) => e.toLowerCase().trim())),
+    [initialCc],
+  );
+
+  useEffect(() => {
+    if (initialCc && initialCc.length > 0) {
+      setCcList((prev) => (prev.length === 0 ? initialCc : prev));
+    }
+  }, [initialCc]);
   const [ccInput, setCcInput] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ id: string; name: string }>>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -367,11 +379,15 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
         handleAddCc(ccInput);
       }
     } else if (e.key === 'Backspace' && !ccInput && ccList.length > 0) {
-      setCcList(ccList.slice(0, -1));
+      const lastEmail = ccList[ccList.length - 1];
+      if (lastEmail && !initialCcSet.has(lastEmail.toLowerCase())) {
+        setCcList(ccList.slice(0, -1));
+      }
     }
   };
 
   const removeCc = (emailToRemove: string) => {
+    if (initialCcSet.has(emailToRemove.toLowerCase())) return;
     setCcList(ccList.filter((email) => email !== emailToRemove));
   };
 
@@ -782,40 +798,51 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                   CC:
                 </span>
 
-                {ccList.map((email) => (
-                  <span
-                    key={email}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                      color: 'var(--primary, #2563eb)',
-                      border: '1px solid rgba(37, 99, 235, 0.2)',
-                      borderRadius: '12px',
-                      padding: '1px 8px',
-                      fontSize: '11.5px',
-                      fontWeight: 500,
-                    }}
-                  >
-                    <span>{email}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeCc(email)}
+                {ccList.map((email) => {
+                  const isCustomerProvided = initialCcSet.has(email.toLowerCase());
+                  return (
+                    <span
+                      key={email}
                       style={{
-                        border: 'none',
-                        background: 'transparent',
-                        cursor: 'pointer',
-                        color: 'var(--primary, #2563eb)',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        padding: 0,
+                        gap: '4px',
+                        backgroundColor: isCustomerProvided
+                          ? 'rgba(37, 99, 235, 0.1)'
+                          : 'rgba(16, 185, 129, 0.12)',
+                        color: isCustomerProvided ? 'var(--primary, #2563eb)' : '#059669',
+                        border: isCustomerProvided
+                          ? '1px solid rgba(37, 99, 235, 0.25)'
+                          : '1px solid rgba(16, 185, 129, 0.3)',
+                        borderRadius: '12px',
+                        padding: isCustomerProvided ? '1px 8px' : '1px 6px 1px 8px',
+                        fontSize: '11.5px',
+                        fontWeight: 500,
                       }}
+                      title={isCustomerProvided ? 'Customer-provided CC recipient (Thread participant)' : 'Agent-added CC recipient'}
                     >
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
+                      <span>{email}</span>
+                      {!isCustomerProvided && (
+                        <button
+                          type="button"
+                          onClick={() => removeCc(email)}
+                          title="Remove CC"
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            cursor: 'pointer',
+                            color: '#059669',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: 0,
+                          }}
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
 
                 <input
                   type="email"

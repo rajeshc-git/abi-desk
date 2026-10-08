@@ -34,6 +34,7 @@ export interface CommentItem {
   author?: { fullName: string; email: string; kind?: string };
   createdAt: string;
   attachments?: Array<{ id: string; originalFilename: string; mimeType: string; sizeBytes?: number }>;
+  cc?: string[];
 }
 
 export interface ActivityItem {
@@ -54,6 +55,7 @@ interface TimelineViewProps {
     createdAt?: string;
     channel?: string;
     mediaAssets?: Array<{ id: string; originalFilename?: string | null; mimeType?: string | null; sizeBytes?: number }>;
+    cc?: string[];
   };
 }
 
@@ -866,6 +868,40 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </span>
             </div>
 
+            {initialTicket.cc && initialTicket.cc.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '5px',
+                  padding: '2px 14px 8px',
+                  fontSize: '11.5px',
+                  color: 'var(--text-muted, #64748b)',
+                }}
+              >
+                <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                {initialTicket.cc.map((email: string) => (
+                  <span
+                    key={email}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                      color: 'var(--primary, #2563eb)',
+                      border: '1px solid rgba(37, 99, 235, 0.2)',
+                      borderRadius: '10px',
+                      padding: '1px 7px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {email}
+                  </span>
+                ))}
+              </div>
+            )}
+
             <div className="timeline-body">
               <FormattedEmailContent text={initialTicket.description} />
             </div>
@@ -1095,6 +1131,41 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* CC Badges if CC recipients were included on this message */}
+              {comment.cc && comment.cc.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '5px',
+                    padding: '2px 14px 8px',
+                    fontSize: '11.5px',
+                    color: 'var(--text-muted, #64748b)',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                  {comment.cc.map((email: string) => (
+                    <span
+                      key={email}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                        color: 'var(--primary, #2563eb)',
+                        border: '1px solid rgba(37, 99, 235, 0.2)',
+                        borderRadius: '10px',
+                        padding: '1px 7px',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {email}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <div className="timeline-body">
                 {isTranscript ? renderTranscript() : <FormattedEmailContent text={comment.body} />}
