@@ -59,8 +59,19 @@ export class JwtAuthGuard implements CanActivate {
       if (typeof widgetPublicKey === 'string' && widgetPublicKey.length > 0) {
         const origin =
           typeof request.headers.origin === 'string' ? request.headers.origin : undefined;
+        const forwarded = request.headers['x-forwarded-for'];
+        const realIp = request.headers['x-real-ip'];
+        const cfIp = request.headers['cf-connecting-ip'];
         const clientIp =
-          request.ip || (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim();
+          (typeof forwarded === 'string'
+            ? forwarded.split(',')[0]?.trim()
+            : Array.isArray(forwarded)
+              ? (forwarded[0] as string | undefined)?.trim()
+              : undefined) ||
+          (typeof realIp === 'string' ? realIp.trim() : undefined) ||
+          (typeof cfIp === 'string' ? cfIp.trim() : undefined) ||
+          request.ip ||
+          request.socket?.remoteAddress;
 
         const widgetUserEmail = request.headers['x-widget-user-email'];
         const emailStr = typeof widgetUserEmail === 'string' ? widgetUserEmail.trim() : undefined;

@@ -1600,7 +1600,7 @@ export class AuthService {
         if (count === 1) {
           await this.redis.client.expire(rateLimitKey, 3600); // 1 hour window
         }
-        if (count > 10) {
+        if (count > 2000) {
           this.logger.warn(
             { publicKey, clientIp, count },
             'Widget anonymous ticket rate limit exceeded',
