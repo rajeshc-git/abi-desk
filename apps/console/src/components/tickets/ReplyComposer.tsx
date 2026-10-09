@@ -720,13 +720,40 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
             )}
           </div>
 
-          <div className="composer-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="composer-notice-text" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              {isInternal && canWriteInternal
-                ? '🔒 Visible to staff only'
-                : ccList.length > 0
-                  ? `🌐 Customer + ${ccList.length} CC recipient${ccList.length > 1 ? 's' : ''} will be notified`
-                  : '🌐 Customer will be notified'}
+          <div className="composer-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <div
+              className="composer-notice-text"
+              title={
+                isInternal && canWriteInternal
+                  ? 'Internal note: visible to staff only'
+                  : ccList.length > 0
+                    ? `Public reply: Customer and ${ccList.length} CC recipient${ccList.length > 1 ? 's' : ''} will be notified via email`
+                    : 'Public reply: Customer will be notified via email'
+              }
+              style={{
+                fontSize: '11px',
+                color: 'var(--text-muted)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '220px',
+                flexShrink: 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              {isInternal && canWriteInternal ? (
+                <>
+                  <Lock size={12} style={{ color: '#d97706', flexShrink: 0 }} />
+                  <span>Staff only</span>
+                </>
+              ) : (
+                <>
+                  <Globe size={12} style={{ color: '#2563eb', flexShrink: 0 }} />
+                  <span>{ccList.length > 0 ? `Customer + ${ccList.length} CC` : 'Customer'}</span>
+                </>
+              )}
             </div>
 
             {onClose ? (

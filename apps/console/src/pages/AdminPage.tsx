@@ -8786,7 +8786,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               </label>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
               {/* Card 1: Least Loaded */}
               <div
                 onClick={() => setQueueRouting('LEAST_LOADED')}
@@ -8837,7 +8837,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   Smart Capacity
                 </div>
                 <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
-                  Routes tickets dynamically to the active L1 agent with the lowest open ticket count.
+                  Routes tickets dynamically to the active L1 agent with lowest load.
                 </div>
               </div>
 
@@ -8891,7 +8891,61 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   Strict Rotation
                 </div>
                 <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
-                  Distributes tickets in sequential circular order one-by-one across active L1 product agents.
+                  Distributes tickets in circular sequential order across active L1 agents.
+                </div>
+              </div>
+
+              {/* Card 3: Manual */}
+              <div
+                onClick={() => setQueueRouting('MANUAL')}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-lg, 10px)',
+                  border: queueRouting === 'MANUAL' ? '2px solid #6366f1' : '1px solid var(--border-medium, #e2e8f0)',
+                  backgroundColor: queueRouting === 'MANUAL' ? 'rgba(99, 102, 241, 0.05)' : 'var(--bg-surface, #ffffff)',
+                  boxShadow: queueRouting === 'MANUAL' ? '0 0 0 1px #6366f1, 0 3px 10px rgba(99, 102, 241, 0.12)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        backgroundColor: queueRouting === 'MANUAL' ? 'rgba(99,102,241,0.15)' : 'rgba(100,116,139,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <UserCheck size={14} color={queueRouting === 'MANUAL' ? '#4f46e5' : '#64748b'} />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: queueRouting === 'MANUAL' ? '#4f46e5' : 'var(--text-primary)' }}>
+                      Manual
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: queueRouting === 'MANUAL' ? '5px solid #6366f1' : '2px solid var(--border-medium, #cbd5e1)',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  No Auto-Assign
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
+                  Tickets arrive unassigned in NEW status for manual pickup by agents.
                 </div>
               </div>
             </div>
@@ -9153,7 +9207,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               </label>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
               {/* Card 1: Least Loaded */}
               <div
                 onClick={() => setEditQueueRouting('LEAST_LOADED')}
@@ -9204,7 +9258,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   Smart Capacity
                 </div>
                 <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
-                  Routes tickets dynamically to the active L1 agent with the lowest open ticket count.
+                  Routes tickets dynamically to the active L1 agent with lowest load.
                 </div>
               </div>
 
@@ -9258,7 +9312,61 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                   Strict Rotation
                 </div>
                 <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
-                  Distributes tickets in sequential circular order one-by-one across active L1 product agents.
+                  Distributes tickets in circular sequential order across active L1 agents.
+                </div>
+              </div>
+
+              {/* Card 3: Manual */}
+              <div
+                onClick={() => setEditQueueRouting('MANUAL')}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-lg, 10px)',
+                  border: editQueueRouting === 'MANUAL' ? '2px solid #6366f1' : '1px solid var(--border-medium, #e2e8f0)',
+                  backgroundColor: editQueueRouting === 'MANUAL' ? 'rgba(99, 102, 241, 0.05)' : 'var(--bg-surface, #ffffff)',
+                  boxShadow: editQueueRouting === 'MANUAL' ? '0 0 0 1px #6366f1, 0 3px 10px rgba(99, 102, 241, 0.12)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        backgroundColor: editQueueRouting === 'MANUAL' ? 'rgba(99,102,241,0.15)' : 'rgba(100,116,139,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <UserCheck size={14} color={editQueueRouting === 'MANUAL' ? '#4f46e5' : '#64748b'} />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: editQueueRouting === 'MANUAL' ? '#4f46e5' : 'var(--text-primary)' }}>
+                      Manual
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      border: editQueueRouting === 'MANUAL' ? '5px solid #6366f1' : '2px solid var(--border-medium, #cbd5e1)',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  No Auto-Assign
+                </div>
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary, #64748b)', lineHeight: 1.35 }}>
+                  Tickets arrive unassigned in NEW status for manual pickup by agents.
                 </div>
               </div>
             </div>
