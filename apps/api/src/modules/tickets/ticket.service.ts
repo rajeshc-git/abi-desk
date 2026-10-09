@@ -1046,13 +1046,14 @@ export class TicketService {
     }
 
     const comment = await this.prisma.run(async (tx) => {
+      const cleanedBody = cleanClipboardFragments(dto.body);
       const created = await tx.ticketComment.create({
         data: {
           tenantId,
           ticketId,
           authorId: principal.userId,
           visibility: dto.visibility,
-          body: dto.body,
+          body: cleanedBody,
           bodyFormat: dto.bodyFormat,
         },
         select: {
@@ -1175,10 +1176,10 @@ export class TicketService {
 
         const { textTrail, htmlTrail } = this.buildTicketEmailTrail(ticket, priorComments);
 
-        const emailText = dto.body + (textTrail ? `${textTrail}` : '');
+        const emailText = cleanedBody + (textTrail ? `${textTrail}` : '');
         const emailHtml = `
 <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #1e293b; max-width: 680px;">
-  <div style="white-space: pre-wrap;">${escapeHtml(dto.body)}</div>
+  <div style="white-space: pre-wrap;">${escapeHtml(cleanedBody)}</div>
   ${htmlTrail}
 </div>`.trim();
 
@@ -4066,6 +4067,15 @@ function stripSubjectPrefixes(subject: string): string {
   return subject
     .replace(/^(\s*(re|fwd|fw|aw|sv|vs|antw)\s*:\s*)+/gi, '')
     .replace(/\[Ticket #[^\]]+\]\s*/gi, '')
+    .trim();
+}
+
+export function cleanClipboardFragments(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
+    .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
+    .replace(/<\/?(?:html|body)[^>]*>/gi, '')
     .trim();
 }
 

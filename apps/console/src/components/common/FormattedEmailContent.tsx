@@ -40,12 +40,21 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
   className,
   style,
 }) => {
-  if (!text) {
+  const sanitizedText = useMemo(() => {
+    if (!text) return '';
+    return text
+      .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
+      .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
+      .replace(/<\/?(?:html|body)[^>]*>/gi, '')
+      .trim();
+  }, [text]);
+
+  if (!sanitizedText) {
     return <span style={{ color: 'var(--text-muted, #64748b)', fontStyle: 'italic' }}>No content provided.</span>;
   }
 
   // Quick check for empty or placeholder content
-  const cleanCheck = text
+  const cleanCheck = sanitizedText
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<[^>]*>/g, '')
@@ -64,13 +73,13 @@ export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
     return <span style={{ color: 'var(--text-muted, #64748b)', fontStyle: 'italic' }}>No content provided.</span>;
   }
 
-  const isHtml = /<[a-z][\s\S]*>/i.test(text);
+  const isHtml = /<[a-z][\s\S]*>/i.test(sanitizedText);
 
   if (isHtml) {
-    return <HtmlEmailRenderer rawHtml={text} className={className} style={style} />;
+    return <HtmlEmailRenderer rawHtml={sanitizedText} className={className} style={style} />;
   }
 
-  return <PlaintextEmailRenderer rawText={text} className={className} style={style} />;
+  return <PlaintextEmailRenderer rawText={sanitizedText} className={className} style={style} />;
 };
 
 /* =========================================================================

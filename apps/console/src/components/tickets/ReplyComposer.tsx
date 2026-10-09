@@ -393,7 +393,12 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!body.trim() || isSending || isUploading) return;
+    const cleanBody = body
+      .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
+      .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
+      .replace(/<\/?(?:html|body)[^>]*>/gi, '')
+      .trim();
+    if (!cleanBody || isSending || isUploading) return;
 
     // Flush any pending text in ccInput
     const finalCcList = [...ccList];
@@ -404,7 +409,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     }
 
     await onSend(
-      body,
+      cleanBody,
       isInternal && canWriteInternal,
       uploadedFiles.map((f) => f.id),
       !isInternal && finalCcList.length > 0 ? finalCcList : undefined,
@@ -1173,6 +1178,17 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                 onChange={(e) => {
                   setBody(e.target.value);
                   checkMentionTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                }}
+                onPaste={(e) => {
+                  const pasted = e.clipboardData.getData('text');
+                  if (pasted && /<!--\s*(?:Start|End)Fragment/i.test(pasted)) {
+                    e.preventDefault();
+                    const cleaned = pasted
+                      .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
+                      .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
+                      .replace(/<\/?(?:html|body)[^>]*>/gi, '');
+                    document.execCommand('insertText', false, cleaned);
+                  }
                 }}
                 onKeyDown={handleTextareaKeyDown}
                 onClick={(e) => {
