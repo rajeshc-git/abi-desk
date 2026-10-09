@@ -1182,6 +1182,31 @@ export class TicketService {
   ${htmlTrail}
 </div>`.trim();
 
+        // Load outgoing attachments if any were attached to this comment
+        let outboundAttachments: Array<{ filename: string; content: Buffer; contentType?: string }> | undefined;
+        if (dto.attachments && dto.attachments.length > 0) {
+          const assetsToLoad = await tx.mediaAsset.findMany({
+            where: { commentId: created.id, tenantId },
+            select: { originalFilename: true, mimeType: true, storageKey: true },
+          });
+          const loaded = await Promise.all(
+            assetsToLoad.map(async (a) => {
+              try {
+                const buffer = await this.storage.getObjectBuffer(a.storageKey);
+                return {
+                  filename: a.originalFilename || 'attachment',
+                  content: buffer,
+                  contentType: a.mimeType,
+                };
+              } catch (err) {
+                this.logger.error({ err, storageKey: a.storageKey }, 'Failed to load attachment buffer for outbound email');
+                return null;
+              }
+            }),
+          );
+          outboundAttachments = loaded.filter((a): a is NonNullable<typeof a> => a !== null);
+        }
+
         this.mailService.sendTicketMail({
           to: {
             email: ticket.requester.email,
@@ -1192,6 +1217,7 @@ export class TicketService {
           text: emailText,
           html: emailHtml,
           tag: 'ticket.reply',
+          ...(outboundAttachments && outboundAttachments.length > 0 ? { attachments: outboundAttachments } : {}),
         }, ticket.channel).catch((err) => {
           this.logger.error({ err, ticketId }, 'Failed to send outbound reply email to customer');
         });

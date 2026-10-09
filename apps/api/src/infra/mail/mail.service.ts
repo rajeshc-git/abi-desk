@@ -119,6 +119,7 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
         text: message.text,
         html: message.html,
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
         headers: {
           'X-ABIDesk-Tag': message.tag,
           'Auto-Submitted': 'auto-generated',
@@ -167,6 +168,7 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
         text: message.text,
         html: message.html,
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
         headers: {
           'X-ABIDesk-Tag': message.tag,
           'Auto-Submitted': 'auto-generated',

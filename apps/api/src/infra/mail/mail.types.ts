@@ -3,6 +3,12 @@ export interface MailRecipient {
   name?: string;
 }
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 export interface MailMessage {
   to: MailRecipient;
   subject: string;
@@ -18,6 +24,8 @@ export interface MailMessage {
    * is queryable, e.g. `auth.magic_link`.
    */
   tag: string;
+  /** Optional file attachments (Buffer payloads). */
+  attachments?: MailAttachment[];
 }
 
 export interface MailSendResult {
@@ -25,3 +33,4 @@ export interface MailSendResult {
   accepted: string[];
   rejected: string[];
 }
+
