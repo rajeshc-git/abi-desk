@@ -12,10 +12,10 @@ docker compose down
 echo ""
 echo "[2/2] Stopping local Node processes..."
 
-# Terminate all processes running from this workspace directory
-pkill -9 -f "${ROOT_DIR}" >/dev/null 2>&1
-pkill -9 -if "ABI_DESK.*(console|prisma|studio|vite|esbuild)" >/dev/null 2>&1
+# Terminate all Node/Vite/Prisma processes running from this workspace
+pkill -9 -if "${ROOT_DIR}.*(node_modules|apps|packages)" >/dev/null 2>&1
 pkill -9 -if "abi-desk.*(console|prisma|studio|vite|esbuild)" >/dev/null 2>&1
+pkill -9 -if "ABI_DESK.*(console|prisma|studio|vite|esbuild)" >/dev/null 2>&1
 
 # Clean up default and shifted ports
 for port in 9999 5555 10000 10001 10002 5556 5557 5558; do
