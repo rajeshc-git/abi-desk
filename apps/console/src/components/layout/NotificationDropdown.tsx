@@ -154,7 +154,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                   borderRadius: '10px',
                 }}
               >
-                {unreadCount} new
+                {unreadCount > 999 ? '999+' : unreadCount} new
               </span>
             )}
           </div>

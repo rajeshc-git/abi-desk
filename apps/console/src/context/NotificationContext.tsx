@@ -122,7 +122,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           isRead: false,
         };
 
-        return [newNotif, ...prev.slice(0, 49)];
+        return [newNotif, ...prev.slice(0, 998)];
       });
     },
     [],

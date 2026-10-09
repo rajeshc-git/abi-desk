@@ -39,6 +39,7 @@ import {
   Monitor,
   ShieldCheck,
   Activity,
+  ChevronDown,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -404,6 +405,50 @@ export const RosterPage: React.FC = () => {
     if (t.name) return t.name;
     return t.tier === 'L1' ? 'General Support' : `${t.tier} · ${productName(t.productId)}`;
   };
+
+  const getTeamColor = (t?: TeamData | null) => {
+    if (!t) return '#2563eb';
+    const tier = (t.tier || '').toUpperCase();
+    if (tier.includes('L1')) return '#2563eb';
+    if (tier.includes('L2')) return '#7c3aed';
+    if (tier.includes('L3')) return '#db2777';
+    if (tier.includes('DEV') && !tier.includes('DEVOPS')) return '#0d9488';
+    if (tier.includes('DEVOPS') || tier.includes('INFRA')) return '#d97706';
+    if (tier.includes('QA') || tier.includes('TEST')) return '#059669';
+    return '#3b82f6';
+  };
+
+  const [isTeamDropdownOpen, setIsTeamDropdownOpen] = useState(false);
+  const [teamSearchQuery, setTeamSearchQuery] = useState('');
+  const teamDropdownRef = useRef<HTMLDivElement>(null);
+  const teamSearchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isTeamDropdownOpen) {
+      setTimeout(() => teamSearchInputRef.current?.focus(), 50);
+    }
+  }, [isTeamDropdownOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (teamDropdownRef.current && !teamDropdownRef.current.contains(event.target as Node)) {
+        setIsTeamDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredVisibleTeams = useMemo(() => {
+    if (!teamSearchQuery.trim()) return visibleTeams;
+    const q = teamSearchQuery.trim().toLowerCase();
+    return visibleTeams.filter((t) => {
+      const name = teamName(t).toLowerCase();
+      const tier = (t.tier || '').toLowerCase();
+      const members = t.members.map((m) => m.name.toLowerCase()).join(' ');
+      return name.includes(q) || tier.includes(q) || members.includes(q);
+    });
+  }, [visibleTeams, teamSearchQuery]);
 
   const [isSyncingToDb, setIsSyncingToDb] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(new Date());
@@ -1547,23 +1592,269 @@ export const RosterPage: React.FC = () => {
 
         {/* Active Team Selector & Backup Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Active Team:</span>
-            <select
-              value={activeTeam?.id || db.activeTeamId}
-              onChange={(e) => {
-                persistDB({ ...db, activeTeamId: e.target.value });
-                setCurrentRoster(null);
-                toast.info(`Switched to team`);
-              }}
-              style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '13px', fontWeight: '600', background: 'var(--bg-app)', color: 'var(--text-primary)', cursor: 'pointer' }}
-            >
-              {visibleTeams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {teamName(t)} ({t.members.length} {t.members.length === 1 ? 'member' : 'members'})
-                </option>
-              ))}
-            </select>
+          <div style={{ position: 'relative', display: 'inline-block' }} ref={teamDropdownRef}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-surface)', padding: '5px 8px 5px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)' }}>
+              <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Active Team:</span>
+              <button
+                type="button"
+                onClick={() => setIsTeamDropdownOpen((prev) => !prev)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '7px',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isTeamDropdownOpen ? 'var(--primary, #2563eb)' : 'var(--border-medium, #cbd5e1)'}`,
+                  backgroundColor: isTeamDropdownOpen ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-app, #f8fafc)',
+                  color: 'var(--text-primary)',
+                  fontSize: '12.5px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  boxShadow: isTeamDropdownOpen ? '0 0 0 2px rgba(37, 99, 235, 0.15)' : 'none',
+                  outline: 'none',
+                }}
+              >
+                <span
+                  style={{
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    backgroundColor: activeTeam ? getTeamColor(activeTeam) : '#2563eb',
+                    boxShadow: `0 0 0 2px ${activeTeam ? getTeamColor(activeTeam) : '#2563eb'}30`,
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeTeam ? teamName(activeTeam) : 'Select Team'}
+                </span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    color: 'var(--text-muted)',
+                    backgroundColor: 'var(--bg-surface, #ffffff)',
+                    padding: '1px 6px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                  }}
+                >
+                  {activeTeam?.members.length || 0} {activeTeam?.members.length === 1 ? 'member' : 'members'}
+                </span>
+                <ChevronDown
+                  size={13}
+                  style={{
+                    color: 'var(--text-muted)',
+                    transform: isTeamDropdownOpen ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.15s ease',
+                    marginLeft: '2px',
+                  }}
+                />
+              </button>
+            </div>
+
+            {/* Popover Dropdown */}
+            {isTeamDropdownOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  width: '280px',
+                  maxWidth: 'calc(100vw - 24px)',
+                  backgroundColor: 'var(--bg-surface, #ffffff)',
+                  border: '1px solid var(--border-medium, #e2e8f0)',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                  zIndex: 1000,
+                  overflow: 'hidden',
+                  animation: 'fadeIn 0.15s ease-out',
+                }}
+              >
+                {/* Search Header */}
+                <div
+                  style={{
+                    padding: '8px 10px',
+                    borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Search
+                    size={13}
+                    style={{
+                      position: 'absolute',
+                      left: '18px',
+                      color: 'var(--text-muted)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    ref={teamSearchInputRef}
+                    type="text"
+                    placeholder="Search Tier or Team..."
+                    value={teamSearchQuery}
+                    onChange={(e) => setTeamSearchQuery(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '5px 26px 5px 28px',
+                      fontSize: '12px',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--bg-app, #f8fafc)',
+                      color: 'var(--text-primary)',
+                      outline: 'none',
+                    }}
+                  />
+                  {teamSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setTeamSearchQuery('')}
+                      style={{
+                        position: 'absolute',
+                        right: '18px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Group Header */}
+                <div
+                  style={{
+                    padding: '6px 12px 4px',
+                    fontSize: '10.5px',
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
+                    borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                  }}
+                >
+                  SUPPORT TIERS & TEAMS
+                </div>
+
+                {/* Options List */}
+                <div
+                  style={{
+                    maxHeight: '270px',
+                    overflowY: 'auto',
+                    padding: '4px',
+                  }}
+                >
+                  {filteredVisibleTeams.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '16px 12px',
+                        textAlign: 'center',
+                        fontSize: '12px',
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      No matching teams
+                    </div>
+                  ) : (
+                    filteredVisibleTeams.map((t) => {
+                      const isSelected = t.id === activeTeam?.id;
+                      const color = getTeamColor(t);
+                      const tName = teamName(t);
+                      const subInfo = `${t.members.length} ${t.members.length === 1 ? 'member' : 'members'} · ${t.tier === 'L1' ? 'General Support' : t.tier}`;
+
+                      return (
+                        <div
+                          key={t.id}
+                          onClick={() => {
+                            persistDB({ ...db, activeTeamId: t.id });
+                            setCurrentRoster(null);
+                            setIsTeamDropdownOpen(false);
+                            setTeamSearchQuery('');
+                            toast.info(`Switched to team`);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '7px 10px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            backgroundColor: isSelected ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
+                            transition: 'background-color 0.12s ease',
+                            gap: '8px',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-hover, #f1f5f9)';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                            <span
+                              style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: color,
+                                flexShrink: 0,
+                                boxShadow: `0 0 0 2px ${color}25`,
+                              }}
+                            />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div
+                                style={{
+                                  fontSize: '12px',
+                                  fontWeight: isSelected ? 700 : 500,
+                                  color: isSelected ? 'var(--primary, #2563eb)' : 'var(--text-primary)',
+                                  lineHeight: 1.2,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tName}</span>
+                                {isSelected && (
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                      backgroundColor: '#eff6ff',
+                                      color: '#2563eb',
+                                      fontWeight: 700,
+                                      border: '1px solid #bfdbfe',
+                                    }}
+                                  >
+                                    Current
+                                  </span>
+                                )}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '11px',
+                                  color: 'var(--text-muted)',
+                                  marginTop: '2px',
+                                }}
+                              >
+                                {subInfo}
+                              </div>
+                            </div>
+                          </div>
+                          {isSelected && <Check size={14} style={{ color: '#2563eb', flexShrink: 0 }} />}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           {canManage && (
             <>

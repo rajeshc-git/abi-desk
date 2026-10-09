@@ -47,9 +47,9 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
         rejectUnauthorized: false,
         ciphers: 'SSLv3',
       },
-      pool: true,
-      maxConnections: 5,
-      maxMessages: 100,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     });
 
     this.logger.info({ host: mail.host, port: mail.port, user: mail.user }, 'System SMTP transport ready');
@@ -64,9 +64,9 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
         rejectUnauthorized: false,
         ciphers: 'SSLv3',
       },
-      pool: true,
-      maxConnections: 5,
-      maxMessages: 100,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     });
 
     this.logger.info(
@@ -84,9 +84,9 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
         rejectUnauthorized: false,
         ciphers: 'SSLv3',
       },
-      pool: true,
-      maxConnections: 5,
-      maxMessages: 100,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     });
 
     this.logger.info(

@@ -49,6 +49,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   const hideSearchBar =
     location.pathname === '/analytics' ||
     location.pathname.startsWith('/admin') ||
+    location.pathname.startsWith('/roster') ||
+    location.pathname.startsWith('/documents') ||
     location.pathname.startsWith('/db');
 
   useEffect(() => {

@@ -118,8 +118,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS user_platform_email_unique
 CREATE UNIQUE INDEX IF NOT EXISTS brand_single_default_per_tenant
   ON public.brand ("tenantId") WHERE "isDefault" AND "deletedAt" IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS queue_single_default_per_tenant
-  ON public.queue ("tenantId") WHERE "isDefault";
+CREATE UNIQUE INDEX IF NOT EXISTS queue_single_default_per_product
+  ON public.queue ("tenantId", "productId") WHERE "isDefault" AND "productId" IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS business_hours_single_default_per_tenant
   ON public.business_hours ("tenantId") WHERE "isDefault";

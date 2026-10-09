@@ -351,7 +351,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
   return (
     <>
       <aside className={`app-sidebar${isOpen ? ' sidebar-open' : ''}`}>
-        <div className="sidebar-header" style={{ padding: '14px 16px' }}>
+        <div className="sidebar-header">
         <ZohoDeskLogo size={32} showText={true} />
         {onClose && (
           <button className="sidebar-close-btn" onClick={onClose} title="Close sidebar">
