@@ -13,7 +13,7 @@ import {
 import { createHash, randomUUID } from 'node:crypto';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { MediaService } from '../media/media.service';
-import { MailService } from '../../infra/mail/mail.service';
+import { MailService, isSystemRobotEmail } from '../../infra/mail/mail.service';
 import { escapeHtml } from '../../infra/mail/mail.templates';
 import { StorageService } from '../../infra/storage/storage.service';
 import { SlaService } from '../sla/sla.service';
@@ -3004,6 +3004,10 @@ export class TicketService {
     cc?: string[];
   }) {
     const senderEmail = parseEmailAddress(payload.from);
+    if (isSystemRobotEmail(senderEmail)) {
+      this.logger.warn({ senderEmail }, 'Inbound email from system/robot address dropped in ticket.service');
+      return null;
+    }
     const senderName = parseEmailName(payload.from);
 
     const recipient = parseEmailAddress(payload.to);

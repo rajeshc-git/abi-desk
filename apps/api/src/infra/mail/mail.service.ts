@@ -151,6 +151,14 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
     message: MailMessage,
     channel?: string,
   ): Promise<MailSendResult | null> {
+    if (isSystemRobotEmail(message.to.email)) {
+      this.logger.warn(
+        { to: message.to.email, tag: message.tag },
+        'Skipping outbound ticket email to system/robot address to prevent bounce loops',
+      );
+      return null;
+    }
+
     const isWidget = channel === 'WIDGET';
     const transporter = isWidget ? this.ticketTransporter2 : this.ticketTransporter;
     const defaultFrom = isWidget ? this.config.ticketMail2.from : this.config.ticketMail.from;
@@ -159,11 +167,18 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
       ? `"${message.to.name.replace(/"/g, '')}" <${message.to.email}>`
       : message.to.email;
 
+    const rawCcList: string[] = message.cc
+      ? Array.isArray(message.cc)
+        ? message.cc
+        : [message.cc]
+      : [];
+    const filteredCc = rawCcList.filter((c: string) => !isSystemRobotEmail(c));
+
     try {
       const info = await transporter.sendMail({
         from: defaultFrom,
         to,
-        ...(message.cc ? { cc: message.cc } : {}),
+        ...(filteredCc && filteredCc.length > 0 ? { cc: filteredCc } : {}),
         subject: message.subject,
         text: message.text,
         html: message.html,
@@ -205,3 +220,20 @@ export class MailService implements OnModuleInit, OnModuleDestroy {
     await this.transporter.verify();
   }
 }
+
+/**
+ * Detects system-generated daemons, Exchange NDR mailboxes, and automated bounce addresses.
+ * Used to avoid sending outbound customer notification emails to non-existent system addresses,
+ * which would trigger infinite NDR bounce loops.
+ */
+export function isSystemRobotEmail(email: string | null | undefined): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const clean = email.trim().toLowerCase();
+  return (
+    clean.startsWith('microsoftexchange') ||
+    clean.startsWith('mailer-daemon@') ||
+    clean === 'mailer-daemon' ||
+    clean.startsWith('postmaster@')
+  );
+}
+

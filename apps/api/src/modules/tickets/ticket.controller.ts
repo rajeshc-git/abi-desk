@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   Patch,
   Post,
@@ -52,6 +53,8 @@ import { TicketService } from './ticket.service';
  */
 @Controller({ path: 'tickets', version: '1' })
 export class TicketController {
+  private readonly logger = new Logger(TicketController.name);
+
   constructor(private readonly tickets: TicketService) {}
 
   /** Matrix row: Create Ticket — granted to every role. */
@@ -218,6 +221,20 @@ export class TicketController {
 
     const parsedFrom = parseEmailAddress(from);
     const parsedTo = parseEmailAddress(to);
+
+    // Guard against automated NDR (Non-Delivery Reports), bounce storms, and system daemons.
+    // This strictly filters out robotic system bounce loops without blocking any real human customer emails.
+    if (isAutomatedBounceOrNdr({ from: parsedFrom, subject, extractHeader, body })) {
+      this.logger.warn(
+        `Automated NDR / system bounce message ignored from ${parsedFrom} with subject "${subject}" to prevent email loops`,
+      );
+      return {
+        success: true,
+        ignored: true,
+        reason: 'Automated NDR / system bounce message ignored to prevent email loops.',
+      };
+    }
+
     const ccList = extractCcList().filter(
       (email) => email !== parsedFrom && email !== parsedTo,
     );
@@ -446,4 +463,75 @@ function parseEmailAddress(raw: string): string {
     return match[1].trim().toLowerCase();
   }
   return raw.trim().toLowerCase();
+}
+
+/**
+ * Detects automated Non-Delivery Reports (NDR), mailer daemon bounces, and system notifications.
+ *
+ * Requirements for 100% precision:
+ * - NEVER block any real human sender (e.g. real customers writing about issues, orders, questions).
+ * - ALWAYS drop system bounce robots (e.g. Microsoft Exchange NDRs, mailer-daemon).
+ */
+function isAutomatedBounceOrNdr(params: {
+  from: string;
+  subject: string;
+  extractHeader: (key: string) => string | undefined;
+  body: any;
+}): boolean {
+  const fromLower = params.from.toLowerCase();
+  const subjectLower = params.subject.trim().toLowerCase();
+
+  // 1. Microsoft Exchange System NDR GUID Mailbox (microsoftexchange<hex/alphanumeric>@...)
+  // Real humans never have this address format; this is exclusively Exchange's internal NDR sender.
+  if (/^microsoftexchange/i.test(fromLower) || fromLower.includes('microsoftexchange')) {
+    return true;
+  }
+
+  // 2. Standard RFC SMTP automated bounce daemons
+  if (fromLower.startsWith('mailer-daemon@') || fromLower === 'mailer-daemon') {
+    return true;
+  }
+
+  // 3. Postmaster NDRs (postmaster@ combined with bounce failure subject)
+  if (
+    fromLower.startsWith('postmaster@') &&
+    (subjectLower.startsWith('undeliverable:') ||
+      subjectLower.startsWith('delivery status notification') ||
+      subjectLower.startsWith('mail delivery failed') ||
+      subjectLower.startsWith('failure notice'))
+  ) {
+    return true;
+  }
+
+  // 4. Microsoft Exchange / RFC DSN delivery failure report
+  // If the subject starts with "Undeliverable:" or "Delivery Status Notification",
+  // verify it contains actual delivery failure report indicators before ignoring.
+  if (
+    subjectLower.startsWith('undeliverable:') ||
+    subjectLower.startsWith('delivery status notification')
+  ) {
+    const xFailedRecipients = params.extractHeader('x-failed-recipients');
+    const autoSubmitted = params.extractHeader('auto-submitted');
+    const contentType = params.extractHeader('content-type') || '';
+    const htmlBody = typeof params.body?.HtmlBody === 'string' ? params.body.HtmlBody : '';
+    const textBody = typeof params.body?.TextBody === 'string' ? params.body.TextBody : '';
+
+    const hasFailurePattern =
+      Boolean(xFailedRecipients) ||
+      contentType.toLowerCase().includes('report-type=delivery-status') ||
+      autoSubmitted?.toLowerCase() === 'auto-replied' ||
+      autoSubmitted?.toLowerCase() === 'auto-generated' ||
+      htmlBody.includes("wasn't found at") ||
+      htmlBody.includes("couldn't be delivered") ||
+      htmlBody.includes('Delivery has failed to these recipients') ||
+      textBody.includes("wasn't found at") ||
+      textBody.includes("couldn't be delivered") ||
+      textBody.includes('Delivery has failed to these recipients');
+
+    if (hasFailurePattern) {
+      return true;
+    }
+  }
+
+  return false;
 }
