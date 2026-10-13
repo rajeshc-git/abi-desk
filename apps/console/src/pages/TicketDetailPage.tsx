@@ -594,6 +594,8 @@ export const TicketDetailPage: React.FC = () => {
       {/* Staff-Only Root Cause Analysis (RCA) & CAPA Action Sections */}
       <TicketRcaCapaManager
         ticketId={ticket.id}
+        ticketNumber={ticket.number}
+        ticketSubject={ticket.subject}
         rootCause={ticket.rootCause}
         capaNotes={ticket.capaNotes}
         highlightRcaError={missingHighlight.rca}
