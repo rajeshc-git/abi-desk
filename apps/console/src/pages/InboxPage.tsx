@@ -557,29 +557,43 @@ export const InboxPage: React.FC = () => {
 
   const getCleanSnippet = (text?: string) => {
     if (!text) return '';
-    // Fast snippet: take only the first 2000 chars for snippet extraction
-    const raw = text.length > 2000 ? text.slice(0, 2000) : text;
-    let cleaned = raw
-      .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, ' ')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<xml[^>]*>[\s\S]*?<\/xml>/gi, ' ')
-      .replace(/<!--[\s\S]*?-->/g, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&apos;/g, "'")
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&#(\d+);/g, (_, dec) => {
-        try {
-          return String.fromCharCode(parseInt(dec, 10));
-        } catch {
-          return '';
-        }
-      });
+
+    let cleaned = '';
+    try {
+      if (typeof window !== 'undefined' && (text.includes('<') || text.includes('&'))) {
+        const doc = new DOMParser().parseFromString(text, 'text/html');
+        doc.querySelectorAll('style, script, xml, head, meta, link').forEach((el) => el.remove());
+        cleaned = (doc.body?.textContent || doc.body?.innerText || '').trim();
+      }
+    } catch {
+      cleaned = '';
+    }
+
+    if (!cleaned) {
+      // Fallback regex cleaning
+      const raw = text.replace(/<[^>]*$/g, '');
+      cleaned = raw
+        .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, ' ')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<xml[^>]*>[\s\S]*?<\/xml>/gi, ' ')
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&#(\d+);/g, (_, dec) => {
+          try {
+            return String.fromCharCode(parseInt(dec, 10));
+          } catch {
+            return '';
+          }
+        });
+    }
 
     // Strip email reply markers
     const replyHeaderMatch = cleaned.match(
