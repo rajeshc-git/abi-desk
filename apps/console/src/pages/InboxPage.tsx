@@ -503,17 +503,26 @@ export const InboxPage: React.FC = () => {
     };
   }, [selectedTicket?.id]);
 
+  // Sort comments descending (newest first)
+  const sortedComments = React.useMemo(
+    () =>
+      [...selectedComments].sort(
+        (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      ),
+    [selectedComments],
+  );
+
   // Synchronize initial expanded states: when replies exist, collapse description and expand latest reply
   useEffect(() => {
-    if (selectedComments.length > 0) {
+    if (sortedComments.length > 0) {
       setIsDescriptionExpanded(false);
-      const latestId = selectedComments[selectedComments.length - 1]?.id;
+      const latestId = sortedComments[0]?.id;
       setExpandedCommentIds(new Set(latestId ? [latestId] : []));
     } else {
       setIsDescriptionExpanded(true);
       setExpandedCommentIds(new Set());
     }
-  }, [selectedComments]);
+  }, [sortedComments]);
 
   const toggleComment = (id: string) => {
     setExpandedCommentIds((prev) => {
@@ -526,16 +535,16 @@ export const InboxPage: React.FC = () => {
 
   const isAllExpanded =
     isDescriptionExpanded &&
-    (selectedComments.length === 0 || selectedComments.every((c: any) => expandedCommentIds.has(c.id)));
+    (sortedComments.length === 0 || sortedComments.every((c: any) => expandedCommentIds.has(c.id)));
 
   const toggleExpandAll = () => {
     if (isAllExpanded) {
       setIsDescriptionExpanded(false);
-      const latestId = selectedComments[selectedComments.length - 1]?.id;
+      const latestId = sortedComments[0]?.id;
       setExpandedCommentIds(new Set(latestId ? [latestId] : []));
     } else {
       setIsDescriptionExpanded(true);
-      setExpandedCommentIds(new Set(selectedComments.map((c: any) => c.id)));
+      setExpandedCommentIds(new Set(sortedComments.map((c: any) => c.id)));
     }
   };
 
@@ -944,6 +953,27 @@ export const InboxPage: React.FC = () => {
 
   const handleQuickStatusChange = async (newStatus: string) => {
     if (!selectedTicket || newStatus === selectedTicket.status) return;
+
+    if (['RESOLVED', 'CLOSED'].includes(newStatus)) {
+      const missingFields: string[] = [];
+      const tAny = selectedTicket as any;
+      const org = (tAny.organization || tAny.customFields?.organization || '').trim();
+      const prod = (tAny.product || tAny.customFields?.product || '').trim();
+      const rca = (tAny.rootCause || tAny.customFields?.rca || tAny.customFields?.rootCause || '').trim();
+      const capa = (tAny.capaNotes || tAny.customFields?.capa || tAny.customFields?.capaNotes || '').trim();
+
+      if (!org) missingFields.push('Organization');
+      if (!prod) missingFields.push('Product');
+      if (!rca) missingFields.push('Root Cause');
+      if (!capa) missingFields.push('CAPA');
+
+      if (missingFields.length > 0) {
+        const target = newStatus === 'RESOLVED' ? 'resolve' : 'close';
+        toast.error(`Cannot ${target}: Missing ${missingFields.join(', ')}`);
+        return;
+      }
+    }
+
     const requiresComment = NOTE_REQUIRED_STATUSES.includes(newStatus);
     if (requiresComment) {
       setPendingStatusTransition({ toStatus: newStatus, requiresComment });
@@ -976,6 +1006,26 @@ export const InboxPage: React.FC = () => {
 
   const executeStatusTransition = async (newStatus: string, comment?: string) => {
     if (!selectedTicket) return;
+
+    if (['RESOLVED', 'CLOSED'].includes(newStatus)) {
+      const missingFields: string[] = [];
+      const tAny = selectedTicket as any;
+      const org = (tAny.organization || tAny.customFields?.organization || '').trim();
+      const prod = (tAny.product || tAny.customFields?.product || '').trim();
+      const rca = (tAny.rootCause || tAny.customFields?.rca || tAny.customFields?.rootCause || '').trim();
+      const capa = (tAny.capaNotes || tAny.customFields?.capa || tAny.customFields?.capaNotes || '').trim();
+
+      if (!org) missingFields.push('Organization');
+      if (!prod) missingFields.push('Product');
+      if (!rca) missingFields.push('Root Cause');
+      if (!capa) missingFields.push('CAPA');
+
+      if (missingFields.length > 0) {
+        const target = newStatus === 'RESOLVED' ? 'resolve' : 'close';
+        toast.error(`Cannot ${target}: Missing ${missingFields.join(', ')}`);
+        return;
+      }
+    }
     try {
       const res: any = await ApiClient.post(`/tickets/${selectedTicket.id}/transitions`, { toStatus: newStatus, comment });
       const displayStatus = newStatus === 'OPEN' ? 'Open' : (newStatus === 'IN_PROGRESS' ? 'In Progress' : newStatus.replace(/_/g, ' '));
@@ -998,7 +1048,7 @@ export const InboxPage: React.FC = () => {
     !!user &&
     Boolean(
       user.roles?.some((r: string) =>
-        ['L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN'].includes(r),
+        ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN'].includes(r),
       ),
     );
 
@@ -1471,7 +1521,7 @@ export const InboxPage: React.FC = () => {
                 {selectedTicket.createdAt && (
                   <>
                     <span style={{ opacity: 0.5 }}>•</span>
-                    <span>{new Date(selectedTicket.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                    <span>{new Date(selectedTicket.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', hour12: true })}</span>
                   </>
                 )}
                 {selectedTicket.channel && (
@@ -1847,7 +1897,7 @@ export const InboxPage: React.FC = () => {
                                                 )}
                                               </span>
                                               <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
-                                                {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                                                {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short', hour12: true })}
                                               </span>
                                             </div>
                                             <div style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: 1.45 }}>
@@ -2022,214 +2072,13 @@ export const InboxPage: React.FC = () => {
                   padding: 0,
                 }}
               >
-                  {/* Initial Description Accordion Item */}
-                  {(() => {
-                    const rootMedia = selectedMedia.filter((m: any) => !m.commentId);
-                    const authorName = selectedTicket.requester?.fullName || selectedTicket.requester?.email || 'Customer';
-                    const rawText = selectedTicket.description || '';
-                    const plainSnippet = getCleanSnippet(rawText);
-
-                    return (
-                      <div
-                        style={{
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: '8px',
-                          backgroundColor: 'var(--bg-surface)',
-                          transition: 'all 0.15s ease',
-                          overflow: 'hidden',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {/* Accordion Item Header / Collapsed Strip */}
-                        <div
-                          onClick={() => setIsDescriptionExpanded((prev) => !prev)}
-                          style={{
-                            padding: '10px 14px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            cursor: 'pointer',
-                            backgroundColor: isDescriptionExpanded
-                              ? 'var(--bg-surface-elevated, #f8fafc)'
-                              : 'var(--bg-surface)',
-                            borderBottom: isDescriptionExpanded ? '1px solid var(--border-subtle)' : 'none',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isDescriptionExpanded) e.currentTarget.style.backgroundColor = 'var(--bg-hover, #f1f5f9)';
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isDescriptionExpanded) e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                            <div
-                              style={{
-                                width: '26px',
-                                height: '26px',
-                                borderRadius: '50%',
-                                backgroundColor: '#e2e8f0',
-                                color: '#334155',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {getInitials(authorName)}
-                            </div>
-
-                            <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-primary)', flexShrink: 0 }}>
-                              {authorName}
-                            </span>
-
-                            <span
-                              className="thread-initial-badge"
-                              style={{
-                                fontSize: '10px',
-                                color: 'var(--text-muted)',
-                                backgroundColor: 'var(--bg-app, #f1f5f9)',
-                                border: '1px solid var(--border-subtle)',
-                                padding: '1px 6px',
-                                borderRadius: '4px',
-                                fontWeight: 600,
-                                flexShrink: 0,
-                              }}
-                            >
-                              <span className="initial-badge-full">Initial Request</span>
-                              <span className="initial-badge-short">Initial</span>
-                            </span>
-
-                            {!isDescriptionExpanded && (
-                              <span
-                                className="thread-header-snippet"
-                                style={{
-                                  fontSize: '12px',
-                                  color: 'var(--text-secondary)',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  marginLeft: '4px',
-                                  minWidth: 0,
-                                  flex: 1,
-                                }}
-                              >
-                                {plainSnippet || 'View message content...'}
-                              </span>
-                            )}
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto', paddingLeft: '8px' }}>
-                            {rootMedia.length > 0 && (
-                              <span
-                                style={{
-                                  fontSize: '10px',
-                                  fontWeight: 600,
-                                  color: 'var(--text-muted)',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                  backgroundColor: 'var(--bg-hover)',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                }}
-                              >
-                                <Paperclip size={11} /> {rootMedia.length}
-                              </span>
-                            )}
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                              {selectedTicket.createdAt
-                                ? new Date(selectedTicket.createdAt).toLocaleDateString(undefined, {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
-                                : ''}
-                            </span>
-                            {isDescriptionExpanded ? <ChevronUp size={15} color="var(--text-muted)" /> : <ChevronDown size={15} color="var(--text-muted)" />}
-                          </div>
-                        </div>
-
-                        {/* Expanded Message Content */}
-                        {isDescriptionExpanded && (
-                          <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {/* Initial CC Badges */}
-                            {(selectedTicket as any).cc && (selectedTicket as any).cc.length > 0 && (
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  flexWrap: 'wrap',
-                                  gap: '5px',
-                                  marginBottom: '4px',
-                                  paddingBottom: '8px',
-                                  borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
-                                  fontSize: '11.5px',
-                                  color: 'var(--text-muted, #64748b)',
-                                }}
-                              >
-                                <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
-                                {(selectedTicket as any).cc.map((email: string) => (
-                                  <span
-                                    key={email}
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                                      color: 'var(--primary, #2563eb)',
-                                      border: '1px solid rgba(37, 99, 235, 0.2)',
-                                      borderRadius: '10px',
-                                      padding: '1px 7px',
-                                      fontSize: '11px',
-                                      fontWeight: 500,
-                                    }}
-                                  >
-                                    {email}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                              <FormattedEmailContent text={selectedTicket.description} />
-                            </div>
-
-                            {/* In-Message Contextual Attachments (Gmail-Style Visual Cards) */}
-                            {rootMedia.length > 0 && (
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  flexWrap: 'wrap',
-                                  gap: '10px',
-                                  marginTop: '8px',
-                                  paddingTop: '10px',
-                                  borderTop: '1px solid var(--border-subtle)',
-                                }}
-                              >
-                                {rootMedia.map((m: any) => (
-                                  <InboxAttachmentCard
-                                    key={m.id}
-                                    media={m}
-                                    onPreview={(media, url) => setPreviewLightbox({ media, url })}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  {/* Subsequent Replies Accordion Items */}
+                  {/* Subsequent Replies Accordion Items (Newest First) */}
                   {isCommentsLoading ? (
                     <div style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>
                       Loading replies…
                     </div>
                   ) : (
-                    selectedComments.map((comment: any) => {
+                    sortedComments.map((comment: any) => {
                       const isExpanded = expandedCommentIds.has(comment.id);
                       const commentMedia = selectedMedia.filter((m: any) => m.commentId === comment.id);
                       const isInternal = comment.visibility === 'INTERNAL';
@@ -2403,8 +2252,9 @@ export const InboxPage: React.FC = () => {
                                   ? new Date(comment.createdAt).toLocaleDateString(undefined, {
                                       month: 'short',
                                       day: 'numeric',
-                                      hour: '2-digit',
+                                      hour: 'numeric',
                                       minute: '2-digit',
+                                      hour12: true,
                                     })
                                   : ''}
                               </span>
@@ -2490,6 +2340,209 @@ export const InboxPage: React.FC = () => {
                       );
                     })
                   )}
+
+                  {/* Initial Description Accordion Item (Oldest at Bottom) */}
+                  {(() => {
+                    const rootMedia = selectedMedia.filter((m: any) => !m.commentId);
+                    const authorName = selectedTicket.requester?.fullName || selectedTicket.requester?.email || 'Customer';
+                    const rawText = selectedTicket.description || '';
+                    const plainSnippet = getCleanSnippet(rawText);
+
+                    return (
+                      <div
+                        key="initial-ticket-description"
+                        style={{
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: '8px',
+                          backgroundColor: 'var(--bg-surface)',
+                          transition: 'all 0.15s ease',
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {/* Accordion Item Header / Collapsed Strip */}
+                        <div
+                          onClick={() => setIsDescriptionExpanded((prev) => !prev)}
+                          style={{
+                            padding: '10px 14px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer',
+                            backgroundColor: isDescriptionExpanded
+                              ? 'var(--bg-surface-elevated, #f8fafc)'
+                              : 'var(--bg-surface)',
+                            borderBottom: isDescriptionExpanded ? '1px solid var(--border-subtle)' : 'none',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isDescriptionExpanded) e.currentTarget.style.backgroundColor = 'var(--bg-hover, #f1f5f9)';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isDescriptionExpanded) e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                width: '26px',
+                                height: '26px',
+                                borderRadius: '50%',
+                                backgroundColor: '#e2e8f0',
+                                color: '#334155',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {getInitials(authorName)}
+                            </div>
+
+                            <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-primary)', flexShrink: 0 }}>
+                              {authorName}
+                            </span>
+
+                            <span
+                              className="thread-initial-badge"
+                              style={{
+                                fontSize: '10px',
+                                color: 'var(--text-muted)',
+                                backgroundColor: 'var(--bg-app, #f1f5f9)',
+                                border: '1px solid var(--border-subtle)',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                fontWeight: 600,
+                                flexShrink: 0,
+                              }}
+                            >
+                              <span className="initial-badge-full">Initial Request</span>
+                              <span className="initial-badge-short">Initial</span>
+                            </span>
+
+                            {!isDescriptionExpanded && (
+                              <span
+                                className="thread-header-snippet"
+                                style={{
+                                  fontSize: '12px',
+                                  color: 'var(--text-secondary)',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  marginLeft: '4px',
+                                  minWidth: 0,
+                                  flex: 1,
+                                }}
+                              >
+                                {plainSnippet || 'View message content...'}
+                              </span>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto', paddingLeft: '8px' }}>
+                            {rootMedia.length > 0 && (
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-muted)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  backgroundColor: 'var(--bg-hover)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                }}
+                              >
+                                <Paperclip size={11} /> {rootMedia.length}
+                              </span>
+                            )}
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                              {selectedTicket.createdAt
+                                ? new Date(selectedTicket.createdAt).toLocaleDateString(undefined, {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true,
+                                  })
+                                : ''}
+                            </span>
+                            {isDescriptionExpanded ? <ChevronUp size={15} color="var(--text-muted)" /> : <ChevronDown size={15} color="var(--text-muted)" />}
+                          </div>
+                        </div>
+
+                        {/* Expanded Message Content */}
+                        {isDescriptionExpanded && (
+                          <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {/* Initial CC Badges */}
+                            {(selectedTicket as any).cc && (selectedTicket as any).cc.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  flexWrap: 'wrap',
+                                  gap: '5px',
+                                  marginBottom: '4px',
+                                  paddingBottom: '8px',
+                                  borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                                  fontSize: '11.5px',
+                                  color: 'var(--text-muted, #64748b)',
+                                }}
+                              >
+                                <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                                {(selectedTicket as any).cc.map((email: string) => (
+                                  <span
+                                    key={email}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                                      color: 'var(--primary, #2563eb)',
+                                      border: '1px solid rgba(37, 99, 235, 0.2)',
+                                      borderRadius: '10px',
+                                      padding: '1px 7px',
+                                      fontSize: '11px',
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    {email}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                              <FormattedEmailContent text={selectedTicket.description} />
+                            </div>
+
+                            {/* In-Message Contextual Attachments (Gmail-Style Visual Cards) */}
+                            {rootMedia.length > 0 && (
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  gap: '10px',
+                                  marginTop: '8px',
+                                  paddingTop: '10px',
+                                  borderTop: '1px solid var(--border-subtle)',
+                                }}
+                              >
+                                {rootMedia.map((m: any) => (
+                                  <InboxAttachmentCard
+                                    key={m.id}
+                                    media={m}
+                                    onPreview={(media, url) => setPreviewLightbox({ media, url })}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

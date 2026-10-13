@@ -35,18 +35,31 @@ const CTA_KEYWORDS =
  *    - Clickable URLs, domain links, and mailto/tel links
  * 3. Quoted Email Trails (Gmail / Outlook style collapse with "..." toggle)
  */
+function cleanClipboardFragments(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    // 1. CF_HTML header metadata (Version:1.0, StartHTML:..., EndHTML:..., StartFragment:..., EndFragment:..., SourceURL:...)
+    .replace(/^(?:Version:\d+\.\d+|StartHTML:\d+|EndHTML:\d+|StartFragment:\d+|EndFragment:\d+|SourceURL:[^\r\n]*)\s*[\r\n]*/gim, '')
+    // 2. Outlook / Word fragment and element comments
+    .replace(/<!--\s*Start(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+    .replace(/<!--\s*End(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+    .replace(/<\/?(?:Start|End)(?:Fragment|Element)[^>]*>/gi, '')
+    // 3. MSO / Office conditional comments: <!--[if ...]>...<![endif]-->
+    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
+    // 4. Word XML tags like <o:p>, <w:WordDocument>
+    .replace(/<\/?(?:o|w|m|v):[^>]*>/gi, '')
+    // 5. Outer HTML boilerplate tags
+    .replace(/<\/?(?:html|body|head|meta|link)[^>]*>/gi, '')
+    .trim();
+}
+
 export const FormattedEmailContent: React.FC<FormattedEmailContentProps> = ({
   text,
   className,
   style,
 }) => {
   const sanitizedText = useMemo(() => {
-    if (!text) return '';
-    return text
-      .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
-      .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
-      .replace(/<\/?(?:html|body)[^>]*>/gi, '')
-      .trim();
+    return cleanClipboardFragments(text);
   }, [text]);
 
   if (!sanitizedText) {

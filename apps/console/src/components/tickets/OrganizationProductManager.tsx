@@ -18,6 +18,8 @@ interface OrganizationProductManagerProps {
   onOrganizationChange?: (org: string | null) => void;
   onProductChange?: (prod: string | null) => void;
   readonly?: boolean;
+  highlightOrgError?: boolean;
+  highlightProdError?: boolean;
 }
 
 export const OrganizationProductManager: React.FC<OrganizationProductManagerProps> = ({
@@ -27,6 +29,8 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
   onOrganizationChange,
   onProductChange,
   readonly = false,
+  highlightOrgError = false,
+  highlightProdError = false,
 }) => {
   const { user } = useAuth();
   const toast = useToast();
@@ -252,9 +256,13 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
             cursor: readonly ? 'default' : 'pointer',
             backgroundColor: organization
               ? 'rgba(56, 189, 248, 0.08)'
+              : highlightOrgError
+              ? 'rgba(239, 68, 68, 0.06)'
               : 'var(--bg-input, rgba(0,0,0,0.2))',
             border: organization
               ? '1px solid rgba(56, 189, 248, 0.25)'
+              : highlightOrgError
+              ? '1px solid #ef4444'
               : '1px dashed var(--border-subtle, rgba(255,255,255,0.1))',
           }}
         >
@@ -485,9 +493,13 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
             cursor: canChangeProduct ? 'pointer' : 'default',
             backgroundColor: product
               ? 'rgba(168, 85, 247, 0.08)'
+              : highlightProdError
+              ? 'rgba(239, 68, 68, 0.06)'
               : 'var(--bg-input, rgba(0,0,0,0.2))',
             border: product
               ? '1px solid rgba(168, 85, 247, 0.25)'
+              : highlightProdError
+              ? '1px solid #ef4444'
               : '1px dashed var(--border-subtle, rgba(255,255,255,0.1))',
           }}
         >

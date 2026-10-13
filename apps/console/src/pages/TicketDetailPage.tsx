@@ -68,6 +68,12 @@ export const TicketDetailPage: React.FC = () => {
     toStatus: string;
     requiresComment?: boolean;
   } | null>(null);
+  const [missingHighlight, setMissingHighlight] = useState<{
+    org?: boolean;
+    prod?: boolean;
+    rca?: boolean;
+    capa?: boolean;
+  }>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(true);
@@ -122,7 +128,7 @@ export const TicketDetailPage: React.FC = () => {
     !!user &&
     Boolean(
       user.roles?.some((r: string) =>
-        ['L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN'].includes(r),
+        ['L1_SUPPORT', 'L2_SUPPORT', 'L3_SUPPORT', 'DEV_TEAM', 'DEVOPS_TEAM', 'TENANT_ADMIN', 'PLATFORM_ADMIN'].includes(r),
       ),
     );
 
@@ -285,6 +291,33 @@ export const TicketDetailPage: React.FC = () => {
 
   const handleStatusChange = async (newStatus: string) => {
     if (!id || newStatus === ticket?.status) return;
+
+    if (['RESOLVED', 'CLOSED'].includes(newStatus)) {
+      const missingFields: string[] = [];
+      const org = (ticket?.organization || ticket?.customFields?.organization || '').trim();
+      const prod = (ticket?.product || ticket?.customFields?.product || '').trim();
+      const rca = (ticket?.rootCause || ticket?.customFields?.rca || ticket?.customFields?.rootCause || '').trim();
+      const capa = (ticket?.capaNotes || ticket?.customFields?.capa || ticket?.customFields?.capaNotes || '').trim();
+
+      if (!org) missingFields.push('Organization');
+      if (!prod) missingFields.push('Product');
+      if (!rca) missingFields.push('Root Cause');
+      if (!capa) missingFields.push('CAPA');
+
+      if (missingFields.length > 0) {
+        setMissingHighlight({
+          org: !org,
+          prod: !prod,
+          rca: !rca,
+          capa: !capa,
+        });
+        const target = newStatus === 'RESOLVED' ? 'resolve' : 'close';
+        toast.error(`Cannot ${target}: Missing ${missingFields.join(', ')}`);
+        return;
+      }
+      setMissingHighlight({});
+    }
+
     const transition = availableTransitions.find((t: any) => t.toStatus === newStatus);
     const requiresComment =
       Boolean(transition?.requiresComment) ||
@@ -300,6 +333,33 @@ export const TicketDetailPage: React.FC = () => {
 
   const executeStatusTransition = async (newStatus: string, comment?: string) => {
     if (!id) return;
+
+    if (['RESOLVED', 'CLOSED'].includes(newStatus)) {
+      const missingFields: string[] = [];
+      const org = (ticket?.organization || ticket?.customFields?.organization || '').trim();
+      const prod = (ticket?.product || ticket?.customFields?.product || '').trim();
+      const rca = (ticket?.rootCause || ticket?.customFields?.rca || ticket?.customFields?.rootCause || '').trim();
+      const capa = (ticket?.capaNotes || ticket?.customFields?.capa || ticket?.customFields?.capaNotes || '').trim();
+
+      if (!org) missingFields.push('Organization');
+      if (!prod) missingFields.push('Product');
+      if (!rca) missingFields.push('Root Cause');
+      if (!capa) missingFields.push('CAPA');
+
+      if (missingFields.length > 0) {
+        setMissingHighlight({
+          org: !org,
+          prod: !prod,
+          rca: !rca,
+          capa: !capa,
+        });
+        const target = newStatus === 'RESOLVED' ? 'resolve' : 'close';
+        toast.error(`Cannot ${target}: Missing ${missingFields.join(', ')}`);
+        return;
+      }
+      setMissingHighlight({});
+    }
+
     try {
       const res: any = await ApiClient.post(`/tickets/${id}/transitions`, { toStatus: newStatus, comment });
       const displayStatus = newStatus === 'OPEN' ? 'Open' : (newStatus === 'IN_PROGRESS' ? 'In Progress' : newStatus.replace(/_/g, ' '));
@@ -436,7 +496,10 @@ export const TicketDetailPage: React.FC = () => {
         ticketId={ticket.id}
         organization={ticket.customFields?.organization || ticket.organization || null}
         product={ticket.customFields?.product || ticket.product || null}
+        highlightOrgError={missingHighlight.org}
+        highlightProdError={missingHighlight.prod}
         onOrganizationChange={(newOrg) => {
+          setMissingHighlight((prev) => ({ ...prev, org: false }));
           setTicket((prev: any) => ({
             ...prev,
             organization: newOrg,
@@ -447,6 +510,7 @@ export const TicketDetailPage: React.FC = () => {
           }));
         }}
         onProductChange={(newProd) => {
+          setMissingHighlight((prev) => ({ ...prev, prod: false }));
           setTicket((prev: any) => ({
             ...prev,
             product: newProd,
@@ -532,11 +596,18 @@ export const TicketDetailPage: React.FC = () => {
         ticketId={ticket.id}
         rootCause={ticket.rootCause}
         capaNotes={ticket.capaNotes}
+        highlightRcaError={missingHighlight.rca}
+        highlightCapaError={missingHighlight.capa}
         rcaUpdatedAt={ticket.rcaUpdatedAt}
         capaUpdatedAt={ticket.capaUpdatedAt}
         rcaUpdatedBy={ticket.rcaUpdatedBy}
         capaUpdatedBy={ticket.capaUpdatedBy}
         onUpdate={(updated) => {
+          setMissingHighlight((prev) => ({
+            ...prev,
+            ...(updated.rootCause ? { rca: false } : {}),
+            ...(updated.capaNotes ? { capa: false } : {}),
+          }));
           setTicket((prev: any) => ({
             ...prev,
             ...updated,
@@ -702,7 +773,7 @@ export const TicketDetailPage: React.FC = () => {
               {ticket.createdAt && (
                 <>
                   <span className="meta-dot">•</span>
-                  <span>{new Date(ticket.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                  <span>{new Date(ticket.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', hour12: true })}</span>
                 </>
               )}
               {ticket.channel && (

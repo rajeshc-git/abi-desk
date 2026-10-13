@@ -81,7 +81,9 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     }
   }, [initialCc]);
   const [ccInput, setCcInput] = useState('');
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ id: string; name: string }>>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<
+    Array<{ id: string; name: string; previewUrl?: string; isUploading?: boolean; sizeBytes?: number }>
+  >([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -391,14 +393,34 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     setCcList(ccList.filter((email) => email !== emailToRemove));
   };
 
+  const cleanClipboardFragments = (text: string | null | undefined): string => {
+    if (!text) return '';
+    return text
+      // 1. CF_HTML header metadata (Version:1.0, StartHTML:..., EndHTML:..., StartFragment:..., EndFragment:..., SourceURL:...)
+      .replace(/^(?:Version:\d+\.\d+|StartHTML:\d+|EndHTML:\d+|StartFragment:\d+|EndFragment:\d+|SourceURL:[^\r\n]*)\s*[\r\n]*/gim, '')
+      // 2. Outlook / Word fragment and element comments
+      .replace(/<!--\s*Start(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+      .replace(/<!--\s*End(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+      .replace(/<\/?(?:Start|End)(?:Fragment|Element)[^>]*>/gi, '')
+      // 3. MSO / Office conditional comments: <!--[if ...]>...<![endif]-->
+      .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
+      // 4. Word XML tags like <o:p>, <w:WordDocument>
+      .replace(/<\/?(?:o|w|m|v):[^>]*>/gi, '')
+      // 5. Outer HTML boilerplate tags
+      .replace(/<\/?(?:html|body|head|meta|link)[^>]*>/gi, '')
+      .trim();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanBody = body
-      .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
-      .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
-      .replace(/<\/?(?:html|body)[^>]*>/gi, '')
-      .trim();
-    if (!cleanBody || isSending || isUploading) return;
+    if (uploadedFiles.some((f) => f.isUploading)) {
+      alert('Please wait for files/images to finish uploading before sending.');
+      return;
+    }
+    const cleanBody = cleanClipboardFragments(body);
+    const readyFileIds = uploadedFiles.filter((f) => !f.isUploading && !f.id.startsWith('temp-')).map((f) => f.id);
+    const effectiveBody = cleanBody || (readyFileIds.length > 0 ? '(Attached file)' : '');
+    if (!effectiveBody || isSending || isUploading) return;
 
     // Flush any pending text in ccInput
     const finalCcList = [...ccList];
@@ -409,15 +431,61 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     }
 
     await onSend(
-      cleanBody,
+      effectiveBody,
       isInternal && canWriteInternal,
-      uploadedFiles.map((f) => f.id),
+      readyFileIds,
       !isInternal && finalCcList.length > 0 ? finalCcList : undefined,
     );
     setBody('');
+    uploadedFiles.forEach((f) => {
+      if (f.previewUrl && f.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(f.previewUrl);
+      }
+    });
     setUploadedFiles([]);
     setCcList([]);
     setCcInput('');
+  };
+
+  const handleUploadPastedFile = async (file: File) => {
+    const ext = file.type.split('/')[1] || 'png';
+    const now = new Date();
+    const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
+    const dateStr = now.toISOString().slice(0, 10);
+    const safeName = file.name && file.name !== 'image.png'
+      ? file.name
+      : `screenshot-${dateStr}-${timeStr}.${ext}`;
+    const uploadableFile = new File([file], safeName, { type: file.type || 'image/png' });
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const previewUrl = URL.createObjectURL(file);
+
+    setUploadedFiles((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        name: safeName,
+        previewUrl,
+        isUploading: true,
+        sizeBytes: file.size,
+      },
+    ]);
+    setIsUploading(true);
+
+    try {
+      const result = await TicketsApi.uploadFile(uploadableFile);
+      setUploadedFiles((prev) =>
+        prev.map((f) =>
+          f.id === tempId
+            ? { ...f, id: result.id, name: result.originalFilename || safeName, isUploading: false }
+            : f,
+        ),
+      );
+    } catch (err: any) {
+      alert(`Failed to upload pasted image: ${err.message || err}`);
+      setUploadedFiles((prev) => prev.filter((f) => f.id !== tempId));
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -429,8 +497,15 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       const newFiles = [...uploadedFiles];
       for (let i = 0; i < files.length; i++) {
         const file = files[i]!;
+        const isImg = file.type.startsWith('image/');
+        const previewUrl = isImg ? URL.createObjectURL(file) : undefined;
         const result = await TicketsApi.uploadFile(file);
-        newFiles.push({ id: result.id, name: result.originalFilename });
+        newFiles.push({
+          id: result.id,
+          name: result.originalFilename,
+          previewUrl,
+          sizeBytes: file.size,
+        });
       }
       setUploadedFiles(newFiles);
     } catch (err: any) {
@@ -442,7 +517,13 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   };
 
   const removeFile = (id: string) => {
-    setUploadedFiles((prev) => prev.filter((f) => f.id !== id));
+    setUploadedFiles((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file?.previewUrl && file.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(file.previewUrl);
+      }
+      return prev.filter((f) => f.id !== id);
+    });
   };
 
   return (
@@ -916,18 +997,68 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
+                      gap: '8px',
                       backgroundColor: 'var(--bg-surface)',
                       border: '1px solid var(--border-medium)',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-md, 6px)',
+                      padding: file.previewUrl ? '4px 8px 4px 4px' : '4px 8px',
                       fontSize: '12px',
                     }}
                   >
-                    <span>📎 {file.name}</span>
+                    {file.previewUrl ? (
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                          backgroundColor: '#f1f5f9',
+                          flexShrink: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <img
+                          src={file.previewUrl}
+                          alt={file.name}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      </div>
+                    ) : (
+                      <span>📎</span>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                      <span
+                        style={{
+                          fontWeight: 500,
+                          maxWidth: '180px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          color: 'var(--text-primary)',
+                        }}
+                        title={file.name}
+                      >
+                        {file.name}
+                      </span>
+                      {file.isUploading ? (
+                        <span style={{ fontSize: '10px', color: 'var(--primary, #2563eb)', fontWeight: 600 }}>
+                          Uploading...
+                        </span>
+                      ) : file.sizeBytes ? (
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted, #64748b)' }}>
+                          {(file.sizeBytes / 1024).toFixed(1)} KB
+                        </span>
+                      ) : null}
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => removeFile(file.id)}
+                      disabled={file.isUploading}
                       style={{
                         border: 'none',
                         background: 'transparent',
@@ -936,8 +1067,10 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                         fontWeight: 700,
                         fontSize: '14px',
                         lineHeight: 1,
-                        padding: 0,
+                        padding: '2px',
+                        marginLeft: '4px',
                       }}
+                      title="Remove attachment"
                     >
                       &times;
                     </button>
@@ -1207,14 +1340,81 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                   checkMentionTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length);
                 }}
                 onPaste={(e) => {
-                  const pasted = e.clipboardData.getData('text');
-                  if (pasted && /<!--\s*(?:Start|End)Fragment/i.test(pasted)) {
+                  const clipboardData = e.clipboardData;
+                  if (!clipboardData) return;
+
+                  // 1. Detect image files in clipboard (from Snipping Tool, screenshot, copy image)
+                  const items = Array.from(clipboardData.items || []);
+                  const imageFiles: File[] = [];
+
+                  for (const item of items) {
+                    if (item.kind === 'file' && item.type.startsWith('image/')) {
+                      const file = item.getAsFile();
+                      if (file) {
+                        imageFiles.push(file);
+                      }
+                    }
+                  }
+
+                  // Fallback for clipboardData.files if items array didn't return any
+                  if (imageFiles.length === 0 && clipboardData.files && clipboardData.files.length > 0) {
+                    for (const file of Array.from(clipboardData.files)) {
+                      if (file.type.startsWith('image/')) {
+                        imageFiles.push(file);
+                      }
+                    }
+                  }
+
+                  // If image(s) detected, upload each one
+                  if (imageFiles.length > 0) {
+                    imageFiles.forEach((imgFile) => {
+                      handleUploadPastedFile(imgFile);
+                    });
+                  }
+
+                  // 2. Handle text pasting and Outlook/Word fragment sanitization
+                  const pasted = clipboardData.getData('text');
+
+                  // If pure image pasted (no meaningful text), prevent default so no empty line or broken glyph is inserted
+                  if (imageFiles.length > 0 && (!pasted || !pasted.trim())) {
                     e.preventDefault();
-                    const cleaned = pasted
-                      .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
-                      .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
-                      .replace(/<\/?(?:html|body)[^>]*>/gi, '');
-                    document.execCommand('insertText', false, cleaned);
+                    return;
+                  }
+
+                  if (pasted) {
+                    const cleaned = cleanClipboardFragments(pasted);
+                    if (cleaned !== pasted) {
+                      e.preventDefault();
+                      const textarea = textareaRef.current;
+                      if (textarea) {
+                        const start = textarea.selectionStart ?? body.length;
+                        const end = textarea.selectionEnd ?? body.length;
+                        const before = body.slice(0, start);
+                        const after = body.slice(end);
+                        const newBody = before + cleaned + after;
+                        setBody(newBody);
+                        setTimeout(() => {
+                          const newPos = start + cleaned.length;
+                          textarea.focus();
+                          textarea.setSelectionRange(newPos, newPos);
+                        }, 0);
+                      } else {
+                        document.execCommand('insertText', false, cleaned);
+                      }
+                    }
+                  }
+                }}
+                onDragOver={(e) => {
+                  if (e.dataTransfer?.types?.includes('Files')) {
+                    e.preventDefault();
+                  }
+                }}
+                onDrop={(e) => {
+                  const files = Array.from(e.dataTransfer?.files || []);
+                  const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+                  if (imageFiles.length > 0) {
+                    e.preventDefault();
+                    imageFiles.forEach((imgFile) => handleUploadPastedFile(imgFile));
                   }
                 }}
                 onKeyDown={handleTextareaKeyDown}
@@ -1230,7 +1430,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
               />
             </div>
 
-            {body.trim().length === 0 && (
+            {body.trim().length === 0 && uploadedFiles.length === 0 && (
               <div
                 style={{
                   padding: '4px 16px 8px',
@@ -1242,7 +1442,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                   backgroundColor: 'var(--bg-surface-elevated, #fff)',
                 }}
               >
-                <span>⚠️ Message text is required to submit a reply or note.</span>
+                <span>⚠️ Message text or an attachment is required to submit a reply or note.</span>
               </div>
             )}
 
@@ -1279,13 +1479,13 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
 
               <button
                 type="submit"
-                disabled={isSending || isUploading || !body.trim()}
+                disabled={isSending || isUploading || (!body.trim() && uploadedFiles.length === 0)}
                 className={`btn ${isInternal && canWriteInternal ? 'btn-secondary' : 'btn-primary'}`}
                 style={{
                   ...(isInternal && canWriteInternal
                     ? { backgroundColor: '#f59e0b', color: '#ffffff', fontWeight: 600 }
                     : {}),
-                  ...(isSending || isUploading || !body.trim()
+                  ...(isSending || isUploading || (!body.trim() && uploadedFiles.length === 0)
                     ? { opacity: 0.5, cursor: 'not-allowed', pointerEvents: 'none' }
                     : { cursor: 'pointer' }),
                 }}

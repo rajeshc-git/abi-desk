@@ -262,7 +262,7 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', gap: '8px', marginTop: '2px' }}>
                         <span>From: <strong>{requesterName}</strong></span>
                         {link.createdAt && (
-                          <span>• Merged: {new Date(link.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                          <span>• Merged: {new Date(link.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', hour12: true })}</span>
                         )}
                       </div>
                     </div>
@@ -379,7 +379,7 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
                                 </span>
                               </div>
                               <span className="timestamp" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                {sec.createdAt ? new Date(sec.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                                {sec.createdAt ? new Date(sec.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : ''}
                               </span>
                             </div>
 
@@ -443,7 +443,7 @@ export const MergedTicketsView: React.FC<MergedTicketsViewProps> = ({
                                       </span>
                                     </div>
                                     <span className="timestamp" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                      {new Date(comment.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                      {new Date(comment.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
                                     </span>
                                   </div>
 

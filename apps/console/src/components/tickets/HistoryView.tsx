@@ -115,7 +115,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
 
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
   // Date banner formatting (e.g., "Today (11 Sep)", "Yesterday (10 Sep)", "09 Sep 2026")
@@ -477,12 +477,12 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ ticketId, ticket, onCo
             alignItems: 'center',
             gap: '6px',
           }}
-          title={new Date(ev.createdAt).toLocaleString()}
+          title={new Date(ev.createdAt).toLocaleString(undefined, { hour12: true })}
         >
           <span>{formatRelativeTime(ev.createdAt)}</span>
           <span style={{ fontSize: '10px', opacity: 0.5 }}>•</span>
           <span style={{ fontSize: '11px', opacity: 0.8 }}>
-            {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            {new Date(ev.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
           </span>
         </div>
 

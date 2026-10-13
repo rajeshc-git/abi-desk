@@ -24,6 +24,8 @@ interface TicketRcaCapaManagerProps {
   rcaUpdatedBy?: { id: string; fullName?: string | null; email?: string | null } | null;
   capaUpdatedBy?: { id: string; fullName?: string | null; email?: string | null } | null;
   readonly?: boolean;
+  highlightRcaError?: boolean;
+  highlightCapaError?: boolean;
   onUpdate?: (updated: {
     rootCause?: string | null;
     capaNotes?: string | null;
@@ -74,6 +76,8 @@ export const TicketRcaCapaManager: React.FC<TicketRcaCapaManagerProps> = ({
   rcaUpdatedBy,
   capaUpdatedBy,
   readonly = false,
+  highlightRcaError = false,
+  highlightCapaError = false,
   onUpdate,
 }) => {
   const toast = useToast();
@@ -92,13 +96,13 @@ export const TicketRcaCapaManager: React.FC<TicketRcaCapaManagerProps> = ({
 
   useEffect(() => {
     setRcaText(rootCause || '');
-    if (rootCause && !isRcaOpen) setIsRcaOpen(true);
-  }, [rootCause]);
+    if ((rootCause || highlightRcaError) && !isRcaOpen) setIsRcaOpen(true);
+  }, [rootCause, highlightRcaError]);
 
   useEffect(() => {
     setCapaText(capaNotes || '');
-    if (capaNotes && !isCapaOpen) setIsCapaOpen(true);
-  }, [capaNotes]);
+    if ((capaNotes || highlightCapaError) && !isCapaOpen) setIsCapaOpen(true);
+  }, [capaNotes, highlightCapaError]);
 
   const handleSaveRca = async () => {
     if (isSavingRca || readonly) return;
@@ -160,11 +164,11 @@ export const TicketRcaCapaManager: React.FC<TicketRcaCapaManagerProps> = ({
         className="card"
         style={{
           padding: 0,
-          border: '1px solid var(--border-subtle)',
+          border: highlightRcaError && !rootCause ? '1px solid #ef4444' : '1px solid var(--border-subtle)',
           borderRadius: '8px',
           overflow: 'hidden',
           backgroundColor: 'var(--bg-surface, #ffffff)',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          boxShadow: highlightRcaError && !rootCause ? '0 0 0 1px #ef4444, 0 1px 3px rgba(239, 68, 68, 0.1)' : '0 1px 3px rgba(0,0,0,0.03)',
         }}
       >
         {/* Card Header Trigger */}
@@ -406,11 +410,11 @@ export const TicketRcaCapaManager: React.FC<TicketRcaCapaManagerProps> = ({
         className="card"
         style={{
           padding: 0,
-          border: '1px solid var(--border-subtle)',
+          border: highlightCapaError && !capaNotes ? '1px solid #ef4444' : '1px solid var(--border-subtle)',
           borderRadius: '8px',
           overflow: 'hidden',
           backgroundColor: 'var(--bg-surface, #ffffff)',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          boxShadow: highlightCapaError && !capaNotes ? '0 0 0 1px #ef4444, 0 1px 3px rgba(239, 68, 68, 0.1)' : '0 1px 3px rgba(0,0,0,0.03)',
         }}
       >
         {/* Card Header Trigger */}

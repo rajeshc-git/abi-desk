@@ -42,8 +42,9 @@ const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, is
     : dateObj.toLocaleDateString(undefined, {
         month: 'short',
         day: 'numeric',
-        hour: '2-digit',
+        hour: 'numeric',
         minute: '2-digit',
+        hour12: true,
       });
 
   return (

@@ -110,6 +110,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     const trimmedName = requesterName.trim();
     const trimmedEmail = requesterEmail.trim();
     const trimmedDescription = description.trim();
+    const trimmedProduct = product.trim();
 
     if (!trimmedSubject) {
       setError('Ticket Subject is required.');
@@ -130,6 +131,10 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     }
     if (!trimmedDescription) {
       setError('Description & Investigation Notes are required.');
+      return;
+    }
+    if (!trimmedProduct) {
+      setError('Product / Application is required.');
       return;
     }
 
@@ -666,7 +671,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 }}
               >
                 <Box size={13} style={{ color: '#a855f7' }} />
-                Product / Application <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+                Product / Application <span style={{ color: '#ef4444' }}>*</span>
               </label>
 
               <button
@@ -708,9 +713,13 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 cursor: 'pointer',
                 backgroundColor: product
                   ? 'rgba(168, 85, 247, 0.08)'
+                  : (error && !product)
+                  ? 'rgba(239, 68, 68, 0.05)'
                   : 'var(--bg-input)',
                 border: product
                   ? '1px solid rgba(168, 85, 247, 0.35)'
+                  : (error && !product)
+                  ? '1px solid #ef4444'
                   : '1px dashed var(--border-medium)',
                 minHeight: '38px',
                 transition: 'all 0.15s ease',

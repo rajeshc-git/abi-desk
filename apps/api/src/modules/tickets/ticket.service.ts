@@ -810,6 +810,7 @@ export class TicketService {
 
     if (dto.priority !== undefined && dto.priority !== existing.priority) {
       const isAuthorizedForPriority =
+        principal.roles.includes('L1_SUPPORT') ||
         principal.roles.includes('L2_SUPPORT') ||
         principal.roles.includes('L3_SUPPORT') ||
         principal.roles.includes('DEV_TEAM') ||
@@ -3129,7 +3130,7 @@ export class TicketService {
       // Strategy 3: Email Thread Subject Matching for this Requester
       // If it's a reply/forward (e.g. "Re: testing") or has In-Reply-To/References,
       // match against recent tickets created by the same requester with matching base subject.
-      if (!existingTicket && cleanSubject && (isReplyOrFwd || cleanSubject.length > 0)) {
+      if (!existingTicket && cleanSubject && isReplyOrFwd) {
         const candidateTickets = await tx.ticket.findMany({
           where: {
             tenantId,
@@ -3146,6 +3147,88 @@ export class TicketService {
           if (candidateClean.toLowerCase() === cleanSubject.toLowerCase()) {
             existingTicket = candidate;
             break;
+          }
+        }
+      }
+
+      // Strategy 3B: CC Participant / Thread Matching
+      // If the sender is not the original ticket creator, check if they were in the CC list
+      // of an active/recent ticket with the matching base subject, or if the original requester
+      // is present in the CC list of this email reply.
+      if (!existingTicket && cleanSubject && isReplyOrFwd) {
+        const recentTickets = await tx.ticket.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            status: true,
+            number: true,
+            subject: true,
+            requester: { select: { email: true } },
+          },
+        });
+
+        const subjectMatchingCandidates = recentTickets.filter((t) => {
+          const candidateClean = stripSubjectPrefixes(t.subject);
+          return candidateClean.toLowerCase() === cleanSubject.toLowerCase();
+        });
+
+        if (subjectMatchingCandidates.length > 0) {
+          const candidateIds = subjectMatchingCandidates.map((t) => t.id);
+
+          // Fetch all CCs recorded on these candidate tickets (from creation and comment events)
+          const ccEvents = await tx.ticketEvent.findMany({
+            where: {
+              ticketId: { in: candidateIds },
+              type: { in: ['CREATED', 'COMMENT_ADDED'] },
+            },
+            select: { ticketId: true, metadata: true },
+          });
+
+          const ccByTicketId = new Map<string, Set<string>>();
+          for (const ev of ccEvents) {
+            const meta = ev.metadata as any;
+            if (Array.isArray(meta?.cc) && meta.cc.length > 0) {
+              let set = ccByTicketId.get(ev.ticketId);
+              if (!set) {
+                set = new Set<string>();
+                ccByTicketId.set(ev.ticketId, set);
+              }
+              for (const email of meta.cc) {
+                if (typeof email === 'string' && email.trim()) {
+                  set.add(email.toLowerCase().trim());
+                }
+              }
+            }
+          }
+
+          const normalizedSender = senderEmail.toLowerCase().trim();
+          const incomingCcSet = new Set((payload.cc || []).map((e: string) => e.toLowerCase().trim()));
+
+          for (const candidate of subjectMatchingCandidates) {
+            const ticketCcs = ccByTicketId.get(candidate.id);
+            // 1. Was the sender recorded in this ticket's CC list?
+            const senderInTicketCc = ticketCcs ? ticketCcs.has(normalizedSender) : false;
+            // 2. Or is the original requester of this ticket present in this email's CC list?
+            const requesterInIncomingCc = candidate.requester?.email
+              ? incomingCcSet.has(candidate.requester.email.toLowerCase().trim())
+              : false;
+
+            if (senderInTicketCc || requesterInIncomingCc) {
+              existingTicket = candidate;
+              break;
+            }
+          }
+
+          // If still not matched, but there is exactly ONE ticket with this matching clean subject
+          // and it is an email reply/forward (e.g. "Re: ..."), safely match it!
+          if (!existingTicket && subjectMatchingCandidates.length === 1 && isReplyOrFwd && subjectMatchingCandidates[0]) {
+            existingTicket = subjectMatchingCandidates[0];
           }
         }
       }
@@ -4077,9 +4160,18 @@ function stripSubjectPrefixes(subject: string): string {
 export function cleanClipboardFragments(text: string | null | undefined): string {
   if (!text) return '';
   return text
-    .replace(/<!--\s*StartFragment\s*(?:-->|→|>)?/gi, '')
-    .replace(/<!--\s*EndFragment\s*(?:-->|→|>)?/gi, '')
-    .replace(/<\/?(?:html|body)[^>]*>/gi, '')
+    // 1. CF_HTML header metadata (Version:1.0, StartHTML:..., EndHTML:..., StartFragment:..., EndFragment:..., SourceURL:...)
+    .replace(/^(?:Version:\d+\.\d+|StartHTML:\d+|EndHTML:\d+|StartFragment:\d+|EndFragment:\d+|SourceURL:[^\r\n]*)\s*[\r\n]*/gim, '')
+    // 2. Outlook / Word fragment and element comments
+    .replace(/<!--\s*Start(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+    .replace(/<!--\s*End(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+    .replace(/<\/?(?:Start|End)(?:Fragment|Element)[^>]*>/gi, '')
+    // 3. MSO / Office conditional comments: <!--[if ...]>...<![endif]-->
+    .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
+    // 4. Word XML tags like <o:p>, <w:WordDocument>
+    .replace(/<\/?(?:o|w|m|v):[^>]*>/gi, '')
+    // 5. Outer HTML boilerplate tags
+    .replace(/<\/?(?:html|body|head|meta|link)[^>]*>/gi, '')
     .trim();
 }
 

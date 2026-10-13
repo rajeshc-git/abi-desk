@@ -831,101 +831,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   initialTicket,
   onSplitComment,
 }) => {
-  return (
-    <div className="timeline-list">
-      {/* Root/Opening Ticket Message (Zoho Desk / Zendesk Lead Message) */}
-      {initialTicket?.description && (
-        <div key="initial-ticket-description" className="timeline-item">
-          <div
-            className="user-avatar"
-            style={{
-              width: '32px',
-              height: '32px',
-              fontSize: '11px',
-              backgroundColor: 'var(--primary, #2563eb)',
-              color: '#ffffff',
-            }}
-          >
-            {(initialTicket.requester?.fullName || 'Requester').slice(0, 2).toUpperCase()}
-          </div>
-
-          <div className="timeline-card" style={{ borderLeft: '3px solid var(--primary, #2563eb)' }}>
-            <div className="timeline-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="author-name">
-                  {initialTicket.requester?.fullName || 'Requester'}
-                </span>
-              </div>
-              <span className="timestamp">
-                {initialTicket.createdAt
-                  ? new Date(initialTicket.createdAt).toLocaleString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })
-                  : ''}
-              </span>
-            </div>
-
-            {initialTicket.cc && initialTicket.cc.length > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '5px',
-                  padding: '2px 14px 8px',
-                  fontSize: '11.5px',
-                  color: 'var(--text-muted, #64748b)',
-                }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
-                {initialTicket.cc.map((email: string) => (
-                  <span
-                    key={email}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                      color: 'var(--primary, #2563eb)',
-                      border: '1px solid rgba(37, 99, 235, 0.2)',
-                      borderRadius: '10px',
-                      padding: '1px 7px',
-                      fontSize: '11px',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {email}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div className="timeline-body">
-              <FormattedEmailContent text={initialTicket.description} />
-            </div>
-
-            {initialTicket.mediaAssets && initialTicket.mediaAssets.length > 0 && (
-              <div
-                style={{
-                  marginTop: '12px',
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                  alignItems: 'flex-start',
-                }}
-              >
-                {initialTicket.mediaAssets.map((att) => (
-                  <AttachmentItem key={att.id} att={att} />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {comments
+  // Sort comments descending (newest first)
+  const sortedComments = React.useMemo(
+    () =>
+      [...comments]
         .filter(
           (c: any) =>
             c.systemLabel !== 'Merge Automation' &&
@@ -936,14 +845,21 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             !c.body?.includes('into this ticket:') &&
             !c.body?.includes('has been unmerged from this ticket.')
         )
-        .map((comment) => {
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [comments],
+  );
+
+  return (
+    <div className="timeline-list">
+      {sortedComments.map((comment) => {
         const isInternal = comment.isInternal === true || comment.visibility === 'INTERNAL';
         const authorName = comment.author?.fullName || 'Support User';
         const formattedDate = new Date(comment.createdAt).toLocaleString(undefined, {
           month: 'short',
           day: 'numeric',
-          hour: '2-digit',
+          hour: 'numeric',
           minute: '2-digit',
+          hour12: true,
         });
 
         const isTranscript =
@@ -1010,8 +926,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 const isCustomer = msg.author === customerName;
                 const initials = msg.author.slice(0, 2).toUpperCase();
                 const formattedTime = new Date(msg.time).toLocaleTimeString(undefined, {
-                  hour: '2-digit',
+                  hour: 'numeric',
                   minute: '2-digit',
+                  hour12: true,
                 });
 
                 return (
@@ -1190,6 +1107,112 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </div>
         );
       })}
+
+      {/* Root/Opening Ticket Message (Zoho Desk / Zendesk Lead Message - Oldest at bottom) */}
+      {initialTicket?.description && (
+        <div key="initial-ticket-description" className="timeline-item">
+          <div
+            className="user-avatar"
+            style={{
+              width: '32px',
+              height: '32px',
+              fontSize: '11px',
+              backgroundColor: 'var(--primary, #2563eb)',
+              color: '#ffffff',
+            }}
+          >
+            {(initialTicket.requester?.fullName || 'Requester').slice(0, 2).toUpperCase()}
+          </div>
+
+          <div className="timeline-card" style={{ borderLeft: '3px solid var(--primary, #2563eb)' }}>
+            <div className="timeline-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="author-name">
+                  {initialTicket.requester?.fullName || 'Requester'}
+                </span>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    color: 'var(--text-muted, #64748b)',
+                    backgroundColor: 'var(--bg-app, #f1f5f9)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    padding: '1px 6px',
+                    borderRadius: '4px',
+                    fontWeight: 600,
+                  }}
+                >
+                  Initial Request
+                </span>
+              </div>
+              <span className="timestamp">
+                {initialTicket.createdAt
+                  ? new Date(initialTicket.createdAt).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    })
+                  : ''}
+              </span>
+            </div>
+
+            {initialTicket.cc && initialTicket.cc.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '5px',
+                  padding: '2px 14px 8px',
+                  fontSize: '11.5px',
+                  color: 'var(--text-muted, #64748b)',
+                }}
+              >
+                <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                {initialTicket.cc.map((email: string) => (
+                  <span
+                    key={email}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                      color: 'var(--primary, #2563eb)',
+                      border: '1px solid rgba(37, 99, 235, 0.2)',
+                      borderRadius: '10px',
+                      padding: '1px 7px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {email}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="timeline-body">
+              <FormattedEmailContent text={initialTicket.description} />
+            </div>
+
+            {initialTicket.mediaAssets && initialTicket.mediaAssets.length > 0 && (
+              <div
+                style={{
+                  marginTop: '12px',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  alignItems: 'flex-start',
+                }}
+              >
+                {initialTicket.mediaAssets.map((att) => (
+                  <AttachmentItem key={att.id} att={att} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
