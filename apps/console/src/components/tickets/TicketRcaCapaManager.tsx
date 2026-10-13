@@ -343,7 +343,7 @@ export const TicketRcaCapaManager: React.FC<TicketRcaCapaManagerProps> = ({
 
   const handleCopyFullReport = () => {
     const report = [
-      ticketNumber ? `### Incident Investigation: #${ticketNumber}${ticketSubject ? ` - ${ticketSubject}` : ''}` : '### Incident Post-Mortem',
+      ticketNumber ? `### [Ticket #${ticketNumber}] ${ticketSubject || 'RCA & CAPA Report'}` : '### Root Cause & CAPA Report',
       '',
       '#### Root Cause (RCA):',
       rcaText || '*(None recorded)*',
@@ -1062,41 +1062,37 @@ export const TicketRcaCapaManager: React.FC<TicketRcaCapaManagerProps> = ({
                 >
                   <FileText size={18} />
                 </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      Incident Post-Mortem Investigation
-                    </h3>
-                    {ticketNumber && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          backgroundColor: 'var(--primary, #2563eb)',
-                          color: '#ffffff',
-                        }}
-                      >
-                        #{ticketNumber}
-                      </span>
-                    )}
-                  </div>
-                  {ticketSubject && (
-                    <div
+                <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {ticketNumber && (
+                    <span
                       style={{
-                        fontSize: '12px',
-                        color: 'var(--text-secondary)',
-                        marginTop: '2px',
-                        maxWidth: '560px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        fontSize: '11.5px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        backgroundColor: 'var(--primary, #2563eb)',
+                        color: '#ffffff',
+                        flexShrink: 0,
                       }}
                     >
-                      {ticketSubject}
-                    </div>
+                      #{ticketNumber}
+                    </span>
                   )}
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: '14.5px',
+                      fontWeight: 700,
+                      color: 'var(--text-primary)',
+                      maxWidth: '580px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={ticketSubject || 'Root Cause & CAPA'}
+                  >
+                    {ticketSubject || 'Root Cause (RCA) & CAPA Actions'}
+                  </h3>
                 </div>
               </div>
 
