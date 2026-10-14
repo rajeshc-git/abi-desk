@@ -98,28 +98,6 @@ export class PasswordService {
       problems.push('must be at most 1024 bytes');
     }
 
-    const normalized = password.trim().toLowerCase();
-
-    if (OBVIOUS_PASSWORDS.has(normalized)) {
-      problems.push('is among the most commonly used passwords');
-    }
-
-    if (context.email) {
-      const localPart = context.email.split('@')[0]?.toLowerCase();
-      if (localPart && localPart.length >= 4 && normalized.includes(localPart)) {
-        problems.push('must not contain your email address');
-      }
-    }
-
-    if (context.fullName) {
-      for (const part of context.fullName.toLowerCase().split(/\s+/)) {
-        if (part.length >= 4 && normalized.includes(part)) {
-          problems.push('must not contain your name');
-          break;
-        }
-      }
-    }
-
     if (problems.length > 0) {
       throw AppException.unprocessable(
         'The password does not meet the minimum requirements.',

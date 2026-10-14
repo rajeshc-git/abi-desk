@@ -1061,7 +1061,7 @@ export class AuthService {
     password: string;
     origin: SessionOrigin;
   }): Promise<void> {
-    const payload = await this.oneTimeTokens.consume<{
+    const payload = await this.oneTimeTokens.peek<{
       purpose: 'password-reset';
       userId: string;
       email: string;
@@ -1089,6 +1089,21 @@ export class AuthService {
         email: user.email,
         fullName: user.fullName,
       });
+
+      // Only consume (burn) the token AFTER password validation succeeds!
+      const consumed = await this.oneTimeTokens.consume<{
+        purpose: 'password-reset';
+        userId: string;
+        email: string;
+        tenantId: string | null;
+      }>('password-reset', input.token);
+
+      if (!consumed) {
+        throw AppException.unauthenticated(
+          'This reset link is invalid, expired, or already used.',
+          ErrorCode.TOKEN_INVALID,
+        );
+      }
 
       const passwordHash = await this.passwords.hash(input.password);
 

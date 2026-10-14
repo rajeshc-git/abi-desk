@@ -228,7 +228,18 @@ export class ApiClient {
       let errorMsg: any = `HTTP Error ${res.status}`;
       try {
         const errorJson = await res.json();
-        errorMsg = errorJson.message || errorJson.detail || errorJson.title || errorMsg;
+        if (Array.isArray(errorJson.errors) && errorJson.errors.length > 0) {
+          const fieldMsgs = errorJson.errors
+            .map((err: any) => err.message)
+            .filter(Boolean);
+          if (fieldMsgs.length > 0) {
+            errorMsg = fieldMsgs.join('. ');
+          } else {
+            errorMsg = errorJson.detail || errorJson.message || errorJson.title || errorMsg;
+          }
+        } else {
+          errorMsg = errorJson.detail || errorJson.message || errorJson.title || errorMsg;
+        }
       } catch {
         errorMsg = await res.text();
       }
