@@ -2,6 +2,7 @@ import React, { useState, useId } from 'react';
 
 export interface DonutSegment {
   label: string;
+  shortLabel?: string;
   count: number;
   color: string;
 }
@@ -112,6 +113,7 @@ export const DonutChart3D: React.FC<DonutChart3DProps> = ({
 
             {/* Segment Arcs */}
             {processedSegments.map((seg, i) => {
+              if (seg.count <= 0) return null;
               const isHovered = hoveredIndex === i;
               return (
                 <circle
@@ -150,9 +152,10 @@ export const DonutChart3D: React.FC<DonutChart3DProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               pointerEvents: 'none',
+              padding: '0 8px',
             }}
           >
-            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
+            <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.1 }}>
               {activeSegment ? activeSegment.count : centerText || total}
             </span>
             <span
@@ -160,11 +163,19 @@ export const DonutChart3D: React.FC<DonutChart3DProps> = ({
                 fontSize: '10px',
                 fontWeight: 600,
                 color: 'var(--text-muted)',
-                textTransform: 'uppercase',
+                textAlign: 'center',
+                maxWidth: `${Math.max(size - thickness * 2 - 8, 60)}px`,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                lineHeight: 1.3,
+                marginTop: '3px',
+                display: 'block',
               }}
+              title={activeSegment ? `${activeSegment.label} (${activeSegment.percent}%)` : undefined}
             >
               {activeSegment
-                ? `${activeSegment.label} (${activeSegment.percent}%)`
+                ? `${activeSegment.shortLabel || activeSegment.label} (${activeSegment.percent}%)`
                 : centerSubtext || 'Total'}
             </span>
           </div>
@@ -175,9 +186,12 @@ export const DonutChart3D: React.FC<DonutChart3DProps> = ({
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '6px',
+            gap: '4px',
             flex: 1,
             minWidth: '130px',
+            maxHeight: '360px',
+            overflowY: 'auto',
+            paddingRight: '4px',
           }}
         >
           {processedSegments.map((seg, idx) => (

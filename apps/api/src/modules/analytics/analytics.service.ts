@@ -155,7 +155,11 @@ export class AnalyticsService {
     const where: Prisma.TicketWhereInput = {
       tenantId,
       deletedAt: null,
-      createdAt: { gte: startDate },
+      OR: [
+        { createdAt: { gte: startDate } },
+        { resolvedAt: { gte: startDate } },
+        { closedAt: { gte: startDate } },
+      ],
     };
     if (filter.brandId) where.brandId = filter.brandId;
     if (filter.tier) where.tier = filter.tier;
@@ -168,6 +172,7 @@ export class AnalyticsService {
           id: true,
           createdAt: true,
           resolvedAt: true,
+          closedAt: true,
         },
       }),
       this.db.client.ticketSlaState.findMany({
@@ -220,12 +225,15 @@ export class AnalyticsService {
     }
 
     tickets.forEach((t) => {
-      const createdKey = t.createdAt.toISOString().slice(0, 10);
-      if (dayBuckets[createdKey]) {
-        dayBuckets[createdKey].created += 1;
+      if (t.createdAt >= startDate) {
+        const createdKey = t.createdAt.toISOString().slice(0, 10);
+        if (dayBuckets[createdKey]) {
+          dayBuckets[createdKey].created += 1;
+        }
       }
-      if (t.resolvedAt) {
-        const resolvedKey = t.resolvedAt.toISOString().slice(0, 10);
+      const completedAt = t.resolvedAt || t.closedAt;
+      if (completedAt && completedAt >= startDate) {
+        const resolvedKey = completedAt.toISOString().slice(0, 10);
         if (dayBuckets[resolvedKey]) {
           dayBuckets[resolvedKey].resolved += 1;
         }

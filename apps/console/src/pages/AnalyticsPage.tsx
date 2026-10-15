@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   BarChart3,
   TrendingUp,
@@ -21,6 +21,10 @@ import {
   ChevronRight,
   ExternalLink,
   Monitor,
+  Search,
+  X,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { Link, Navigate } from 'react-router-dom';
 import { ApiClient } from '../api/client';
@@ -31,6 +35,27 @@ import { TimeAreaChart, type TimePoint } from '../components/analytics/TimeAreaC
 import { RadialGauge } from '../components/analytics/RadialGauge';
 import { DonutChart3D, type DonutSegment } from '../components/analytics/DonutChart3D';
 import { InflowHeatmap } from '../components/analytics/InflowHeatmap';
+
+const formatDurationMinutes = (minutes?: number | null) => {
+  if (minutes === null || minutes === undefined) return 'N/A';
+  if (minutes < 1) return '< 1m';
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+};
+
+const formatDurationHours = (hours?: number | null) => {
+  if (hours === null || hours === undefined) return 'N/A';
+  if (hours <= 0) return '0h';
+  if (hours < 1) {
+    const m = Math.round(hours * 60);
+    return `${m}m`;
+  }
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+};
 
 export const AnalyticsPage: React.FC = () => {
   const { user } = useAuth();
@@ -57,6 +82,21 @@ export const AnalyticsPage: React.FC = () => {
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
   const [selectedChannel, setSelectedChannel] = useState<string>('');
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [categorySearch, setCategorySearch] = useState('');
+  const [agentStatusFilter, setAgentStatusFilter] = useState<'ALL' | 'ONLINE' | 'OFFLINE'>('ALL');
+  const [isAgentFilterOpen, setIsAgentFilterOpen] = useState(false);
+  const agentFilterRef = useRef<HTMLDivElement>(null);
+
+  // Close agent status filter when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (agentFilterRef.current && !agentFilterRef.current.contains(e.target as Node)) {
+        setIsAgentFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Analytics Data States
   const [overview, setOverview] = useState<any | null>(null);
@@ -167,46 +207,96 @@ export const AnalyticsPage: React.FC = () => {
     }
   };
 
-  // Color mappings
-  const STATUS_COLORS: Record<string, string> = {
-    NEW: '#94a3b8',
-    OPEN: '#0284c7',
-    IN_PROGRESS: '#f59e0b',
-    TRIAGE: '#64748b',
-    PENDING_CUSTOMER: '#d97706',
-    WAITING_ON_CUSTOMER: '#8b5cf6',
-    ON_HOLD: '#ea580c',
-    ESCALATED_L2: '#ec4899',
-    ESCALATED_L3: '#d946ef',
-    IN_DEVELOPMENT: '#6366f1',
-    IN_QA: '#8b5cf6',
-    RESOLVED: '#10b981',
-    CLOSED: '#475569',
-  };
+  // Canonical ticket flow order (all 18 statuses in lifecycle progression)
+  const TICKET_STATUS_FLOW = [
+    { status: 'NEW', label: 'New', shortLabel: 'New', color: '#94a3b8' },
+    { status: 'TRIAGE', label: 'Triage', shortLabel: 'Triage', color: '#64748b' },
+    { status: 'OPEN', label: 'Open', shortLabel: 'Open', color: '#0284c7' },
+    { status: 'IN_PROGRESS', label: 'In Progress', shortLabel: 'In Progress', color: '#f59e0b' },
+    { status: 'PENDING_CUSTOMER', label: 'Pending Customer', shortLabel: 'Pending Cust.', color: '#d97706' },
+    { status: 'ON_HOLD', label: 'On Hold', shortLabel: 'On Hold', color: '#ea580c' },
+    { status: 'ESCALATED_L2', label: 'Escalated L2', shortLabel: 'Escalated L2', color: '#ec4899' },
+    { status: 'ESCALATED_L3', label: 'Escalated L3', shortLabel: 'Escalated L3', color: '#d946ef' },
+    { status: 'IN_DEVELOPMENT', label: 'In Development', shortLabel: 'In Dev', color: '#6366f1' },
+    { status: 'IN_QA', label: 'In QA', shortLabel: 'In QA', color: '#8b5cf6' },
+    { status: 'PENDING_RELEASE', label: 'Pending Release', shortLabel: 'Pend. Release', color: '#f97316' },
+    { status: 'RELEASED', label: 'Released', shortLabel: 'Released', color: '#06b6d4' },
+    { status: 'PENDING_VERIFICATION', label: 'Pending Verification', shortLabel: 'Pending Verif.', color: '#0ea5e9' },
+    { status: 'AWAITING_CUSTOMER_CONFIRMATION', label: 'Awaiting Customer Confirmation', shortLabel: 'Cust. Confirm', color: '#3b82f6' },
+    { status: 'RESOLVED', label: 'Resolved', shortLabel: 'Resolved', color: '#10b981' },
+    { status: 'CLOSED', label: 'Closed', shortLabel: 'Closed', color: '#475569' },
+    { status: 'REOPENED', label: 'Reopened', shortLabel: 'Reopened', color: '#f43f5e' },
+    { status: 'CANCELLED', label: 'Cancelled', shortLabel: 'Cancelled', color: '#ef4444' },
+  ];
 
-  const PRIORITY_COLORS: Record<string, string> = {
-    CRITICAL: '#ef4444',
-    URGENT: '#f97316',
-    HIGH: '#eab308',
-    NORMAL: '#3b82f6',
-    LOW: '#94a3b8',
-  };
+  // Canonical priority order from highest severity to lowest
+  const TICKET_PRIORITY_ORDER = [
+    { priority: 'CRITICAL', label: 'Critical', color: '#ef4444' },
+    { priority: 'URGENT', label: 'Urgent', color: '#f97316' },
+    { priority: 'HIGH', label: 'High', color: '#eab308' },
+    { priority: 'NORMAL', label: 'Normal', color: '#3b82f6' },
+    { priority: 'LOW', label: 'Low', color: '#94a3b8' },
+  ];
 
-  // Donut Segments for Status & Priority
-  const statusSegments: DonutSegment[] = (volume?.byStatus || []).map((s: any) => ({
-    label: s.status === 'OPEN' ? 'Open' : (s.status === 'IN_PROGRESS' ? 'In Progress' : (s.status || '').replace(/_/g, ' ')),
-    count: s.count,
-    color: STATUS_COLORS[s.status] || '#94a3b8',
-  }));
+  // Donut Segments for Status (ordered strictly by ticket flow lifecycle, including all 18 statuses)
+  const statusSegments: DonutSegment[] = useMemo(() => {
+    const statusCountMap = new Map<string, number>();
+    (volume?.byStatus || []).forEach((s: any) => {
+      statusCountMap.set(s.status, s.count);
+    });
 
-  const prioritySegments: DonutSegment[] = (volume?.byPriority || []).map((p: any) => ({
-    label: p.priority,
-    count: p.count,
-    color: PRIORITY_COLORS[p.priority] || '#94a3b8',
-  }));
+    const knownKeys = new Set(TICKET_STATUS_FLOW.map((s) => s.status));
+    const segments: DonutSegment[] = TICKET_STATUS_FLOW.map((item) => ({
+      label: item.label,
+      shortLabel: item.shortLabel,
+      count: statusCountMap.get(item.status) ?? 0,
+      color: item.color,
+    }));
 
-  // Support Tier Pipeline Rows
-  const tierCounts: Record<string, number> = { L1: 0, L2: 0, L3: 0, DEV: 0, QA: 0 };
+    // Safely append any unexpected custom status from backend if present
+    (volume?.byStatus || []).forEach((s: any) => {
+      if (!knownKeys.has(s.status)) {
+        segments.push({
+          label: (s.status || '').replace(/_/g, ' '),
+          count: s.count,
+          color: '#94a3b8',
+        });
+      }
+    });
+
+    return segments;
+  }, [volume?.byStatus]);
+
+  // Donut Segments for Priority (ordered strictly by severity Critical -> Low, ensuring all 5 always appear)
+  const prioritySegments: DonutSegment[] = useMemo(() => {
+    const priorityCountMap = new Map<string, number>();
+    (volume?.byPriority || []).forEach((p: any) => {
+      priorityCountMap.set(p.priority, p.count);
+    });
+
+    const knownKeys = new Set(TICKET_PRIORITY_ORDER.map((item) => item.priority));
+    const segments: DonutSegment[] = TICKET_PRIORITY_ORDER.map((item) => ({
+      label: item.label,
+      count: priorityCountMap.get(item.priority) ?? 0,
+      color: item.color,
+    }));
+
+    // Safely append any unexpected custom priority if present
+    (volume?.byPriority || []).forEach((p: any) => {
+      if (!knownKeys.has(p.priority)) {
+        segments.push({
+          label: p.priority,
+          count: p.count,
+          color: '#94a3b8',
+        });
+      }
+    });
+
+    return segments;
+  }, [volume?.byPriority]);
+
+  // Support Tier Pipeline Rows (all 6 tiers in workflow order with simplified labels)
+  const tierCounts: Record<string, number> = { L1: 0, L2: 0, L3: 0, DEV: 0, DEVOPS: 0, QA: 0 };
   if (volume?.byTier) {
     volume.byTier.forEach((item: any) => {
       if (item.tier in tierCounts) {
@@ -217,31 +307,37 @@ export const AnalyticsPage: React.FC = () => {
   const totalTierTickets = Object.values(tierCounts).reduce((a, b) => a + b, 0);
   const tierRows = [
     {
-      label: 'L1 Frontline Support',
+      label: 'L1 Tier',
       count: tierCounts.L1,
       color: 'var(--tier-l1, #3b82f6)',
       tier: 'L1',
     },
     {
-      label: 'L2 Technical Support',
+      label: 'L2 Tier',
       count: tierCounts.L2,
       color: 'var(--tier-l2, #8b5cf6)',
       tier: 'L2',
     },
     {
-      label: 'L3 Product Engineering',
+      label: 'L3 Tier',
       count: tierCounts.L3,
       color: 'var(--tier-l3, #ec4899)',
       tier: 'L3',
     },
     {
-      label: 'Dev Bug Fix Escalations',
+      label: 'Dev Tier',
       count: tierCounts.DEV,
       color: 'var(--tier-dev, #f97316)',
       tier: 'DEV',
     },
     {
-      label: 'QA Verification',
+      label: 'DevOps Tier',
+      count: tierCounts.DEVOPS,
+      color: 'var(--tier-devops, #d97706)',
+      tier: 'DEVOPS',
+    },
+    {
+      label: 'QA Tier',
       count: tierCounts.QA,
       color: 'var(--tier-qa, #10b981)',
       tier: 'QA',
@@ -357,12 +453,6 @@ export const AnalyticsPage: React.FC = () => {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Analytics & SLA</h1>
-            <span
-              className="badge badge-open"
-              style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-            >
-              <Activity size={12} /> Live Database
-            </span>
           </div>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>
             Multi-brand response velocity, real-time SLA breach radar, and workforce efficiency
@@ -546,10 +636,10 @@ export const AnalyticsPage: React.FC = () => {
                     textTransform: 'uppercase',
                   }}
                 >
-                  Total Inflow
+                  Total Tickets
                 </span>
                 <span className="badge badge-open" style={{ fontSize: '10px' }}>
-                  {overview?.openBacklog ?? 0} In Backlog
+                  {overview?.openBacklog ?? 0} In Progress
                 </span>
               </div>
               <div
@@ -568,24 +658,19 @@ export const AnalyticsPage: React.FC = () => {
                   alignItems: 'center',
                   gap: '6px',
                   fontSize: '12px',
-                  color: '#10b981',
+                  color: '#0284c7',
                   marginTop: '6px',
                   fontWeight: 600,
                 }}
               >
-                <CheckCircle2 size={14} />
+                <Activity size={14} />
                 <span>
-                  {overview?.totalResolved ?? 0} tickets resolved (
-                  {overview?.totalCreated > 0
-                    ? Math.round(((overview?.totalResolved ?? 0) / overview.totalCreated) * 100)
-                    : 100}
-                  %)
+                  {overview?.openBacklog ?? 0} active tickets in queue
                 </span>
               </div>
             </div>
 
-            {/* KPI 2: SLA Compliance Rate */}
-            {/* KPI 2: SLA Compliance Rate */}
+            {/* KPI 2: Completed Tickets */}
             <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
               <div
                 style={{
@@ -602,7 +687,7 @@ export const AnalyticsPage: React.FC = () => {
                     textTransform: 'uppercase',
                   }}
                 >
-                  SLA Compliance
+                  Completed Tickets
                 </span>
                 <span
                   className="badge"
@@ -610,9 +695,17 @@ export const AnalyticsPage: React.FC = () => {
                     backgroundColor: 'rgba(16, 185, 129, 0.15)',
                     color: '#10b981',
                     fontSize: '10px',
+                    fontWeight: 700,
                   }}
                 >
-                  Target &gt;90%
+                  {overview?.totalCreated > 0
+                    ? Math.round(
+                        (((overview?.totalClosed ?? 0) + (overview?.totalResolved ?? 0)) /
+                          overview.totalCreated) *
+                          100,
+                      )
+                    : 100}
+                  % Resolved
                 </span>
               </div>
               <div
@@ -620,25 +713,34 @@ export const AnalyticsPage: React.FC = () => {
                   fontSize: '28px',
                   fontWeight: 800,
                   marginTop: '8px',
-                  color:
-                    overview?.slaComplianceRate !== null && overview?.slaComplianceRate !== undefined
-                      ? overview.slaComplianceRate >= 90
-                        ? '#10b981'
-                        : '#ef4444'
-                      : 'var(--text-muted)',
+                  color: '#10b981',
                 }}
               >
-                {overview?.slaComplianceRate !== null && overview?.slaComplianceRate !== undefined
-                  ? `${overview.slaComplianceRate}%`
-                  : 'N/A'}
+                {(overview?.totalClosed ?? 0) + (overview?.totalResolved ?? 0)}
               </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                First response & resolution deadlines
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  marginTop: '6px',
+                }}
+              >
+                <CheckCircle2 size={13} style={{ color: '#10b981' }} />
+                <span>
+                  {overview?.totalClosed ?? 0} Closed · {overview?.totalResolved ?? 0} Resolved
+                </span>
               </div>
             </div>
 
             {/* KPI 3: Response Velocity */}
-            <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div
+              className="card"
+              style={{ position: 'relative', overflow: 'hidden' }}
+              title="Avg First Response: Average time until first staff reply. Avg Resolution: Average time until ticket is resolved."
+            >
               <div
                 style={{
                   display: 'flex',
@@ -659,12 +761,27 @@ export const AnalyticsPage: React.FC = () => {
                 <span
                   className="badge"
                   style={{
-                    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-                    color: '#f59e0b',
+                    backgroundColor:
+                      overview?.avgFirstResponseMinutes !== null &&
+                      overview?.avgFirstResponseMinutes !== undefined &&
+                      overview.avgFirstResponseMinutes <= 60
+                        ? 'rgba(16, 185, 129, 0.15)'
+                        : 'rgba(245, 158, 11, 0.15)',
+                    color:
+                      overview?.avgFirstResponseMinutes !== null &&
+                      overview?.avgFirstResponseMinutes !== undefined &&
+                      overview.avgFirstResponseMinutes <= 60
+                        ? '#10b981'
+                        : '#f59e0b',
                     fontSize: '10px',
+                    fontWeight: 700,
                   }}
                 >
-                  Speed
+                  {overview?.avgFirstResponseMinutes !== null &&
+                  overview?.avgFirstResponseMinutes !== undefined &&
+                  overview.avgFirstResponseMinutes <= 60
+                    ? '⚡ Fast (<1h)'
+                    : 'Speed'}
                 </span>
               </div>
               <div
@@ -677,20 +794,44 @@ export const AnalyticsPage: React.FC = () => {
                     overview?.avgFirstResponseMinutes !== undefined
                       ? '#f59e0b'
                       : 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: '6px',
+                  flexWrap: 'wrap',
                 }}
               >
+                <span>{formatDurationMinutes(overview?.avgFirstResponseMinutes)}</span>
                 {overview?.avgFirstResponseMinutes !== null &&
-                overview?.avgFirstResponseMinutes !== undefined
-                  ? `${overview.avgFirstResponseMinutes}m`
-                  : 'N/A'}
+                  overview?.avgFirstResponseMinutes !== undefined &&
+                  overview.avgFirstResponseMinutes >= 60 && (
+                    <span
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        color: 'var(--text-muted)',
+                      }}
+                    >
+                      ({overview.avgFirstResponseMinutes}m)
+                    </span>
+                  )}
               </div>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                Avg Resolution:{' '}
-                <strong>
-                  {overview?.avgResolutionHours !== null && overview?.avgResolutionHours !== undefined
-                    ? `${overview.avgResolutionHours} hours`
-                    : 'N/A'}
-                </strong>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  marginTop: '6px',
+                }}
+              >
+                <Clock size={13} style={{ color: '#0284c7', flexShrink: 0 }} />
+                <span>
+                  Avg Resolution:{' '}
+                  <strong style={{ color: 'var(--text-primary)' }}>
+                    {formatDurationHours(overview?.avgResolutionHours)}
+                  </strong>
+                </span>
               </div>
             </div>
 
@@ -763,7 +904,19 @@ export const AnalyticsPage: React.FC = () => {
             <TimeAreaChart
               data={timeline}
               height={260}
-              title={`Ticket Inflow vs Resolution Velocity (${timeRange.toUpperCase()})`}
+              title={`Ticket Created vs Ticket Resolved / Closed (${
+                timeRange === '24h'
+                  ? 'Last 24 Hours'
+                  : timeRange === '7d'
+                    ? 'Last 7 Days'
+                    : timeRange === '14d'
+                      ? 'Last 14 Days'
+                      : timeRange === '30d'
+                        ? 'Last 30 Days'
+                        : timeRange === '90d'
+                          ? 'Last 90 Days'
+                          : 'Last 14 Days'
+              })`}
             />
           </div>
 
@@ -864,11 +1017,48 @@ export const AnalyticsPage: React.FC = () => {
           {/* Channel Breakdown & Categories Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
             {/* Inbound Channels */}
-            <div className="card">
-              <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '14px' }}>
-                Inbound Support Channels
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div
+              className="card"
+              style={{
+                height: '380px',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '14px',
+                  flexShrink: 0,
+                }}
+              >
+                <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                  Inbound Support Channels
+                </h3>
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '11px',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-muted)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {(volume?.byChannel || []).length} Channels
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  overflowY: 'auto',
+                  flex: 1,
+                  paddingRight: '6px',
+                }}
+              >
                 {(volume?.byChannel || []).length === 0 ? (
                   <div
                     style={{
@@ -881,77 +1071,201 @@ export const AnalyticsPage: React.FC = () => {
                     No channel records found.
                   </div>
                 ) : (
-                  (volume?.byChannel || []).map((ch: any) => {
+                  (() => {
                     const chTotal = (volume?.byChannel || []).reduce(
                       (acc: number, c: any) => acc + c.count,
                       0,
                     );
-                    const pct = chTotal > 0 ? Math.round((ch.count / chTotal) * 100) : 0;
-                    return (
-                      <div
-                        key={ch.channel}
-                        style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}
-                      >
+                    return (volume?.byChannel || []).map((ch: any) => {
+                      const pct = chTotal > 0 ? Math.round((ch.count / chTotal) * 100) : 0;
+                      return (
                         <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                          }}
-                        >
-                          <span>{ch.channel}</span>
-                          <span>
-                            {ch.count} ({pct}%)
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            width: '100%',
-                            height: '8px',
-                            borderRadius: 'var(--radius-full)',
-                            backgroundColor: 'var(--bg-surface-elevated)',
-                            overflow: 'hidden',
-                          }}
+                          key={ch.channel}
+                          style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}
                         >
                           <div
                             style={{
-                              width: `${pct}%`,
-                              height: '100%',
-                              backgroundColor: 'var(--primary)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              fontSize: '12px',
+                              fontWeight: 600,
                             }}
-                          />
+                          >
+                            <span>{ch.channel}</span>
+                            <span>
+                              {ch.count} ({pct}%)
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              width: '100%',
+                              height: '8px',
+                              borderRadius: 'var(--radius-full)',
+                              backgroundColor: 'var(--bg-surface-elevated)',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${pct}%`,
+                                height: '100%',
+                                backgroundColor: 'var(--primary)',
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })
+                      );
+                    });
+                  })()
                 )}
               </div>
             </div>
 
             {/* Ticket Categories */}
-            <div className="card">
-              <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '14px' }}>
-                Ticket Categories Breakdown
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {(volume?.byCategory || []).length === 0 ? (
-                  <div
+            <div
+              className="card"
+              style={{
+                height: '380px',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '14px',
+                  gap: '12px',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                    Ticket Categories Breakdown
+                  </h3>
+                  <span
+                    className="badge"
                     style={{
-                      fontSize: '13px',
+                      fontSize: '11px',
+                      backgroundColor: 'var(--bg-surface-elevated)',
                       color: 'var(--text-muted)',
-                      textAlign: 'center',
-                      padding: '16px',
+                      fontWeight: 600,
                     }}
                   >
-                    No categorized tickets found.
-                  </div>
-                ) : (
-                  (volume?.byCategory || []).map((cat: any) => {
-                    const catTotal = (volume?.byCategory || []).reduce(
-                      (acc: number, c: any) => acc + c.count,
-                      0,
+                    {(volume?.byCategory || []).length}
+                  </span>
+                </div>
+
+                {/* Categories Quick Search */}
+                <div style={{ position: 'relative', width: '180px' }}>
+                  <Search
+                    size={13}
+                    style={{
+                      position: 'absolute',
+                      left: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--text-muted)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search categories..."
+                    value={categorySearch}
+                    onChange={(e) => setCategorySearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '5px 24px 5px 26px',
+                      fontSize: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-medium)',
+                      backgroundColor: 'var(--bg-surface-elevated)',
+                      color: 'var(--text-primary)',
+                      outline: 'none',
+                    }}
+                  />
+                  {categorySearch && (
+                    <button
+                      onClick={() => setCategorySearch('')}
+                      style={{
+                        position: 'absolute',
+                        right: '6px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        color: 'var(--text-muted)',
+                      }}
+                      title="Clear search"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  overflowY: 'auto',
+                  flex: 1,
+                  paddingRight: '6px',
+                }}
+              >
+                {(() => {
+                  const allCategories = volume?.byCategory || [];
+                  const filtered = categorySearch.trim()
+                    ? allCategories.filter((cat: any) =>
+                        (cat.category || '')
+                          .toLowerCase()
+                          .includes(categorySearch.trim().toLowerCase()),
+                      )
+                    : allCategories;
+
+                  if (allCategories.length === 0) {
+                    return (
+                      <div
+                        style={{
+                          fontSize: '13px',
+                          color: 'var(--text-muted)',
+                          textAlign: 'center',
+                          padding: '16px',
+                        }}
+                      >
+                        No categorized tickets found.
+                      </div>
                     );
+                  }
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div
+                        style={{
+                          fontSize: '13px',
+                          color: 'var(--text-muted)',
+                          textAlign: 'center',
+                          padding: '24px 16px',
+                        }}
+                      >
+                        No categories matching "{categorySearch}"
+                      </div>
+                    );
+                  }
+
+                  const catTotal = allCategories.reduce(
+                    (acc: number, c: any) => acc + c.count,
+                    0,
+                  );
+
+                  return filtered.map((cat: any) => {
                     const pct = catTotal > 0 ? Math.round((cat.count / catTotal) * 100) : 0;
                     return (
                       <div
@@ -981,13 +1295,17 @@ export const AnalyticsPage: React.FC = () => {
                           }}
                         >
                           <div
-                            style={{ width: `${pct}%`, height: '100%', backgroundColor: '#8b5cf6' }}
+                            style={{
+                              width: `${pct}%`,
+                              height: '100%',
+                              backgroundColor: '#8b5cf6',
+                            }}
                           />
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
             </div>
           </div>
@@ -1364,44 +1682,337 @@ export const AnalyticsPage: React.FC = () => {
                   member
                 </p>
               </div>
+
+              {/* Status Filter Dropdown */}
+              <div ref={agentFilterRef} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAgentFilterOpen(!isAgentFilterOpen)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-medium)',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Filter agents by online/offline status"
+                >
+                  {agentStatusFilter === 'ALL' && (
+                    <>
+                      <Users size={13} style={{ color: 'var(--text-muted)' }} />
+                      <span>All Status</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          backgroundColor: 'var(--bg-surface)',
+                          color: 'var(--text-muted)',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        {agents.length}
+                      </span>
+                    </>
+                  )}
+                  {agentStatusFilter === 'ONLINE' && (
+                    <>
+                      <span
+                        style={{
+                          width: '7px',
+                          height: '7px',
+                          borderRadius: '50%',
+                          backgroundColor: '#10b981',
+                          boxShadow: '0 0 6px #10b981',
+                        }}
+                      />
+                      <span>Online</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          backgroundColor: '#ecfdf5',
+                          color: '#059669',
+                          border: '1px solid #a7f3d0',
+                        }}
+                      >
+                        {agents.filter((a) => !!a.isOnline).length}
+                      </span>
+                    </>
+                  )}
+                  {agentStatusFilter === 'OFFLINE' && (
+                    <>
+                      <span
+                        style={{
+                          width: '7px',
+                          height: '7px',
+                          borderRadius: '50%',
+                          backgroundColor: '#94a3b8',
+                        }}
+                      />
+                      <span>Offline</span>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          backgroundColor: '#f1f5f9',
+                          color: '#64748b',
+                          border: '1px solid #e2e8f0',
+                        }}
+                      >
+                        {agents.filter((a) => !a.isOnline).length}
+                      </span>
+                    </>
+                  )}
+                  <ChevronDown
+                    size={13}
+                    style={{
+                      color: 'var(--text-muted)',
+                      transform: isAgentFilterOpen ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.15s ease',
+                    }}
+                  />
+                </button>
+
+                {/* Dropdown Menu */}
+                {isAgentFilterOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 'calc(100% + 6px)',
+                      minWidth: '195px',
+                      backgroundColor: 'var(--bg-surface-elevated)',
+                      border: '1px solid var(--border-medium)',
+                      borderRadius: 'var(--radius-md)',
+                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
+                      padding: '4px',
+                      zIndex: 50,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px',
+                    }}
+                  >
+                    {/* All Status Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAgentStatusFilter('ALL');
+                        setIsAgentFilterOpen(false);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '7px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: 'none',
+                        backgroundColor: agentStatusFilter === 'ALL' ? 'var(--bg-surface)' : 'transparent',
+                        color: agentStatusFilter === 'ALL' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        fontSize: '12px',
+                        fontWeight: agentStatusFilter === 'ALL' ? 600 : 500,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Users size={13} style={{ color: 'var(--text-muted)' }} />
+                        <span>All Status</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            padding: '1px 6px',
+                            borderRadius: '10px',
+                            backgroundColor: 'var(--bg-surface)',
+                            color: 'var(--text-muted)',
+                            border: '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          {agents.length}
+                        </span>
+                        {agentStatusFilter === 'ALL' && <Check size={13} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </button>
+
+                    {/* Online Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAgentStatusFilter('ONLINE');
+                        setIsAgentFilterOpen(false);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '7px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: 'none',
+                        backgroundColor: agentStatusFilter === 'ONLINE' ? 'var(--bg-surface)' : 'transparent',
+                        color: agentStatusFilter === 'ONLINE' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        fontSize: '12px',
+                        fontWeight: agentStatusFilter === 'ONLINE' ? 600 : 500,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            width: '7px',
+                            height: '7px',
+                            borderRadius: '50%',
+                            backgroundColor: '#10b981',
+                            boxShadow: '0 0 6px #10b981',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span>Online</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            padding: '1px 6px',
+                            borderRadius: '10px',
+                            backgroundColor: '#ecfdf5',
+                            color: '#059669',
+                            border: '1px solid #a7f3d0',
+                          }}
+                        >
+                          {agents.filter((a) => !!a.isOnline).length}
+                        </span>
+                        {agentStatusFilter === 'ONLINE' && <Check size={13} style={{ color: '#059669' }} />}
+                      </div>
+                    </button>
+
+                    {/* Offline Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAgentStatusFilter('OFFLINE');
+                        setIsAgentFilterOpen(false);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '7px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: 'none',
+                        backgroundColor: agentStatusFilter === 'OFFLINE' ? 'var(--bg-surface)' : 'transparent',
+                        color: agentStatusFilter === 'OFFLINE' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        fontSize: '12px',
+                        fontWeight: agentStatusFilter === 'OFFLINE' ? 600 : 500,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            width: '7px',
+                            height: '7px',
+                            borderRadius: '50%',
+                            backgroundColor: '#94a3b8',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span>Offline</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            padding: '1px 6px',
+                            borderRadius: '10px',
+                            backgroundColor: '#f1f5f9',
+                            color: '#64748b',
+                            border: '1px solid #e2e8f0',
+                          }}
+                        >
+                          {agents.filter((a) => !a.isOnline).length}
+                        </span>
+                        {agentStatusFilter === 'OFFLINE' && <Check size={13} style={{ color: 'var(--primary)' }} />}
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div style={{ overflowX: 'auto' }}>
-              {agents.length === 0 ? (
-                <div
-                  style={{
-                    fontSize: '13px',
-                    color: 'var(--text-muted)',
-                    textAlign: 'center',
-                    padding: '24px 0',
-                  }}
-                >
-                  No active support agents found for this tenant.
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr
+              {(() => {
+                const filtered = agents.filter((a) => {
+                  if (agentStatusFilter === 'ONLINE') return !!a.isOnline;
+                  if (agentStatusFilter === 'OFFLINE') return !a.isOnline;
+                  return true;
+                });
+                const sorted = [...filtered].sort((a, b) => b.resolvedCount - a.resolvedCount);
+
+                if (agents.length === 0) {
+                  return (
+                    <div
                       style={{
-                        borderBottom: '1px solid var(--border-medium)',
-                        textAlign: 'left',
+                        fontSize: '13px',
                         color: 'var(--text-muted)',
-                        fontSize: '11px',
-                        textTransform: 'uppercase',
+                        textAlign: 'center',
+                        padding: '24px 0',
                       }}
                     >
-                      <th style={{ padding: '8px 12px' }}>Staff Member</th>
-                      <th style={{ padding: '8px 12px' }}>Status</th>
-                      <th style={{ padding: '8px 12px' }}>Assigned</th>
-                      <th style={{ padding: '8px 12px' }}>Resolved</th>
-                      <th style={{ padding: '8px 12px' }}>Resolution Velocity</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Avg Resolution Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agents
-                      .sort((a, b) => b.resolvedCount - a.resolvedCount)
-                      .map((agent) => (
+                      No active support agents found for this tenant.
+                    </div>
+                  );
+                }
+
+                if (sorted.length === 0) {
+                  return (
+                    <div
+                      style={{
+                        fontSize: '13px',
+                        color: 'var(--text-muted)',
+                        textAlign: 'center',
+                        padding: '24px 0',
+                      }}
+                    >
+                      No agents are currently {agentStatusFilter.toLowerCase()}.
+                    </div>
+                  );
+                }
+
+                return (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr
+                        style={{
+                          borderBottom: '1px solid var(--border-medium)',
+                          textAlign: 'left',
+                          color: 'var(--text-muted)',
+                          fontSize: '11px',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        <th style={{ padding: '8px 12px' }}>Staff Member</th>
+                        <th style={{ padding: '8px 12px' }}>Status</th>
+                        <th style={{ padding: '8px 12px' }}>Assigned</th>
+                        <th style={{ padding: '8px 12px' }}>Resolved</th>
+                        <th style={{ padding: '8px 12px' }}>Resolution Velocity</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Avg Resolution Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map((agent) => (
                         <tr
                           key={agent.agentId}
                           style={{ borderBottom: '1px solid var(--border-subtle)' }}
@@ -1504,16 +2115,15 @@ export const AnalyticsPage: React.FC = () => {
                               textAlign: 'right',
                             }}
                           >
-                            {agent.avgResolutionHours !== null
-                              ? `${agent.avgResolutionHours} hrs`
-                              : 'N/A'}
+                            {formatDurationHours(agent.avgResolutionHours)}
                           </td>
                         </tr>
                       ))}
                   </tbody>
                 </table>
-              )}
-            </div>
+              );
+            })()}
+          </div>
           </div>
 
           {/* Support Queue Load Distribution */}

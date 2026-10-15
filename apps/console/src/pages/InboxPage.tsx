@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Filter,
@@ -25,6 +25,9 @@ import {
   GitMerge,
   Globe,
   Loader2,
+  ArrowDown,
+  ArrowUp,
+  Mail,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { TicketsApi } from '../api/tickets';
@@ -319,6 +322,17 @@ const filterConversationComments = (list: any[]): any[] =>
       !c.body?.includes('has been unmerged from this ticket.'),
   );
 
+const isTicketInTab = (ticket: any, tab: string, currentUserId?: string) => {
+  if (!ticket) return false;
+  const isOpen = !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status);
+  if (tab === 'ALL_OPEN') return isOpen;
+  if (tab === 'UNASSIGNED') return isOpen && !ticket.assigneeId;
+  if (tab === 'MY_TICKETS') return isOpen && (ticket.assigneeId === currentUserId || ticket.assignee?.id === currentUserId);
+  if (tab === 'ESCALATED') return isOpen && ['L2', 'L3', 'DEV', 'DEVOPS', 'QA'].includes(ticket.tier);
+  if (tab === 'RESOLVED') return !isOpen;
+  return true;
+};
+
 export const InboxPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, activeBrandId } = useAuth();
@@ -405,9 +419,11 @@ export const InboxPage: React.FC = () => {
   }, [unreadTicketIds, user?.id]);
 
   // Filters
+  type InboxSortMode = 'desc' | 'asc' | 'unread';
   const [statusFilter, setStatusFilter] = useState<string>('ALL_OPEN');
   const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [tierFilter, setTierFilter] = useState<string>('');
+  const [sortMode, setSortMode] = useState<InboxSortMode>('desc');
   const {
     debouncedSearchQuery,
     selectedTag,
@@ -427,6 +443,7 @@ export const InboxPage: React.FC = () => {
     statusFilter,
     priorityFilter,
     tierFilter,
+    sortMode,
     debouncedSearchQuery,
     selectedTag,
     selectedCategory,
@@ -709,9 +726,12 @@ export const InboxPage: React.FC = () => {
       setPage(1);
     }
     try {
+      const effectiveOrder = sortMode === 'asc' ? 'asc' : 'desc';
       const params: Record<string, any> = {
         page: 1,
         pageSize: 50,
+        sort: 'lastActivityAt',
+        order: effectiveOrder,
         brandId: activeBrandId || undefined,
         priority: priorityFilter || undefined,
         tier: tierFilter || undefined,
@@ -744,9 +764,28 @@ export const InboxPage: React.FC = () => {
       }
 
       const res = await TicketsApi.list(params);
-      const list = res.tickets || res.items || (Array.isArray(res) ? res : []);
+      let list = res.tickets || res.items || (Array.isArray(res) ? res : []);
       const total = typeof res.total === 'number' ? res.total : list.length;
       const pages = res.pages || Math.ceil(total / 50) || 1;
+
+      // When sortMode is 'unread', ensure any unread tickets matching this tab are fetched and prepended
+      if (sortMode === 'unread' && unreadTicketIds.size > 0) {
+        const missingIds = Array.from(unreadTicketIds).filter((id) => !list.some((t: any) => t.id === id));
+        if (missingIds.length > 0) {
+          try {
+            const fetched = await Promise.all(
+              missingIds.map((id) => TicketsApi.getById(id).catch(() => null))
+            );
+            const valid = fetched.filter(Boolean);
+            const inThisTab = valid.filter((t) => isTicketInTab(t, statusFilter, user?.id));
+            if (inThisTab.length > 0) {
+              const existingIds = new Set(list.map((t: any) => t.id));
+              const newItems = inThisTab.filter((t: any) => !existingIds.has(t.id));
+              list = [...newItems, ...list];
+            }
+          } catch {}
+        }
+      }
 
       setTickets(list);
       setTotalCount(total);
@@ -788,9 +827,12 @@ export const InboxPage: React.FC = () => {
     const nextPage = page + 1;
 
     try {
+      const effectiveOrder = sortMode === 'asc' ? 'asc' : 'desc';
       const params: Record<string, any> = {
         page: nextPage,
         pageSize: 50,
+        sort: 'lastActivityAt',
+        order: effectiveOrder,
         brandId: activeBrandId || undefined,
         priority: priorityFilter || undefined,
         tier: tierFilter || undefined,
@@ -842,6 +884,52 @@ export const InboxPage: React.FC = () => {
       setIsLoadingMore(false);
     }
   };
+
+  const handleToggleSortMode = async () => {
+    let nextMode: InboxSortMode;
+    if (sortMode === 'desc') {
+      nextMode = 'asc';
+    } else if (sortMode === 'asc') {
+      nextMode = 'unread';
+    } else {
+      nextMode = 'desc';
+    }
+
+    setSortMode(nextMode);
+
+    if (nextMode === 'unread' && unreadTicketIds.size > 0) {
+      const missingIds = Array.from(unreadTicketIds).filter((id) => !tickets.some((t) => t.id === id));
+      if (missingIds.length > 0) {
+        try {
+          const fetched = await Promise.all(
+            missingIds.map((id) => TicketsApi.getById(id).catch(() => null))
+          );
+          const valid = fetched.filter(Boolean);
+          const inThisTab = valid.filter((t) => isTicketInTab(t, statusFilter, user?.id));
+          if (inThisTab.length > 0) {
+            setTickets((prev) => {
+              const existingIds = new Set(prev.map((t) => t.id));
+              const newItems = inThisTab.filter((t) => !existingIds.has(t.id));
+              return [...newItems, ...prev];
+            });
+            toast.success(`Loaded ${inThisTab.length} unread ticket${inThisTab.length > 1 ? 's' : ''} to top`);
+          } else if (valid.length > 0) {
+            toast.info(`${valid.length} unread ticket${valid.length > 1 ? 's' : ''} exist in other tabs`);
+          }
+        } catch {}
+      }
+    }
+  };
+
+  // Prioritize unread tickets at top when sortMode is 'unread'
+  const displayTickets = useMemo(() => {
+    if (sortMode !== 'unread') return tickets;
+    return [...tickets].sort((a, b) => {
+      const aUnread = unreadTicketIds.has(a.id) ? 1 : 0;
+      const bUnread = unreadTicketIds.has(b.id) ? 1 : 0;
+      return bUnread - aUnread;
+    });
+  }, [tickets, sortMode, unreadTicketIds]);
 
   const handleTicketCreated = (newTicket: TicketSummary) => {
     setTickets((prev) => {
@@ -1126,7 +1214,7 @@ export const InboxPage: React.FC = () => {
           {/* Status Tabs Segmented Control */}
           <div className="inbox-status-tabs-container">
             {[
-              { id: 'ALL_OPEN', label: 'All' },
+              { id: 'ALL_OPEN', label: 'All Open' },
               { id: 'UNASSIGNED', label: 'Unassigned' },
               { id: 'MY_TICKETS', label: 'My Tickets' },
               { id: 'ESCALATED', label: 'Escalated' },
@@ -1230,7 +1318,7 @@ export const InboxPage: React.FC = () => {
             </div>
           ) : (
             <>
-              {tickets.map((t) => (
+              {displayTickets.map((t: any) => (
                 <div
                   key={t.id}
                   style={{
@@ -1278,6 +1366,7 @@ export const InboxPage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              gap: '8px',
               height: '58px',
               boxSizing: 'border-box',
             }}
@@ -1346,6 +1435,107 @@ export const InboxPage: React.FC = () => {
                 Showing all {tickets.length} conversations
               </span>
             )}
+
+            {/* Unified 3-State Sort & Unread Toggle Button */}
+            <button
+              type="button"
+              onClick={handleToggleSortMode}
+              title={
+                sortMode === 'desc'
+                  ? 'Order: Newest First (Descending) — Click for Oldest First'
+                  : sortMode === 'asc'
+                  ? 'Order: Oldest First (Ascending) — Click for Unread First'
+                  : `Order: Unread First (${unreadTicketIds.size} unread total) — Click for Newest First`
+              }
+              aria-label={
+                sortMode === 'desc'
+                  ? 'Switch to oldest first'
+                  : sortMode === 'asc'
+                  ? 'Switch to unread first'
+                  : 'Switch to newest first'
+              }
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                width: '32px',
+                height: '32px',
+                borderRadius: '9999px',
+                backgroundColor:
+                  sortMode === 'unread'
+                    ? 'rgba(239, 68, 68, 0.08)'
+                    : sortMode === 'asc'
+                    ? 'var(--primary-surface, #eff6ff)'
+                    : 'var(--bg-surface-elevated, #f8fafc)',
+                border: `1px solid ${
+                  sortMode === 'unread'
+                    ? '#f87171'
+                    : sortMode === 'asc'
+                    ? 'var(--primary, #2563eb)'
+                    : 'var(--border-subtle, #e2e8f0)'
+                }`,
+                color:
+                  sortMode === 'unread'
+                    ? '#ef4444'
+                    : sortMode === 'asc'
+                    ? 'var(--primary, #2563eb)'
+                    : 'var(--text-secondary, #64748b)',
+                boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (sortMode === 'unread') {
+                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+                  e.currentTarget.style.borderColor = '#ef4444';
+                  e.currentTarget.style.color = '#dc2626';
+                } else {
+                  e.currentTarget.style.backgroundColor = 'var(--primary-surface, #eff6ff)';
+                  e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
+                  e.currentTarget.style.color = 'var(--primary, #2563eb)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor =
+                  sortMode === 'unread'
+                    ? 'rgba(239, 68, 68, 0.08)'
+                    : sortMode === 'asc'
+                    ? 'var(--primary-surface, #eff6ff)'
+                    : 'var(--bg-surface-elevated, #f8fafc)';
+                e.currentTarget.style.borderColor =
+                  sortMode === 'unread'
+                    ? '#f87171'
+                    : sortMode === 'asc'
+                    ? 'var(--primary, #2563eb)'
+                    : 'var(--border-subtle, #e2e8f0)';
+                e.currentTarget.style.color =
+                  sortMode === 'unread'
+                    ? '#ef4444'
+                    : sortMode === 'asc'
+                    ? 'var(--primary, #2563eb)'
+                    : 'var(--text-secondary, #64748b)';
+              }}
+            >
+              {sortMode === 'desc' && <ArrowDown size={14} />}
+              {sortMode === 'asc' && <ArrowUp size={14} />}
+              {sortMode === 'unread' && <Mail size={14} />}
+              {unreadTicketIds.size > 0 && sortMode !== 'unread' && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '-2px',
+                    right: '-2px',
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    backgroundColor: '#ef4444',
+                    border: '1.5px solid #ffffff',
+                  }}
+                />
+              )}
+            </button>
           </div>
         )}
       </div>

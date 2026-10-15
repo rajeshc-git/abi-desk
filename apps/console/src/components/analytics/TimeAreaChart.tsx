@@ -1,4 +1,4 @@
-import React, { useState, useId } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 
 export interface TimePoint {
   date: string;
@@ -17,7 +17,7 @@ interface TimeAreaChartProps {
 export const TimeAreaChart: React.FC<TimeAreaChartProps> = ({
   data,
   height = 240,
-  title = 'Ticket Inflow vs Resolution Velocity',
+  title = 'Ticket Created vs Ticket Resolved',
 }) => {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const chartId = useId();
@@ -39,8 +39,37 @@ export const TimeAreaChart: React.FC<TimeAreaChartProps> = ({
     );
   }
 
-  const width = 700;
-  const padding = { top: 20, right: 24, bottom: 36, left: 36 };
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(1000);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const updateWidth = () => {
+      if (containerRef.current) {
+        const measured = containerRef.current.clientWidth;
+        if (measured > 0) {
+          setContainerWidth(measured);
+        }
+      }
+    };
+
+    updateWidth();
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w > 0) {
+          setContainerWidth(Math.round(w));
+        }
+      }
+    });
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const width = Math.max(containerWidth, 400);
+  const padding = { top: 20, right: 28, bottom: 36, left: 36 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
@@ -120,7 +149,7 @@ export const TimeAreaChart: React.FC<TimeAreaChartProps> = ({
                 backgroundColor: '#3b82f6',
               }}
             />
-            <span style={{ color: 'var(--text-secondary)' }}>Created / Inflow</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Ticket Created</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span
@@ -131,7 +160,7 @@ export const TimeAreaChart: React.FC<TimeAreaChartProps> = ({
                 backgroundColor: '#10b981',
               }}
             />
-            <span style={{ color: 'var(--text-secondary)' }}>Resolved</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Ticket Resolved / Closed</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span
@@ -148,7 +177,7 @@ export const TimeAreaChart: React.FC<TimeAreaChartProps> = ({
       </div>
 
       {/* SVG Canvas Area */}
-      <div style={{ position: 'relative', width: '100%', height }}>
+      <div ref={containerRef} style={{ position: 'relative', width: '100%', height }}>
         <svg
           viewBox={`0 0 ${width} ${height}`}
           style={{ width: '100%', height: '100%', overflow: 'visible', cursor: 'crosshair' }}
@@ -218,7 +247,9 @@ export const TimeAreaChart: React.FC<TimeAreaChartProps> = ({
           {/* X-axis ticks */}
           {data.map((d, i) => {
             const x = getX(i);
-            const showLabel = data.length <= 14 || i % Math.ceil(data.length / 10) === 0;
+            const maxLabels = Math.max(5, Math.floor(chartWidth / 70));
+            const step = Math.max(1, Math.ceil(data.length / maxLabels));
+            const showLabel = data.length <= 15 || i % step === 0 || i === data.length - 1;
             return (
               <g key={i}>
                 {showLabel && (
@@ -332,7 +363,7 @@ export const TimeAreaChart: React.FC<TimeAreaChartProps> = ({
                 fontWeight: 600,
               }}
             >
-              <span>Resolved:</span>
+              <span>Resolved / Closed:</span>
               <span>{activePoint.resolved}</span>
             </div>
             {(activePoint.breached ?? 0) > 0 && (
