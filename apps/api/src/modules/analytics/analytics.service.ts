@@ -652,7 +652,7 @@ export class AnalyticsService {
     const [queues, byQueue] = await Promise.all([
       this.db.client.queue.findMany({
         where: { tenantId },
-        select: { id: true, name: true, slug: true, tier: true },
+        select: { id: true, name: true, slug: true, tier: true, routing: true },
       }),
       this.db.client.ticket.groupBy({
         by: ['queueId'],
@@ -668,6 +668,7 @@ export class AnalyticsService {
       name: q.name,
       slug: q.slug,
       tier: q.tier,
+      routing: q.routing,
       activeTicketCount: countMap.get(q.id) ?? 0,
     }));
   }

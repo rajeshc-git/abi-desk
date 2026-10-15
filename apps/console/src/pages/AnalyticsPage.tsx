@@ -25,6 +25,7 @@ import {
   X,
   ChevronDown,
   Check,
+  Shuffle,
 } from 'lucide-react';
 import { Link, Navigate } from 'react-router-dom';
 import { ApiClient } from '../api/client';
@@ -59,7 +60,7 @@ const formatDurationHours = (hours?: number | null) => {
 
 export const AnalyticsPage: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'volume' | 'sla' | 'agents'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'volume' | 'sla' | 'agents' | 'queues'>('overview');
 
   const isTenantAdmin =
     user?.roles?.includes('TENANT_ADMIN') ||
@@ -111,6 +112,110 @@ export const AnalyticsPage: React.FC = () => {
   const [agents, setAgents] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
+
+  const [selectedQueueId, setSelectedQueueId] = useState<string>('');
+
+  const activeSelectedQueue = useMemo(() => {
+    if (!queues || queues.length === 0) return null;
+    return queues.find((q) => q.queueId === selectedQueueId) || queues[0];
+  }, [queues, selectedQueueId]);
+
+  const queueStrategy = useMemo<'ROUND_ROBIN' | 'LEAST_LOADED' | 'MANUAL'>(() => {
+    if (!activeSelectedQueue) return 'ROUND_ROBIN';
+    if (activeSelectedQueue.routing) {
+      if (activeSelectedQueue.routing === 'ROUND_ROBIN') return 'ROUND_ROBIN';
+      if (activeSelectedQueue.routing === 'LEAST_LOADED') return 'LEAST_LOADED';
+      if (activeSelectedQueue.routing === 'MANUAL') return 'MANUAL';
+    }
+    const s = `${activeSelectedQueue.name} ${activeSelectedQueue.slug}`.toLowerCase();
+    if (s.includes('least') || s.includes('load')) return 'LEAST_LOADED';
+    return 'ROUND_ROBIN';
+  }, [activeSelectedQueue]);
+
+  const strategyInfo = useMemo(() => {
+    switch (queueStrategy) {
+      case 'ROUND_ROBIN':
+        return {
+          badge: 'Round-Robin',
+          title: 'Round-Robin Dispatch',
+          subtitle: 'Sequential Distribution',
+          color: '#8b5cf6',
+          bg: 'rgba(139, 92, 246, 0.12)',
+          border: 'rgba(139, 92, 246, 0.3)',
+        };
+      case 'LEAST_LOADED':
+        return {
+          badge: 'Least-Loaded',
+          title: 'Least-Loaded Dispatch',
+          subtitle: 'Dynamic Workload Balancing',
+          color: '#0284c7',
+          bg: 'rgba(2, 132, 199, 0.12)',
+          border: 'rgba(2, 132, 199, 0.3)',
+        };
+      case 'MANUAL':
+      default:
+        return {
+          badge: 'Manual Triage',
+          title: 'Manual Assignment',
+          subtitle: 'Staff Pick & Direct Routing',
+          color: '#f59e0b',
+          bg: 'rgba(245, 158, 11, 0.12)',
+          border: 'rgba(245, 158, 11, 0.3)',
+        };
+    }
+  }, [queueStrategy]);
+
+  // Pipeline Agents: Active staff for live queue dispatch automation visualizer (guaranteed at least 8 agents in spider web)
+  const pipelineAgents = useMemo(() => {
+    const realAgents = [...(agents || [])].sort((a, b) => {
+      if (a.isOnline && !b.isOnline) return -1;
+      if (!a.isOnline && b.isOnline) return 1;
+      return a.assignedCount - b.assignedCount;
+    });
+
+    const list = [...realAgents];
+    const fallbackAgents = [
+      { name: 'Alex M.', online: true, count: 2 },
+      { name: 'Devon S.', online: true, count: 1 },
+      { name: 'Sam K.', online: false, count: 3 },
+      { name: 'Taylor B.', online: true, count: 0 },
+      { name: 'Jordan R.', online: true, count: 4 },
+      { name: 'Morgan C.', online: false, count: 1 },
+      { name: 'Casey T.', online: true, count: 2 },
+      { name: 'Robin L.', online: true, count: 0 },
+    ];
+
+    while (list.length < 8) {
+      const idx = list.length;
+      const fb = fallbackAgents[idx % fallbackAgents.length];
+      list.push({
+        agentId: `sim-agent-${idx + 1}`,
+        fullName: fb.name,
+        email: `${fb.name.toLowerCase().replace(/[^a-z]/g, '')}@abi.internal`,
+        isOnline: fb.online,
+        assignedCount: fb.count,
+        role: 'AGENT',
+      });
+    }
+
+    return list.slice(0, Math.max(8, realAgents.length));
+  }, [agents]);
+
+  const [activeDispatchAgentIdx, setActiveDispatchAgentIdx] = useState(0);
+
+  useEffect(() => {
+    if (pipelineAgents.length <= 1) return;
+    if (queueStrategy === 'LEAST_LOADED') {
+      const minLoad = Math.min(...pipelineAgents.map((a) => a.assignedCount));
+      const leastIdx = pipelineAgents.findIndex((a) => a.assignedCount === minLoad);
+      setActiveDispatchAgentIdx(leastIdx >= 0 ? leastIdx : 0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setActiveDispatchAgentIdx((prev) => (prev + 1) % pipelineAgents.length);
+    }, 900);
+    return () => clearInterval(interval);
+  }, [pipelineAgents, queueStrategy]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -175,7 +280,7 @@ export const AnalyticsPage: React.FC = () => {
 
   // Safety reset for unauthorized tab access
   useEffect(() => {
-    if (activeTab === 'agents' && !hasTenantView) {
+    if ((activeTab === 'agents' || activeTab === 'queues') && !hasTenantView) {
       setActiveTab('overview');
     }
   }, [activeTab, hasTenantView]);
@@ -582,6 +687,7 @@ export const AnalyticsPage: React.FC = () => {
           { id: 'volume', label: 'Volume & Heatmap', icon: Flame },
           { id: 'sla', label: 'SLA Clocks & Breach Radar', icon: ShieldCheck },
           ...(hasTenantView ? [{ id: 'agents', label: 'Team & Agent Efficiency', icon: Users }] : []),
+          ...(hasTenantView ? [{ id: 'queues', label: 'Queue Capacity & Load Distribution', icon: Layers }] : []),
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -2125,60 +2231,441 @@ export const AnalyticsPage: React.FC = () => {
             })()}
           </div>
           </div>
+        </div>
+      )}
 
-          {/* Support Queue Load Distribution */}
-          <div className="card">
-            <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '14px' }}>
-              Queue Capacity & Load Distribution
-            </h3>
+      {/* ========================================================================= */}
+      {/* TAB 5: QUEUE CAPACITY & LOAD DISTRIBUTION */}
+      {/* ========================================================================= */}
+      {activeTab === 'queues' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Support Queue Load Distribution & Live Dispatch Automation Pipeline */}
+          <div className="card" style={{ padding: '16px 20px', position: 'relative', overflow: 'hidden' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '12px',
+                flexWrap: 'wrap',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                  Queue Capacity & Load Distribution
+                </h3>
+              </div>
+
+              {/* Algorithm Status Pill (Updated dynamically to only show selected queue algorithm) */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 10px',
+                  borderRadius: '12px',
+                  backgroundColor: strategyInfo.bg,
+                  border: `1px solid ${strategyInfo.border}`,
+                  fontSize: '11px',
+                  color: strategyInfo.color,
+                  fontWeight: 700,
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    backgroundColor: strategyInfo.color,
+                    boxShadow: `0 0 6px ${strategyInfo.color}`,
+                  }}
+                />
+                {strategyInfo.badge}
+              </div>
+            </div>
+
+            {/* Layout: Interactive Queue List on Left, Animated Pipeline Visualizer on Right */}
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-                gap: '12px',
+                gridTemplateColumns: 'minmax(250px, 310px) 1fr',
+                gap: '16px',
+                alignItems: 'stretch',
               }}
             >
-              {queues.length === 0 ? (
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  No active queues found.
-                </div>
-              ) : (
-                queues.map((q) => (
-                  <div
-                    key={q.queueId}
-                    style={{
-                      padding: '12px 16px',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--bg-surface-elevated)',
-                      border: '1px solid var(--border-subtle)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: 700 }}>{q.name}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Slug: {q.slug}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span
-                        className="badge badge-open"
-                        style={{ fontSize: '12px', fontWeight: 700 }}
-                      >
-                        {q.activeTicketCount} Active
-                      </span>
+              {/* Left Column: Interactive Queue Selector with Scroll for Multi-Queue */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  maxHeight: '340px',
+                  overflowY: 'auto',
+                  paddingRight: '4px',
+                }}
+              >
+                {queues.length === 0 ? (
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                    No active queues found.
+                  </div>
+                ) : (
+                  queues.map((q) => {
+                    const isSelected = q.queueId === activeSelectedQueue?.queueId;
+                    return (
                       <div
-                        style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}
+                        key={q.queueId}
+                        onClick={() => setSelectedQueueId(q.queueId)}
+                        role="button"
+                        tabIndex={0}
+                        title={`Click to inspect ${q.name} automation pipeline`}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: isSelected
+                            ? 'var(--bg-surface)'
+                            : 'var(--bg-surface-elevated)',
+                          border: isSelected
+                            ? '1.5px solid var(--primary)'
+                            : '1px solid var(--border-subtle)',
+                          boxShadow: isSelected
+                            ? '0 0 10px rgba(2, 132, 199, 0.18)'
+                            : 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
                       >
-                        Tier: {q.tier || 'L1'}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              backgroundColor: isSelected
+                                ? 'rgba(2, 132, 199, 0.18)'
+                                : 'rgba(2, 132, 199, 0.08)',
+                              color: isSelected ? 'var(--primary)' : 'var(--text-muted)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <Layers size={16} />
+                          </div>
+                          <div>
+                            <div
+                              style={{
+                                fontSize: '13px',
+                                fontWeight: 700,
+                                lineHeight: 1.2,
+                                color: isSelected ? 'var(--primary)' : 'var(--text-primary)',
+                              }}
+                            >
+                              {q.name}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              Slug: {q.slug}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span
+                            className={isSelected ? 'badge badge-open' : 'badge'}
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              backgroundColor: isSelected ? undefined : 'var(--bg-surface-elevated)',
+                              color: isSelected ? undefined : 'var(--text-muted)',
+                            }}
+                          >
+                            {q.activeTicketCount} Active
+                          </span>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Tier: {q.tier || 'L1'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Right Column: Live Dispatch Pipeline Flow Connected to Selected Queue */}
+              <div
+                style={{
+                  height: '100%',
+                  minHeight: '220px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  padding: '16px 20px 24px',
+                  borderRadius: 'var(--radius-md)',
+                  background:
+                    'linear-gradient(135deg, rgba(2, 132, 199, 0.04) 0%, rgba(139, 92, 246, 0.05) 50%, rgba(16, 185, 129, 0.04) 100%)',
+                  border: '1px solid var(--border-medium)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    width: '100%',
+                  }}
+                >
+                  {/* Stage 1: Queue Inflow Source (reflecting currently selected queue) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <div
+                      style={{
+                        width: '30px',
+                        height: '30px',
+                        borderRadius: '8px',
+                        backgroundColor: 'rgba(2, 132, 199, 0.15)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--primary)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Zap size={15} />
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: 'var(--text-primary)',
+                          maxWidth: '95px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={activeSelectedQueue?.name || 'Inflow Stream'}
+                      >
+                        {activeSelectedQueue?.name || 'Inflow Stream'}
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                        {activeSelectedQueue?.activeTicketCount ?? 0} Active Inflow
                       </div>
                     </div>
                   </div>
-                ))
-              )}
+
+                  {/* Animated Pipeline Cable 1 */}
+                  <div
+                    style={{
+                      flex: '1 1 36px',
+                      height: '2px',
+                      backgroundColor: 'var(--border-medium)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      minWidth: '24px',
+                    }}
+                  >
+                    <div className="flow-laser-blue" />
+                  </div>
+
+                  {/* Stage 2: Intelligent Routing Core (reflecting selected queue algorithm) */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '6px 12px',
+                      borderRadius: '20px',
+                      backgroundColor: 'var(--bg-surface-elevated)',
+                      border: `1px solid ${strategyInfo.border}`,
+                      boxShadow: `0 0 12px ${strategyInfo.bg}`,
+                      flexShrink: 0,
+                      transition: 'all 0.25s ease',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        backgroundColor: strategyInfo.bg,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: strategyInfo.color,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {queueStrategy === 'ROUND_ROBIN' ? (
+                        <Shuffle size={12} className="spin-slow-icon" />
+                      ) : (
+                        <Activity size={12} />
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: strategyInfo.color, lineHeight: 1.1 }}>
+                        {strategyInfo.title}
+                      </div>
+                      <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                        {strategyInfo.subtitle}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Animated Pipeline Cable 2 */}
+                  <div
+                    style={{
+                      flex: '1 1 36px',
+                      height: '2px',
+                      backgroundColor: 'var(--border-medium)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      minWidth: '24px',
+                    }}
+                  >
+                    <div className="flow-laser-green" />
+                  </div>
+
+                  {/* Stage 3: Target Staff Receptors (8 Staff in 2x4 Grid) */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, minmax(80px, 1fr))',
+                      gap: '6px',
+                      flexShrink: 0,
+                      maxWidth: '440px',
+                    }}
+                  >
+                    {pipelineAgents.map((ag, idx) => {
+                      const isTarget = idx === activeDispatchAgentIdx;
+                      const shortName = (ag.fullName || 'Agent').split(' ')[0];
+                      return (
+                        <div
+                          key={ag.agentId}
+                          title={`${ag.fullName} (${ag.isOnline ? 'Online' : 'Offline'}) · ${ag.assignedCount} active tickets`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '4px 7px',
+                            borderRadius: '14px',
+                            backgroundColor: isTarget
+                              ? 'rgba(16, 185, 129, 0.16)'
+                              : 'var(--bg-surface)',
+                            border: isTarget
+                              ? '1.5px solid #10b981'
+                              : '1px solid var(--border-subtle)',
+                            boxShadow: isTarget
+                              ? '0 0 10px rgba(16, 185, 129, 0.45)'
+                              : 'none',
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: '6px',
+                              height: '6px',
+                              borderRadius: '50%',
+                              backgroundColor: ag.isOnline ? '#10b981' : '#94a3b8',
+                              boxShadow: ag.isOnline && isTarget ? '0 0 6px #10b981' : 'none',
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: isTarget ? 700 : 500,
+                              color: isTarget ? '#059669' : 'var(--text-secondary)',
+                              maxWidth: '50px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {shortName}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '9px',
+                              padding: '1px 4px',
+                              borderRadius: '6px',
+                              backgroundColor: isTarget ? '#10b981' : 'var(--bg-surface-elevated)',
+                              color: isTarget ? '#ffffff' : 'var(--text-muted)',
+                              fontWeight: 700,
+                              lineHeight: 1,
+                              marginLeft: 'auto',
+                            }}
+                          >
+                            {ag.assignedCount}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Extreme bottom & centered disclaimer */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '6px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    fontSize: '9.5px',
+                    color: 'var(--text-muted)',
+                    textAlign: 'center',
+                    whiteSpace: 'nowrap',
+                    opacity: 0.75,
+                    fontStyle: 'italic',
+                    userSelect: 'none',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  * This illustration is for representative purposes only
+                </div>
+              </div>
             </div>
+
+            {/* Micro CSS styles for fluid pipeline animation */}
+            <style>{`
+              @keyframes flowLaserAnim {
+                0% { transform: translateX(-100%); opacity: 0; }
+                25% { opacity: 1; }
+                75% { opacity: 1; }
+                100% { transform: translateX(100%); opacity: 0; }
+              }
+              .flow-laser-blue {
+                position: absolute;
+                top: 0;
+                left: 0;
+                height: 100%;
+                width: 65%;
+                background: linear-gradient(90deg, transparent, #0284c7, transparent);
+                animation: flowLaserAnim 0.9s infinite linear;
+              }
+              .flow-laser-green {
+                position: absolute;
+                top: 0;
+                left: 0;
+                height: 100%;
+                width: 65%;
+                background: linear-gradient(90deg, transparent, #10b981, transparent);
+                animation: flowLaserAnim 0.9s infinite linear 0.45s;
+              }
+              @keyframes rotateSlow {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+              .spin-slow-icon {
+                animation: rotateSlow 8s infinite linear;
+              }
+            `}</style>
           </div>
         </div>
       )}
