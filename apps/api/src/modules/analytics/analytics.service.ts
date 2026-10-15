@@ -521,7 +521,27 @@ export class AnalyticsService {
       }),
       this.db.client.user.findMany({
         where: { tenantId, kind: 'STAFF', deletedAt: null },
-        select: { id: true, fullName: true, email: true, jobTitle: true },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          jobTitle: true,
+          roles: {
+            select: {
+              role: {
+                select: { key: true, tier: true, name: true },
+              },
+            },
+          },
+          products: {
+            select: {
+              productId: true,
+              product: {
+                select: { id: true, name: true },
+              },
+            },
+          },
+        },
       }),
       this.db.client.csatResponse.groupBy({
         by: ['agentId'],
@@ -628,12 +648,24 @@ export class AnalyticsService {
         ? this.presenceProvider.isUserOnline(agent.id)
         : false;
 
+      const roleKeys = ((agent as any).roles || []).map((r: any) => r.role?.key).filter(Boolean);
+      const roleTiers = ((agent as any).roles || []).map((r: any) => r.role?.tier).filter(Boolean);
+      const isAdmin = roleKeys.includes('TENANT_ADMIN') || roleKeys.includes('PLATFORM_ADMIN') || (agent.jobTitle && /admin/i.test(agent.jobTitle));
+      const isL1 = !isAdmin && (roleKeys.includes('L1_SUPPORT') || roleTiers.includes('L1') || (agent.jobTitle && /l1/i.test(agent.jobTitle)) || (!roleKeys.includes('L2_SUPPORT') && !roleKeys.includes('L3_SUPPORT') && !roleKeys.includes('DEV_TEAM') && !roleKeys.includes('DEVOPS_TEAM') && !roleKeys.includes('QA_TEAM')));
+      const productIds = ((agent as any).products || []).map((p: any) => p.productId).filter(Boolean);
+      const productNames = ((agent as any).products || []).map((p: any) => p.product?.name).filter(Boolean);
+
       return {
         agentId: agent.id,
         fullName: agent.fullName,
         email: agent.email,
         jobTitle: agent.jobTitle,
         isOnline,
+        isL1,
+        isAdmin,
+        roles: roleKeys,
+        productIds,
+        productNames,
         assignedCount: assigned,
         resolvedCount: resolved,
         participatedCount: participated,
@@ -652,7 +684,17 @@ export class AnalyticsService {
     const [queues, byQueue] = await Promise.all([
       this.db.client.queue.findMany({
         where: { tenantId },
-        select: { id: true, name: true, slug: true, tier: true, routing: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          tier: true,
+          routing: true,
+          productId: true,
+          product: { select: { id: true, name: true } },
+          brandId: true,
+          teamId: true,
+        },
       }),
       this.db.client.ticket.groupBy({
         by: ['queueId'],
@@ -669,6 +711,10 @@ export class AnalyticsService {
       slug: q.slug,
       tier: q.tier,
       routing: q.routing,
+      productId: q.productId,
+      productName: q.product?.name ?? null,
+      brandId: q.brandId,
+      teamId: q.teamId,
       activeTicketCount: countMap.get(q.id) ?? 0,
     }));
   }

@@ -165,57 +165,87 @@ export const AnalyticsPage: React.FC = () => {
     }
   }, [queueStrategy]);
 
-  // Pipeline Agents: Active staff for live queue dispatch automation visualizer (guaranteed at least 8 agents in spider web)
+  // Pipeline Agents: Dynamically filtered strictly to online L1 agents (no admin, no other tiers)
+  // scoped to the specific product of the active queue.
   const pipelineAgents = useMemo(() => {
-    const realAgents = [...(agents || [])].sort((a, b) => {
-      if (a.isOnline && !b.isOnline) return -1;
-      if (!a.isOnline && b.isOnline) return 1;
-      return a.assignedCount - b.assignedCount;
+    if (!agents || agents.length === 0) return [];
+
+    // 1. Strictly online agents only (green tick / WebSocket presence)
+    let filtered = agents.filter((ag) => ag.isOnline === true);
+
+    // 2. Strictly L1 agents only - NO admin, NO L2/L3/Dev/DevOps/QA tiers
+    filtered = filtered.filter((ag) => {
+      if (ag.isAdmin) return false;
+      const roles: string[] = Array.isArray(ag.roles) ? ag.roles : [];
+      if (
+        roles.includes('TENANT_ADMIN') ||
+        roles.includes('PLATFORM_ADMIN') ||
+        roles.includes('ADMIN') ||
+        (ag.jobTitle && /admin/i.test(ag.jobTitle))
+      ) {
+        return false;
+      }
+
+      // Check tier: strictly L1
+      if (ag.isL1 !== undefined) {
+        if (!ag.isL1) return false;
+      } else if (ag.tier) {
+        if (ag.tier !== 'L1') return false;
+      } else if (
+        roles.includes('L2_SUPPORT') ||
+        roles.includes('L3_SUPPORT') ||
+        roles.includes('DEV_TEAM') ||
+        roles.includes('DEVOPS_TEAM') ||
+        roles.includes('QA_TEAM')
+      ) {
+        return false;
+      }
+
+      return true;
     });
 
-    const list = [...realAgents];
-    const fallbackAgents = [
-      { name: 'Alex M.', online: true, count: 2 },
-      { name: 'Devon S.', online: true, count: 1 },
-      { name: 'Sam K.', online: false, count: 3 },
-      { name: 'Taylor B.', online: true, count: 0 },
-      { name: 'Jordan R.', online: true, count: 4 },
-      { name: 'Morgan C.', online: false, count: 1 },
-      { name: 'Casey T.', online: true, count: 2 },
-      { name: 'Robin L.', online: true, count: 0 },
-    ];
+    // 3. Product match: If queue is created for a product, show only that product's available L1 agents
+    const queueProdId = activeSelectedQueue?.productId;
+    const queueProdName = activeSelectedQueue?.productName?.trim().toLowerCase();
 
-    while (list.length < 8) {
-      const idx = list.length;
-      const fb = fallbackAgents[idx % fallbackAgents.length];
-      list.push({
-        agentId: `sim-agent-${idx + 1}`,
-        fullName: fb.name,
-        email: `${fb.name.toLowerCase().replace(/[^a-z]/g, '')}@abi.internal`,
-        isOnline: fb.online,
-        assignedCount: fb.count,
-        role: 'AGENT',
+    if (queueProdId || queueProdName) {
+      filtered = filtered.filter((ag) => {
+        const agProdIds: string[] = Array.isArray(ag.productIds) ? ag.productIds : [];
+        const agProdNames: string[] = Array.isArray(ag.productNames)
+          ? ag.productNames.map((n: string) => n.trim().toLowerCase())
+          : [];
+
+        // Match by Product ID
+        if (queueProdId && agProdIds.includes(queueProdId)) return true;
+
+        // Match by Product Name
+        if (queueProdName && agProdNames.includes(queueProdName)) return true;
+
+        // Strictly exclude agents assigned to different products
+        return false;
       });
     }
 
-    return list.slice(0, Math.max(8, realAgents.length));
-  }, [agents]);
+    // Sort by lowest assigned tickets for load balancing clarity
+    return filtered.sort((a, b) => (a.assignedCount ?? 0) - (b.assignedCount ?? 0));
+  }, [agents, activeSelectedQueue]);
 
   const [activeDispatchAgentIdx, setActiveDispatchAgentIdx] = useState(0);
 
   useEffect(() => {
-    if (pipelineAgents.length <= 1) return;
-    if (queueStrategy === 'LEAST_LOADED') {
-      const minLoad = Math.min(...pipelineAgents.map((a) => a.assignedCount));
-      const leastIdx = pipelineAgents.findIndex((a) => a.assignedCount === minLoad);
-      setActiveDispatchAgentIdx(leastIdx >= 0 ? leastIdx : 0);
+    if (pipelineAgents.length === 0) {
+      setActiveDispatchAgentIdx(0);
+      return;
+    }
+    if (pipelineAgents.length === 1) {
+      setActiveDispatchAgentIdx(0);
       return;
     }
     const interval = setInterval(() => {
       setActiveDispatchAgentIdx((prev) => (prev + 1) % pipelineAgents.length);
     }, 900);
     return () => clearInterval(interval);
-  }, [pipelineAgents, queueStrategy]);
+  }, [pipelineAgents]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -2532,82 +2562,113 @@ export const AnalyticsPage: React.FC = () => {
                     <div className="flow-laser-green" />
                   </div>
 
-                  {/* Stage 3: Target Staff Receptors (8 Staff in 2x4 Grid) */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(4, minmax(80px, 1fr))',
-                      gap: '6px',
-                      flexShrink: 0,
-                      maxWidth: '440px',
-                    }}
-                  >
-                    {pipelineAgents.map((ag, idx) => {
-                      const isTarget = idx === activeDispatchAgentIdx;
-                      const shortName = (ag.fullName || 'Agent').split(' ')[0];
-                      return (
-                        <div
-                          key={ag.agentId}
-                          title={`${ag.fullName} (${ag.isOnline ? 'Online' : 'Offline'}) · ${ag.assignedCount} active tickets`}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '4px 7px',
-                            borderRadius: '14px',
-                            backgroundColor: isTarget
-                              ? 'rgba(16, 185, 129, 0.16)'
-                              : 'var(--bg-surface)',
-                            border: isTarget
-                              ? '1.5px solid #10b981'
-                              : '1px solid var(--border-subtle)',
-                            boxShadow: isTarget
-                              ? '0 0 10px rgba(16, 185, 129, 0.45)'
-                              : 'none',
-                            transition: 'all 0.2s ease',
-                          }}
-                        >
-                          <span
+                  {/* Stage 3: Target Staff Receptors (Dynamically any number of Online L1 Agents) */}
+                  {pipelineAgents.length === 0 ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '12px 18px',
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--bg-surface)',
+                        border: '1px dashed var(--border-medium)',
+                        maxWidth: '340px',
+                        textAlign: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        No Online L1 Agents
+                      </span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {activeSelectedQueue?.productName
+                          ? `Waiting for online ${activeSelectedQueue.productName} L1 staff to connect`
+                          : 'Waiting for online L1 staff to connect'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '6px',
+                        flexShrink: 0,
+                        maxWidth: '460px',
+                        maxHeight: '135px',
+                        overflowY: 'auto',
+                        alignItems: 'center',
+                        padding: '2px',
+                      }}
+                    >
+                      {pipelineAgents.map((ag, idx) => {
+                        const isTarget = idx === activeDispatchAgentIdx;
+                        const shortName = (ag.fullName || 'Agent').split(' ')[0];
+                        return (
+                          <div
+                            key={ag.agentId}
+                            title={`${ag.fullName} (Online) · ${ag.assignedCount} active tickets`}
                             style={{
-                              width: '6px',
-                              height: '6px',
-                              borderRadius: '50%',
-                              backgroundColor: ag.isOnline ? '#10b981' : '#94a3b8',
-                              boxShadow: ag.isOnline && isTarget ? '0 0 6px #10b981' : 'none',
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: '10.5px',
-                              fontWeight: isTarget ? 700 : 500,
-                              color: isTarget ? '#059669' : 'var(--text-secondary)',
-                              maxWidth: '50px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {shortName}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '9px',
-                              padding: '1px 4px',
-                              borderRadius: '6px',
-                              backgroundColor: isTarget ? '#10b981' : 'var(--bg-surface-elevated)',
-                              color: isTarget ? '#ffffff' : 'var(--text-muted)',
-                              fontWeight: 700,
-                              lineHeight: 1,
-                              marginLeft: 'auto',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 8px',
+                              borderRadius: '14px',
+                              backgroundColor: isTarget
+                                ? 'rgba(16, 185, 129, 0.16)'
+                                : 'var(--bg-surface)',
+                              border: isTarget
+                                ? '1.5px solid #10b981'
+                                : '1px solid var(--border-subtle)',
+                              boxShadow: isTarget
+                                ? '0 0 10px rgba(16, 185, 129, 0.45)'
+                                : 'none',
+                              transition: 'all 0.2s ease',
                             }}
                           >
-                            {ag.assignedCount}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                            <span
+                              style={{
+                                width: '6px',
+                                height: '6px',
+                                borderRadius: '50%',
+                                backgroundColor: '#10b981',
+                                boxShadow: isTarget ? '0 0 6px #10b981' : 'none',
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span
+                              style={{
+                                fontSize: '10.5px',
+                                fontWeight: isTarget ? 700 : 500,
+                                color: isTarget ? '#059669' : 'var(--text-secondary)',
+                                maxWidth: '65px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {shortName}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '9px',
+                                padding: '1px 4px',
+                                borderRadius: '6px',
+                                backgroundColor: isTarget ? '#10b981' : 'var(--bg-surface-elevated)',
+                                color: isTarget ? '#ffffff' : 'var(--text-muted)',
+                                fontWeight: 700,
+                                lineHeight: 1,
+                                marginLeft: 'auto',
+                              }}
+                            >
+                              {ag.assignedCount}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Extreme bottom & centered disclaimer */}
