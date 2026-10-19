@@ -39,12 +39,14 @@ import {
   Bookmark,
   BookmarkPlus,
   Save,
+  Settings,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { PerformanceReportsModal } from '../components/documents/PerformanceReportsModal';
+import { ScheduleReportModal } from '../components/documents/ScheduleReportModal';
 
 interface FilterState {
   datePreset:
@@ -69,7 +71,8 @@ interface FilterState {
   assigneeIds: string[];
   teamIds: string[];
   queueIds: string[];
-  organization: string; // Single organization filter
+  organization?: string; // Legacy single organization filter (for backward compatibility)
+  organizations: string[]; // Multi-select organization filter
   products: string[];
   categories: string[];
   tags: string[];
@@ -149,8 +152,11 @@ const ALL_STATUSES = [
   { value: 'IN_QA', label: 'In QA' },
   { value: 'PENDING_RELEASE', label: 'Pending Release' },
   { value: 'RELEASED', label: 'Released' },
+  { value: 'PENDING_VERIFICATION', label: 'Pending Verification' },
+  { value: 'AWAITING_CUSTOMER_CONFIRMATION', label: 'Awaiting Customer Confirmation' },
   { value: 'RESOLVED', label: 'Resolved' },
   { value: 'CLOSED', label: 'Closed' },
+  { value: 'REOPENED', label: 'Reopened' },
   { value: 'CANCELLED', label: 'Cancelled' },
 ];
 
@@ -1743,11 +1749,14 @@ export const DocumentsPage: React.FC = () => {
   // Preset Available Counts
   const [presetCounts, setPresetCounts] = useState<{
     today_tickets?: number;
-    open_escalated?: number;
+    last_30_days?: number;
     unassigned_tickets?: number;
     this_month_open?: number;
     resolved_month?: number;
   }>({});
+
+  // Scheduled Nightly Report Modal Type
+  const [scheduleModalType, setScheduleModalType] = useState<'today_tickets' | 'last_30_days' | null>(null);
 
   // UI Accordion / Dropdown States
   const [showColumnsCustomizer, setShowColumnsCustomizer] = useState(false);
@@ -1779,6 +1788,7 @@ export const DocumentsPage: React.FC = () => {
     teamIds: [],
     queueIds: [],
     organization: '',
+    organizations: [],
     products: [],
     categories: [],
     tags: [],
@@ -1935,7 +1945,9 @@ export const DocumentsPage: React.FC = () => {
   // Apply saved preset
   const handleApplyPreset = (preset: DocCenterFilterPreset) => {
     setFilters({
+      ...initialFilters,
       ...preset.filters,
+      organizations: preset.filters.organizations || (preset.filters.organization ? [preset.filters.organization] : []),
       datePreset: preset.datePreset || preset.filters.datePreset || 'all',
       startDate: preset.startDate || preset.filters.startDate || '',
       endDate: preset.endDate || preset.filters.endDate || '',
@@ -2136,10 +2148,13 @@ export const DocumentsPage: React.FC = () => {
       const now = new Date();
       const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const last30DaysDate = new Date();
+      last30DaysDate.setDate(last30DaysDate.getDate() - 30);
+      const last30DaysStart = `${last30DaysDate.getFullYear()}-${String(last30DaysDate.getMonth() + 1).padStart(2, '0')}-${String(last30DaysDate.getDate()).padStart(2, '0')}T00:00:00.000Z`;
 
       const [p1, p2, p3, p4, p5] = await Promise.allSettled([
         ApiClient.get(`/tickets?pageSize=1&createdAfter=${todayStr}T00:00:00.000Z`),
-        ApiClient.get(`/tickets?pageSize=1&status=OPEN,IN_PROGRESS,TRIAGE,ESCALATED_L2,ESCALATED_L3,IN_DEVELOPMENT,IN_QA`),
+        ApiClient.get(`/tickets?pageSize=1&createdAfter=${last30DaysStart}`),
         ApiClient.get(`/tickets?pageSize=1&unassigned=true`),
         ApiClient.get(`/tickets?pageSize=1&status=NEW,OPEN,IN_PROGRESS,TRIAGE&createdAfter=${monthStart}`),
         ApiClient.get(`/tickets?pageSize=1&status=RESOLVED,CLOSED&createdAfter=${monthStart}`),
@@ -2147,7 +2162,7 @@ export const DocumentsPage: React.FC = () => {
 
       setPresetCounts({
         today_tickets: p1.status === 'fulfilled' ? (p1.value?.total ?? (p1.value?.tickets?.length || 0)) : undefined,
-        open_escalated: p2.status === 'fulfilled' ? (p2.value?.total ?? (p2.value?.tickets?.length || 0)) : undefined,
+        last_30_days: p2.status === 'fulfilled' ? (p2.value?.total ?? (p2.value?.tickets?.length || 0)) : undefined,
         unassigned_tickets: p3.status === 'fulfilled' ? (p3.value?.total ?? (p3.value?.tickets?.length || 0)) : undefined,
         this_month_open: p4.status === 'fulfilled' ? (p4.value?.total ?? (p4.value?.tickets?.length || 0)) : undefined,
         resolved_month: p5.status === 'fulfilled' ? (p5.value?.total ?? (p5.value?.tickets?.length || 0)) : undefined,
@@ -2376,11 +2391,17 @@ export const DocumentsPage: React.FC = () => {
       });
     }
 
-    if (filters.organization) {
+    const effectiveOrgs =
+      filters.organizations && filters.organizations.length > 0
+        ? filters.organizations
+        : filters.organization
+          ? [filters.organization]
+          : [];
+    if (effectiveOrgs.length > 0) {
       chips.push({
         id: 'org',
-        label: `🏢 Client: ${filters.organization}`,
-        onRemove: () => setFilters((p) => ({ ...p, organization: '' })),
+        label: effectiveOrgs.length === 1 ? `🏢 Client: ${effectiveOrgs[0]}` : `🏢 Clients (${effectiveOrgs.length})`,
+        onRemove: () => setFilters((p) => ({ ...p, organizations: [], organization: '' })),
       });
     }
 
@@ -2494,10 +2515,16 @@ export const DocumentsPage: React.FC = () => {
     if (f.teamIds.length > 0 && (!ticketTeamId || !f.teamIds.includes(ticketTeamId))) return false;
     if (f.queueIds.length > 0 && (!ticketQueueId || !f.queueIds.includes(ticketQueueId))) return false;
 
-    // 8. Organization (single selection check)
-    if (f.organization) {
-      const orgName = ticket.organization || ticket.customFields?.organization || '';
-      if (!orgName.toLowerCase().includes(f.organization.toLowerCase())) return false;
+    // 8. Organization (multi-select check with fallback to single selection)
+    const effectiveOrgs =
+      f.organizations && f.organizations.length > 0
+        ? f.organizations
+        : f.organization
+          ? [f.organization]
+          : [];
+    if (effectiveOrgs.length > 0) {
+      const orgName = (ticket.organization || ticket.customFields?.organization || ticket.organizationId || '').toString();
+      if (!effectiveOrgs.some((org) => orgName.toLowerCase().includes(org.toLowerCase()))) return false;
     }
 
     // 9. Product
@@ -2547,7 +2574,13 @@ export const DocumentsPage: React.FC = () => {
       else if (filters.assigneeIds.length > 0) params.set('assigneeId', filters.assigneeIds.join(','));
       if (filters.teamIds.length > 0) params.set('teamId', filters.teamIds.join(','));
       if (filters.queueIds.length > 0) params.set('queueId', filters.queueIds.join(','));
-      if (filters.organization) params.set('organization', filters.organization);
+      const activeOrgs =
+        filters.organizations && filters.organizations.length > 0
+          ? filters.organizations
+          : filters.organization
+            ? [filters.organization]
+            : [];
+      if (activeOrgs.length > 0) params.set('organization', activeOrgs.join(','));
       if (filters.products.length > 0) params.set('product', filters.products.join(','));
       if (filters.categories.length > 0) params.set('category', filters.categories.join(','));
       if (filters.tags.length > 0) params.set('tag', filters.tags.join(','));
@@ -2901,7 +2934,13 @@ export const DocumentsPage: React.FC = () => {
       else if (filters.assigneeIds.length > 0) baseParams.set('assigneeId', filters.assigneeIds.join(','));
       if (filters.teamIds.length > 0) baseParams.set('teamId', filters.teamIds.join(','));
       if (filters.queueIds.length > 0) baseParams.set('queueId', filters.queueIds.join(','));
-      if (filters.organization) baseParams.set('organization', filters.organization);
+      const activeOrgs =
+        filters.organizations && filters.organizations.length > 0
+          ? filters.organizations
+          : filters.organization
+            ? [filters.organization]
+            : [];
+      if (activeOrgs.length > 0) baseParams.set('organization', activeOrgs.join(','));
       if (filters.products.length > 0) baseParams.set('product', filters.products.join(','));
       if (filters.categories.length > 0) baseParams.set('category', filters.categories.join(','));
       if (filters.tags.length > 0) baseParams.set('tag', filters.tags.join(','));
@@ -3053,9 +3092,13 @@ export const DocumentsPage: React.FC = () => {
       case 'today_tickets':
         generateAndDownload({ createdAfter: `${new Date().toISOString().split('T')[0]}T00:00:00.000Z` }, 'todays-tickets');
         break;
-      case 'open_escalated':
-        generateAndDownload({ status: 'OPEN,IN_PROGRESS,TRIAGE,ESCALATED_L2,ESCALATED_L3,IN_DEVELOPMENT,IN_QA' }, 'open-escalated-tickets');
+      case 'last_30_days': {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        const start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T00:00:00.000Z`;
+        generateAndDownload({ createdAfter: start }, 'last-30-days-tickets');
         break;
+      }
       case 'unassigned_tickets':
         generateAndDownload({ unassigned: 'true' }, 'unassigned-tickets-report');
         break;
@@ -3734,12 +3777,44 @@ export const DocumentsPage: React.FC = () => {
                   <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Created today • CSV</div>
                 </div>
               </div>
-              <Download size={15} style={{ color: 'var(--text-muted)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  title="Schedule Automated Email Delivery"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setScheduleModalType('today_tickets');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    padding: '5px',
+                    borderRadius: '5px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#0284c7';
+                    e.currentTarget.style.backgroundColor = 'rgba(2, 132, 199, 0.12)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text-muted)';
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                >
+                  <Settings size={15} />
+                </button>
+                <Download size={15} style={{ color: 'var(--text-muted)' }} />
+              </div>
             </div>
 
-            {/* Preset 2: Open & Escalated */}
+            {/* Preset 2: Last 30 Days */}
             <div
-              onClick={() => handleQuickExport('open_escalated')}
+              onClick={() => handleQuickExport('last_30_days')}
               style={{
                 backgroundColor: 'var(--bg-surface, #ffffff)',
                 border: '1px solid var(--border-subtle, #e2e8f0)',
@@ -3752,8 +3827,8 @@ export const DocumentsPage: React.FC = () => {
                 transition: 'all 0.15s ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#dc2626';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.1)';
+                e.currentTarget.style.borderColor = '#6366f1';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.12)';
                 e.currentTarget.style.transform = 'translateY(-2px)';
               }}
               onMouseLeave={(e) => {
@@ -3763,22 +3838,54 @@ export const DocumentsPage: React.FC = () => {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <AlertTriangle size={18} />
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Calendar size={18} />
                 </div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Open & Escalated</span>
-                    {presetCounts.open_escalated !== undefined && (
-                      <span style={{ fontSize: '10.5px', fontWeight: 700, backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#dc2626', padding: '1px 6px', borderRadius: '10px' }}>
-                        {presetCounts.open_escalated}
+                    <span>Last 30 Days</span>
+                    {presetCounts.last_30_days !== undefined && (
+                      <span style={{ fontSize: '10.5px', fontWeight: 700, backgroundColor: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', padding: '1px 6px', borderRadius: '10px' }}>
+                        {presetCounts.last_30_days}
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>L2/L3 & Dev Queue • CSV</div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Last 30 days • CSV</div>
                 </div>
               </div>
-              <Download size={15} style={{ color: 'var(--text-muted)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  title="Schedule Automated Email Delivery"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setScheduleModalType('last_30_days');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    padding: '5px',
+                    borderRadius: '5px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#6366f1';
+                    e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.12)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text-muted)';
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                >
+                  <Settings size={15} />
+                </button>
+                <Download size={15} style={{ color: 'var(--text-muted)' }} />
+              </div>
             </div>
 
             {/* Preset 3: Unassigned Tickets */}
@@ -4074,14 +4181,23 @@ export const DocumentsPage: React.FC = () => {
               onChange={(vals) => setFilters((p) => ({ ...p, teamIds: vals }))}
             />
 
-            {/* Card D: Client Organization Single-Select */}
-            <SearchableSingleSelect
+            {/* Card D: Client Organization Multi-Select */}
+            <SearchableMultiSelect
               label="4. Client Organization"
               icon={<Building2 size={14} style={{ color: 'var(--primary, #2563eb)' }} />}
-              placeholder="All Organizations (Search & select 1)..."
-              options={organizations.map((org: any) => ({ value: org.name || org.id, label: org.name }))}
-              selectedValue={filters.organization}
-              onChange={(val) => setFilters((p) => ({ ...p, organization: val }))}
+              placeholder="All Organizations (Search & Multi-select)..."
+              options={organizations.map((org: any) => ({
+                value: org.name || org.id,
+                label: org.name || org.id,
+              }))}
+              selectedValues={filters.organizations || (filters.organization ? [filters.organization] : [])}
+              onChange={(vals) =>
+                setFilters((p) => ({
+                  ...p,
+                  organizations: vals,
+                  organization: vals.length === 1 ? vals[0] : '',
+                }))
+              }
             />
 
             {/* Card E: Products Multi-Select */}
@@ -5354,6 +5470,15 @@ export const DocumentsPage: React.FC = () => {
           <PerformanceReportsModal
             isOpen={isReportModalOpen}
             onClose={() => setIsReportModalOpen(false)}
+          />
+        )}
+
+        {/* Scheduled Nightly 11:58 PM Report Email Modal */}
+        {scheduleModalType && (
+          <ScheduleReportModal
+            isOpen={true}
+            onClose={() => setScheduleModalType(null)}
+            reportType={scheduleModalType}
           />
         )}
       </div>

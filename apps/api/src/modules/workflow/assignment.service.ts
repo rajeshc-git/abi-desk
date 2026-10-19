@@ -13,6 +13,7 @@ import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { TicketService } from '../tickets/ticket.service';
 import { toPolicySubject } from '../tickets/ticket-scope';
 import { MailService } from '../../infra/mail/mail.service';
+import { escapeHtml } from '../../infra/mail/mail.templates';
 import { Prisma, type SupportTier } from '@abi-desk/db';
 import { ACTIVE_STATUSES } from '../tickets/ticket.dto';
 import { type AssignDto, type BulkUpdateDto } from './workflow.dto';
@@ -476,7 +477,7 @@ export class AssignmentService {
                 ? `
             <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 6px 6px 0;">
               <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase;">Note from Support Team:</p>
-              <p style="margin: 6px 0 0 0; font-size: 14px; color: #1e293b; white-space: pre-wrap;">${comment}</p>
+              <p style="margin: 6px 0 0 0; font-size: 14px; line-height: 1.5; color: #1e293b;">${escapeHtml(comment).replace(/\r\n|\r|\n/g, '<br />')}</p>
             </div>
             `
                 : ''

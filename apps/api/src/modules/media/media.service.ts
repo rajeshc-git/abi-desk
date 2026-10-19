@@ -65,10 +65,10 @@ export class MediaService {
       );
     }
 
-    // The declared type has to be on the allow-list before anything is reserved.
-    // Checking it again after upload is not enough on its own: refusing early avoids
-    // handing out a presigned URL for something that can never be accepted.
-    if (!ALLOWED_MIME_TYPES.has(input.declaredMimeType)) {
+    // The declared type has to be on the allow-list before anything is reserved,
+    // except for generic attachments (where arbitrary documents/spreadsheets/files are permitted).
+    const isGenericAttachment = input.kind === 'ATTACHMENT' || input.kind === 'CHAT_ATTACHMENT';
+    if (!isGenericAttachment && !ALLOWED_MIME_TYPES.has(input.declaredMimeType)) {
       throw AppException.unprocessable(
         `Content type '${input.declaredMimeType}' is not accepted.`,
         [{ path: 'declaredMimeType', message: 'Unsupported content type.' }],
@@ -220,28 +220,34 @@ export class MediaService {
       );
     }
 
+    const isGenericAttachment = asset.kind === 'ATTACHMENT' || asset.kind === 'CHAT_ATTACHMENT';
+
     // Read only the head of the object: enough to identify the format, and bounded so
     // a large upload cannot be turned into a large allocation here.
     const sniff = await this.storage.getObjectRange(asset.storageKey, 0, SNIFF_BYTES - 1);
     const detected = detectType(sniff);
 
-    if (!detected || !ALLOWED_MIME_TYPES.has(detected.mimeType)) {
-      return this.quarantine(mediaId, 'The uploaded bytes are not a recognised, accepted format.', {
-        mediaId,
-        declared: asset.declaredMimeType,
-        detected: detected?.mimeType ?? null,
-      });
+    if (!isGenericAttachment) {
+      if (!detected || !ALLOWED_MIME_TYPES.has(detected.mimeType)) {
+        return this.quarantine(mediaId, 'The uploaded bytes are not a recognised, accepted format.', {
+          mediaId,
+          declared: asset.declaredMimeType,
+          detected: detected?.mimeType ?? null,
+        });
+      }
+
+      if (asset.declaredMimeType && !isCompatibleType(detected.mimeType, asset.declaredMimeType)) {
+        return this.quarantine(
+          mediaId,
+          `Content is ${detected.mimeType} but was declared as ${asset.declaredMimeType}.`,
+          { mediaId, declared: asset.declaredMimeType, detected: detected.mimeType },
+        );
+      }
     }
 
-    if (asset.declaredMimeType && !isCompatibleType(detected.mimeType, asset.declaredMimeType)) {
-      return this.quarantine(
-        mediaId,
-        `Content is ${detected.mimeType} but was declared as ${asset.declaredMimeType}.`,
-        { mediaId, declared: asset.declaredMimeType, detected: detected.mimeType },
-      );
-    }
-
-    const storedType = resolveStoredType(detected, asset.declaredMimeType ?? undefined);
+    const storedType = isGenericAttachment
+      ? (asset.declaredMimeType || detected?.mimeType || 'application/octet-stream')
+      : resolveStoredType(detected!, asset.declaredMimeType ?? undefined);
 
     const updated = await this.prisma.client.mediaAsset.update({
       where: { id: mediaId },
@@ -445,6 +451,7 @@ export class MediaService {
       where: { id: mediaId, tenantId, uploadedById: principal.userId, deletedAt: null },
       select: {
         id: true,
+        kind: true,
         status: true,
         storageKey: true,
         sizeBytes: true,

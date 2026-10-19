@@ -438,6 +438,55 @@
   outline: none;
 }
 
+.composer-rich-editor {
+  overflow-y: auto;
+  line-height: 1.6;
+  white-space: normal;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
+}
+
+.composer-rich-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted, #94a3b8);
+  pointer-events: none;
+  font-style: normal;
+  font-size: 13px;
+  line-height: inherit;
+  display: block;
+}
+
+.composer-rich-editor table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  max-width: 100%;
+  border: 1px solid var(--border-medium, #cbd5e1);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.composer-rich-editor th,
+.composer-rich-editor td {
+  border: 1px solid var(--border-medium, #cbd5e1);
+  padding: 4px 8px;
+  min-width: 40px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.composer-rich-editor th {
+  background-color: var(--bg-surface-elevated, #f8fafc);
+  font-weight: 600;
+}
+
+.composer-rich-editor mark {
+  background-color: #fef08a;
+  color: inherit;
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
 .composer-footer {
   display: flex;
   align-items: center;

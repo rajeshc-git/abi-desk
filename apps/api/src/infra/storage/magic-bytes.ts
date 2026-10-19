@@ -69,12 +69,24 @@ const SIGNATURES: readonly Signature[] = [
   { mimeType: 'audio/mpeg', extension: 'mp3', offset: 0, bytes: [0xff, 0xf3] },
   { mimeType: 'audio/mpeg', extension: 'mp3', offset: 0, bytes: [0xff, 0xf2] },
   {
-    // MP4/MOV containers store their type in an "ftyp" box starting at offset 4,
-    // not at the start of the file.
     mimeType: 'video/mp4',
     extension: 'mp4',
     offset: 4,
     bytes: [0x66, 0x74, 0x79, 0x70], // "ftyp"
+  },
+  {
+    // Zip-based archives and Office OpenXML formats (.xlsx, .docx, .pptx)
+    mimeType: 'application/zip',
+    extension: 'zip',
+    offset: 0,
+    bytes: [0x50, 0x4b, 0x03, 0x04],
+  },
+  {
+    // Microsoft Compound Binary File format (.xls, .doc, .ppt)
+    mimeType: 'application/x-ole-storage',
+    extension: 'bin',
+    offset: 0,
+    bytes: [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
   },
 ];
 
@@ -85,8 +97,11 @@ const SIGNATURES: readonly Signature[] = [
 export const ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
   'image/png',
   'image/jpeg',
+  'image/jpg',
   'image/gif',
   'image/webp',
+  'image/svg+xml',
+  'image/bmp',
   'application/pdf',
   'video/webm',
   'audio/webm',
@@ -97,6 +112,19 @@ export const ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
   'text/plain',
   'text/csv',
   'application/json',
+  'application/xml',
+  'text/xml',
+  'text/markdown',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-ole-storage',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+  'application/octet-stream',
 ]);
 
 /**
@@ -112,7 +140,20 @@ export const ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
  */
 const COMPATIBLE_DECLARATIONS: Readonly<Record<string, readonly string[]>> = {
   'video/webm': ['audio/webm'],
-  'text/plain': ['text/csv', 'application/json'],
+  'text/plain': ['text/csv', 'application/json', 'text/xml', 'application/xml', 'text/markdown'],
+  'application/zip': [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/x-zip-compressed',
+    'application/octet-stream',
+  ],
+  'application/x-ole-storage': [
+    'application/vnd.ms-excel',
+    'application/msword',
+    'application/vnd.ms-powerpoint',
+    'application/octet-stream',
+  ],
 };
 
 /**

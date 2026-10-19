@@ -13,7 +13,14 @@ import {
   Plus,
   ExternalLink,
   AtSign,
-  Search,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  List,
+  ListOrdered,
+  Table,
+  Highlighter,
 } from 'lucide-react';
 import { TicketsApi } from '../../api/tickets';
 import { ApiClient } from '../../api/client';
@@ -59,12 +66,12 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     setIsInternal(initialIsInternal);
   }, [initialIsInternal]);
 
-  // Auto-focus textarea when composer opens
+  // Auto-focus editor when composer opens
   useEffect(() => {
-    if (!isMinimized && textareaRef.current) {
+    if (!isMinimized && editorRef.current) {
       // Small timeout to allow render/animation to settle
       const timer = setTimeout(() => {
-        textareaRef.current?.focus();
+        editorRef.current?.focus();
       }, 50);
       return () => clearTimeout(timer);
     }
@@ -86,8 +93,9 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   >([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const mentionDropdownRef = useRef<HTMLDivElement>(null);
+  const savedMentionRangeRef = useRef<{ node: Node; atIdx: number; endOffset: number } | null>(null);
 
   // @Mention Autocomplete state
   const [staffUsers, setStaffUsers] = useState<Array<{ id: string; fullName: string; email: string; role?: string; tier?: string }>>([]);
@@ -170,6 +178,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       // If user typed something that looks like an email domain (e.g. "gmail.com"), don't trigger mention autocomplete
       if (/\.[a-zA-Z]{2,}$/.test(query)) {
         setMentionQuery(null);
+        savedMentionRangeRef.current = null;
         return;
       }
 
@@ -177,29 +186,70 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       const atIndex = textBefore.lastIndexOf('@');
       setMentionStartPos(atIndex);
       setMentionIndex(0);
+
+      const sel = window.getSelection();
+      if (sel && sel.anchorNode && sel.anchorNode.nodeType === Node.TEXT_NODE) {
+        savedMentionRangeRef.current = {
+          node: sel.anchorNode,
+          atIdx: atIndex,
+          endOffset: sel.anchorOffset,
+        };
+      }
     } else {
       setMentionQuery(null);
+      savedMentionRangeRef.current = null;
     }
   };
 
   const handleSelectMention = (targetUser: { fullName: string; email: string }) => {
-    const textarea = textareaRef.current;
-    if (!textarea || mentionStartPos < 0) return;
+    const editor = editorRef.current;
+    if (!editor) return;
 
+    editor.focus();
     const mentionTag = `@${targetUser.fullName || targetUser.email} `;
-    const cursor = textarea.selectionStart ?? body.length;
-    const before = body.substring(0, mentionStartPos);
-    const after = body.substring(cursor);
-    const newBody = `${before}${mentionTag}${after}`;
 
-    setBody(newBody);
+    let replaced = false;
+    const saved = savedMentionRangeRef.current;
+
+    if (saved && editor.contains(saved.node) && saved.node.nodeType === Node.TEXT_NODE) {
+      const currentText = saved.node.textContent || '';
+      if (saved.atIdx >= 0 && saved.atIdx < currentText.length) {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        const end = Math.min(Math.max(saved.endOffset, saved.atIdx + 1), currentText.length);
+        range.setStart(saved.node, saved.atIdx);
+        range.setEnd(saved.node, end);
+        range.deleteContents();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        replaced = true;
+      }
+    }
+
+    if (!replaced) {
+      const sel = window.getSelection();
+      if (sel && sel.anchorNode && sel.anchorNode.nodeType === Node.TEXT_NODE) {
+        const node = sel.anchorNode;
+        const offset = sel.anchorOffset;
+        const textBefore = node.textContent?.slice(0, offset) || '';
+        const atIdx = textBefore.lastIndexOf('@');
+        if (atIdx >= 0) {
+          const range = document.createRange();
+          range.setStart(node, atIdx);
+          range.setEnd(node, offset);
+          range.deleteContents();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    }
+
+    document.execCommand('insertText', false, mentionTag);
+    savedMentionRangeRef.current = null;
+    setBody(editor.innerHTML);
     setMentionQuery(null);
-
-    setTimeout(() => {
-      textarea.focus();
-      const newPos = mentionStartPos + mentionTag.length;
-      textarea.setSelectionRange(newPos, newPos);
-    }, 20);
   };
 
   const handleRemoveMention = (name: string) => {
@@ -208,78 +258,12 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     const newBody = body.replace(regex, '');
     setBody(newBody);
     setMentionQuery(null);
-    if (textareaRef.current) {
-      textareaRef.current.focus();
+    if (editorRef.current) {
+      editorRef.current.innerHTML = newBody;
+      editorRef.current.focus();
     }
   };
 
-  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
-    // If mention popover is actively open with navigation
-    if (mentionQuery !== null && filteredMentions.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setMentionIndex((prev) => (prev + 1) % filteredMentions.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setMentionIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        handleSelectMention(filteredMentions[mentionIndex]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setMentionQuery(null);
-        return;
-      }
-    }
-
-    // Smart Atomic Backspace: If cursor is right after an @Mention tag, delete the whole tag in 1 press
-    if (e.key === 'Backspace') {
-      const textarea = textareaRef.current;
-      if (textarea && textarea.selectionStart === textarea.selectionEnd) {
-        const cursor = textarea.selectionStart;
-        const textBefore = body.slice(0, cursor);
-
-        for (const staff of staffUsers) {
-          const name = staff.fullName || staff.email;
-          if (!name) continue;
-          const tagWithSpace = `@${name} `;
-          const tagWithoutSpace = `@${name}`;
-
-          if (textBefore.endsWith(tagWithSpace)) {
-            e.preventDefault();
-            const newBody = body.slice(0, cursor - tagWithSpace.length) + body.slice(cursor);
-            setBody(newBody);
-            setMentionQuery(null);
-            setTimeout(() => {
-              textarea.focus();
-              const newPos = cursor - tagWithSpace.length;
-              textarea.setSelectionRange(newPos, newPos);
-            }, 10);
-            return;
-          }
-
-          if (textBefore.endsWith(tagWithoutSpace)) {
-            e.preventDefault();
-            const newBody = body.slice(0, cursor - tagWithoutSpace.length) + body.slice(cursor);
-            setBody(newBody);
-            setMentionQuery(null);
-            setTimeout(() => {
-              textarea.focus();
-              const newPos = cursor - tagWithoutSpace.length;
-              textarea.setSelectionRange(newPos, newPos);
-            }, 10);
-            return;
-          }
-        }
-      }
-    }
-  };
 
   // Snippet dropdown & modal state
   const [isSnippetDropdownOpen, setIsSnippetDropdownOpen] = useState(false);
@@ -312,8 +296,8 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       if (
         mentionDropdownRef.current &&
         !mentionDropdownRef.current.contains(e.target as Node) &&
-        textareaRef.current &&
-        !textareaRef.current.contains(e.target as Node)
+        editorRef.current &&
+        !editorRef.current.contains(e.target as Node)
       ) {
         setMentionQuery(null);
       }
@@ -334,28 +318,17 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   };
 
   const handleApplySnippet = (snippetText: string) => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      const start = textarea.selectionStart ?? 0;
-      const end = textarea.selectionEnd ?? 0;
+    const editor = editorRef.current;
+    const formatted = snippetText.includes('<')
+      ? snippetText
+      : snippetText.replace(/\r\n|\r|\n/g, '<br>');
 
-      // If user specifically highlighted text, replace just that highlighted selection
-      if (start !== end && body) {
-        const before = body.substring(0, start);
-        const after = body.substring(end);
-        const newBody = `${before}${snippetText}${after}`;
-        setBody(newBody);
-      } else {
-        // When choosing templates one after another, replace the previous template cleanly
-        setBody(snippetText);
-      }
-
-      setTimeout(() => {
-        textarea.focus();
-        textarea.setSelectionRange(snippetText.length, snippetText.length);
-      }, 50);
+    if (editor) {
+      editor.focus();
+      editor.innerHTML = formatted;
+      setBody(formatted);
     } else {
-      setBody(snippetText);
+      setBody(formatted);
     }
     setIsSnippetDropdownOpen(false);
   };
@@ -411,15 +384,238 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       .trim();
   };
 
+  const cleanHtmlForPasting = (rawHtml: string): string => {
+    if (!rawHtml) return '';
+    let cleaned = rawHtml
+      .replace(/^(?:Version:\d+\.\d+|StartHTML:\d+|EndHTML:\d+|StartFragment:\d+|EndFragment:\d+|SourceURL:[^\r\n]*)\s*[\r\n]*/gim, '')
+      .replace(/<!--\s*Start(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+      .replace(/<!--\s*End(?:Fragment|Element)\s*(?:-->|→|>)?/gi, '')
+      .replace(/<\/?(?:Start|End)(?:Fragment|Element)[^>]*>/gi, '')
+      .replace(/<!--\[if[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi, '')
+      .replace(/<\/?(?:o|w|m|v):[^>]*>/gi, '')
+      .replace(/<\/?(?:html|body|head|meta|link|style|script|title)[^>]*>/gi, '')
+    // Normalize font sizes, line heights and font families so pasted text matches the compact 13px composer text
+    cleaned = cleaned
+      .replace(/font-size\s*:\s*[^;"]+;?/gi, 'font-size: 13px;')
+      .replace(/font-family\s*:\s*[^;"]+;?/gi, 'font-family: inherit;')
+      .replace(/line-height\s*:\s*[^;"]+;?/gi, 'line-height: 1.4;');
+
+    if (/<table[^>]*>/i.test(cleaned)) {
+      cleaned = cleaned
+        .replace(/<table(?![^>]*style=)[^>]*>/gi, '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit;">')
+        .replace(/<table([^>]*style=["'])([^"']*)(["'][^>]*)>/gi, '<table$1border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit; $2$3 border="1" cellpadding="5" cellspacing="0">')
+        .replace(/<td(?![^>]*style=)[^>]*>/gi, '<td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; font-size: 13px; line-height: 1.35;">')
+        .replace(/<th(?![^>]*style=)[^>]*>/gi, '<th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; background-color: #f8fafc; font-weight: 600; font-size: 13px; line-height: 1.35; white-space: nowrap; text-align: left;">');
+    }
+
+    return cleaned;
+  };
+
+  const executeFormat = (cmd: string, val: string | undefined = undefined) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand(cmd, false, val);
+      setBody(editorRef.current.innerHTML);
+    }
+  };
+
+  const handleHighlight = () => {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    // Specifically detect yellow highlight colors (#fef08a, #facc15, yellow, rgb(254, 240, 138), etc.)
+    const isYellowHighlight = (c: string) => {
+      if (!c) return false;
+      const col = c.toLowerCase().trim();
+      return (
+        col.includes('254, 240, 138') ||
+        col.includes('250, 204, 21') ||
+        col.includes('255, 255, 0') ||
+        col.includes('fef08a') ||
+        col.includes('facc15') ||
+        col === 'yellow'
+      );
+    };
+
+    let alreadyHighlighted = false;
+
+    // 1. Check document.queryCommandValue
+    try {
+      const qVal = document.queryCommandValue('backColor') || document.queryCommandValue('hiliteColor');
+      if (qVal && isYellowHighlight(qVal)) {
+        alreadyHighlighted = true;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Check DOM tree of the current selection
+    const range = sel.getRangeAt(0);
+    let curr: Node | null = range.commonAncestorContainer;
+    if (curr.nodeType === Node.TEXT_NODE) curr = curr.parentNode;
+
+    while (curr && curr !== editorRef.current) {
+      if (curr instanceof HTMLElement) {
+        if (curr.tagName === 'MARK') {
+          alreadyHighlighted = true;
+          break;
+        }
+        if (curr.style.backgroundColor && isYellowHighlight(curr.style.backgroundColor)) {
+          alreadyHighlighted = true;
+          break;
+        }
+      }
+      curr = curr.parentNode;
+    }
+
+    // 3. Also check within cloned contents if not collapsed
+    if (!alreadyHighlighted && !range.collapsed) {
+      const frag = range.cloneContents();
+      const match = frag.querySelector?.('mark, [style*="background-color"]');
+      if (match) {
+        if (match.tagName === 'MARK') {
+          alreadyHighlighted = true;
+        } else if ((match as HTMLElement).style.backgroundColor && isYellowHighlight((match as HTMLElement).style.backgroundColor)) {
+          alreadyHighlighted = true;
+        }
+      }
+    }
+
+    if (alreadyHighlighted) {
+      // TOGGLE OFF / UNDO HIGHLIGHT
+      if (range.collapsed) {
+        let targetEl: HTMLElement | null = null;
+        let walk: Node | null = range.startContainer;
+        if (walk.nodeType === Node.TEXT_NODE) walk = walk.parentNode;
+        while (walk && walk !== editorRef.current) {
+          if (
+            walk instanceof HTMLElement &&
+            (walk.tagName === 'MARK' || (walk.style.backgroundColor && isYellowHighlight(walk.style.backgroundColor)))
+          ) {
+            targetEl = walk;
+            break;
+          }
+          walk = walk.parentNode;
+        }
+        if (targetEl) {
+          const newRange = document.createRange();
+          newRange.selectNodeContents(targetEl);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+      }
+
+      // Execute transparent backColor / hiliteColor
+      const applied = document.execCommand('hiliteColor', false, 'transparent');
+      if (!applied) {
+        document.execCommand('backColor', false, 'transparent');
+      }
+
+      // Clean up ancestor highlight style if inside a yellow highlight element
+      let cleanNode: Node | null = sel.getRangeAt(0).commonAncestorContainer;
+      if (cleanNode.nodeType === Node.TEXT_NODE) cleanNode = cleanNode.parentNode;
+      while (cleanNode && cleanNode !== editorRef.current) {
+        if (cleanNode instanceof HTMLElement) {
+          if (cleanNode.tagName === 'MARK') {
+            const p = cleanNode.parentNode;
+            if (p) {
+              while (cleanNode.firstChild) p.insertBefore(cleanNode.firstChild, cleanNode);
+              p.removeChild(cleanNode);
+            }
+          } else if (cleanNode.style.backgroundColor && isYellowHighlight(cleanNode.style.backgroundColor)) {
+            cleanNode.style.backgroundColor = '';
+          }
+        }
+        cleanNode = cleanNode.parentNode;
+      }
+
+      // Also clean up any matching elements inside selection
+      const spans = editorRef.current.querySelectorAll('mark, span');
+      spans.forEach((node) => {
+        const el = node as HTMLElement;
+        if (el.tagName === 'MARK') {
+          const p = el.parentNode;
+          if (p) {
+            while (el.firstChild) p.insertBefore(el.firstChild, el);
+            p.removeChild(el);
+          }
+          return;
+        }
+        const bg = el.style.backgroundColor;
+        if (isYellowHighlight(bg) || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)' || bg === 'inherit') {
+          if (sel.containsNode(el, true)) {
+            el.style.backgroundColor = '';
+          }
+        }
+        if (!el.getAttribute('style')?.trim() && el.tagName === 'SPAN' && el.attributes.length === 0) {
+          const p = el.parentNode;
+          if (p) {
+            while (el.firstChild) p.insertBefore(el.firstChild, el);
+            p.removeChild(el);
+          }
+        }
+      });
+    } else {
+      // APPLY YELLOW HIGHLIGHT
+      const applied = document.execCommand('hiliteColor', false, '#fef08a');
+      if (!applied) {
+        document.execCommand('backColor', false, '#fef08a');
+      }
+    }
+
+    setBody(editorRef.current.innerHTML);
+  };
+
+  const handleInsertTable = () => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      const tableHtml = `
+<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit;">
+  <thead>
+    <tr style="background-color: #f8fafc;">
+      <th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-weight: 600; font-size: 13px;">Column 1</th>
+      <th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-weight: 600; font-size: 13px;">Column 2</th>
+      <th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-weight: 600; font-size: 13px;">Column 3</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-size: 13px;">&nbsp;</td>
+      <td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-size: 13px;">&nbsp;</td>
+      <td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-size: 13px;">&nbsp;</td>
+    </tr>
+  </tbody>
+</table><p><br></p>`.trim();
+      document.execCommand('insertHTML', false, tableHtml);
+      setBody(editorRef.current.innerHTML);
+    }
+  };
+
+  const isBodyEmpty = useMemo(() => {
+    if (!body) return true;
+    const stripped = body
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
+    return stripped.length === 0 && !body.includes('<table') && !body.includes('<img');
+  }, [body]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (uploadedFiles.some((f) => f.isUploading)) {
       alert('Please wait for files/images to finish uploading before sending.');
       return;
     }
-    const cleanBody = cleanClipboardFragments(body);
+    const currentHtml = editorRef.current?.innerHTML || body;
+    const cleanBody = cleanClipboardFragments(currentHtml);
+    const textOnly = cleanBody.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
     const readyFileIds = uploadedFiles.filter((f) => !f.isUploading && !f.id.startsWith('temp-')).map((f) => f.id);
-    const effectiveBody = cleanBody || (readyFileIds.length > 0 ? '(Attached file)' : '');
+    const effectiveBody = textOnly || cleanBody.includes('<table') || cleanBody.includes('<img')
+      ? cleanBody
+      : (readyFileIds.length > 0 ? '(Attached file)' : '');
     if (!effectiveBody || isSending || isUploading) return;
 
     // Flush any pending text in ccInput
@@ -437,6 +633,9 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       !isInternal && finalCcList.length > 0 ? finalCcList : undefined,
     );
     setBody('');
+    if (editorRef.current) {
+      editorRef.current.innerHTML = '';
+    }
     uploadedFiles.forEach((f) => {
       if (f.previewUrl && f.previewUrl.startsWith('blob:')) {
         URL.revokeObjectURL(f.previewUrl);
@@ -784,7 +983,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
               )}
             </div>
 
-            {isMinimized && body.trim().length > 0 && (
+            {isMinimized && !isBodyEmpty && (
               <span
                 style={{
                   fontSize: '11px',
@@ -1158,6 +1357,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
               {mentionQuery !== null && (
                 <div
                   ref={mentionDropdownRef}
+                  onMouseDown={(e) => e.preventDefault()}
                   style={{
                     position: 'absolute',
                     top: '10px',
@@ -1176,55 +1376,27 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {/* Popover Header with Search */}
+                  {/* Popover Header */}
                   <div
                     style={{
-                      padding: '8px 10px',
+                      padding: '8px 12px',
                       backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
                       borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
                       display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: 'var(--text-muted, #64748b)',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted, #64748b)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <AtSign size={13} style={{ color: 'var(--primary, #2563eb)' }} />
-                        <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>Mention Teammate</span>
-                      </div>
-                      <span style={{ fontSize: '10px', textTransform: 'none', fontWeight: 500 }}>
-                        ↑↓ to navigate • ↵ to select
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <AtSign size={13} style={{ color: 'var(--primary, #2563eb)' }} />
+                      <span style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>Mention Teammate</span>
                     </div>
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        backgroundColor: 'var(--bg-surface, #ffffff)',
-                        border: '1px solid var(--border-medium, #cbd5e1)',
-                        borderRadius: '6px',
-                        padding: '4px 8px',
-                      }}
-                    >
-                      <Search size={12} style={{ color: 'var(--text-muted)' }} />
-                      <input
-                        type="text"
-                        placeholder="Search team member..."
-                        value={mentionQuery}
-                        onChange={(e) => setMentionQuery(e.target.value)}
-                        onKeyDown={handleTextareaKeyDown}
-                        style={{
-                          border: 'none',
-                          outline: 'none',
-                          fontSize: '12px',
-                          width: '100%',
-                          background: 'transparent',
-                          color: 'var(--text-primary)',
-                        }}
-                      />
-                    </div>
+                    <span style={{ fontSize: '10px', textTransform: 'none', fontWeight: 500 }}>
+                      ↑↓ to navigate • ↵ to select
+                    </span>
                   </div>
 
                   {/* Mentions List */}
@@ -1239,6 +1411,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                         return (
                           <div
                             key={staff.id}
+                            onMouseDown={(e) => e.preventDefault()}
                             onClick={() => handleSelectMention(staff)}
                             style={{
                               padding: '8px 12px',
@@ -1326,18 +1499,247 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                 </div>
               )}
 
-              <textarea
-                ref={textareaRef}
-                className="composer-textarea"
-                placeholder={
+              {/* Rich Text Formatting Toolbar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '6px 12px',
+                  backgroundColor: 'var(--bg-app, #f8fafc)',
+                  borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
+                  flexWrap: 'wrap',
+                  userSelect: 'none',
+                }}
+              >
+                <button
+                  type="button"
+                  title="Bold (Ctrl+B)"
+                  onClick={() => executeFormat('bold')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary, #475569)',
+                    padding: '4px 6px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                    fontSize: '12px',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <Bold size={13} />
+                </button>
+                <button
+                  type="button"
+                  title="Italic (Ctrl+I)"
+                  onClick={() => executeFormat('italic')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary, #475569)',
+                    padding: '4px 6px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                    fontSize: '12px',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <Italic size={13} />
+                </button>
+                <button
+                  type="button"
+                  title="Underline (Ctrl+U)"
+                  onClick={() => executeFormat('underline')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary, #475569)',
+                    padding: '4px 6px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                    fontSize: '12px',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <Underline size={13} />
+                </button>
+                <button
+                  type="button"
+                  title="Strikethrough"
+                  onClick={() => executeFormat('strikeThrough')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary, #475569)',
+                    padding: '4px 6px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                    fontSize: '12px',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <Strikethrough size={13} />
+                </button>
+
+                <div style={{ width: '1px', height: '15px', backgroundColor: 'var(--border-subtle, #cbd5e1)', margin: '0 4px' }} />
+
+                <button
+                  type="button"
+                  title="Bullet List"
+                  onClick={() => executeFormat('insertUnorderedList')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary, #475569)',
+                    padding: '4px 6px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                    fontSize: '12px',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <List size={13} />
+                </button>
+                <button
+                  type="button"
+                  title="Numbered List"
+                  onClick={() => executeFormat('insertOrderedList')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary, #475569)',
+                    padding: '4px 6px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                    fontSize: '12px',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <ListOrdered size={13} />
+                </button>
+
+                <div style={{ width: '1px', height: '15px', backgroundColor: 'var(--border-subtle, #cbd5e1)', margin: '0 4px' }} />
+
+                <button
+                  type="button"
+                  title="Insert Table (or paste Excel cells directly)"
+                  onClick={handleInsertTable}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--primary, #2563eb)',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(37,99,235,0.08)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <Table size={13} />
+                  <span style={{ fontSize: '11px' }}>Table</span>
+                </button>
+
+                <button
+                  type="button"
+                  title="Highlight / Unhighlight Text (Yellow)"
+                  onMouseDown={(e) => {
+                    // Prevent button click from losing editor text selection
+                    e.preventDefault();
+                  }}
+                  onClick={handleHighlight}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ca8a04',
+                    padding: '4px 7px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(250, 204, 21, 0.18)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
+                  <Highlighter size={13} />
+                  <span style={{ fontSize: '11px' }}>Highlight</span>
+                </button>
+
+                <div style={{ flex: 1 }} />
+              </div>
+
+              {/* Rich Visual Editor Area */}
+              <div
+                ref={editorRef}
+                className="composer-textarea composer-rich-editor"
+                contentEditable={true}
+                data-placeholder={
                   isInternal && canWriteInternal
                     ? 'Write an internal note for teammates (type @ to mention a teammate)...'
                     : 'Type your reply to the customer (type @ to mention a teammate)...'
                 }
-                value={body}
-                onChange={(e) => {
-                  setBody(e.target.value);
-                  checkMentionTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                onInput={() => {
+                  if (!editorRef.current) return;
+                  const currentHtml = editorRef.current.innerHTML;
+                  setBody(currentHtml);
+                  const sel = window.getSelection();
+                  if (sel && sel.anchorNode) {
+                    checkMentionTrigger(sel.anchorNode.textContent || '', sel.anchorOffset);
+                  } else {
+                    setMentionQuery(null);
+                  }
+                }}
+                onBlur={() => {
+                  if (editorRef.current) {
+                    setBody(editorRef.current.innerHTML);
+                  }
                 }}
                 onPaste={(e) => {
                   const clipboardData = e.clipboardData;
@@ -1356,7 +1758,6 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     }
                   }
 
-                  // Fallback for clipboardData.files if items array didn't return any
                   if (imageFiles.length === 0 && clipboardData.files && clipboardData.files.length > 0) {
                     for (const file of Array.from(clipboardData.files)) {
                       if (file.type.startsWith('image/')) {
@@ -1365,42 +1766,38 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     }
                   }
 
-                  // If image(s) detected, upload each one
                   if (imageFiles.length > 0) {
                     imageFiles.forEach((imgFile) => {
                       handleUploadPastedFile(imgFile);
                     });
                   }
 
-                  // 2. Handle text pasting and Outlook/Word fragment sanitization
-                  const pasted = clipboardData.getData('text');
+                  // 2. Rich HTML vs Plain Text pasting
+                  const htmlData = clipboardData.getData('text/html');
+                  const textData = clipboardData.getData('text/plain') || clipboardData.getData('text');
 
-                  // If pure image pasted (no meaningful text), prevent default so no empty line or broken glyph is inserted
-                  if (imageFiles.length > 0 && (!pasted || !pasted.trim())) {
+                  if (imageFiles.length > 0 && (!textData || !textData.trim()) && (!htmlData || !htmlData.trim())) {
                     e.preventDefault();
                     return;
                   }
 
-                  if (pasted) {
-                    const cleaned = cleanClipboardFragments(pasted);
-                    if (cleaned !== pasted) {
-                      e.preventDefault();
-                      const textarea = textareaRef.current;
-                      if (textarea) {
-                        const start = textarea.selectionStart ?? body.length;
-                        const end = textarea.selectionEnd ?? body.length;
-                        const before = body.slice(0, start);
-                        const after = body.slice(end);
-                        const newBody = before + cleaned + after;
-                        setBody(newBody);
-                        setTimeout(() => {
-                          const newPos = start + cleaned.length;
-                          textarea.focus();
-                          textarea.setSelectionRange(newPos, newPos);
-                        }, 0);
-                      } else {
-                        document.execCommand('insertText', false, cleaned);
-                      }
+                  if (htmlData && /<(?:table|tr|td|b|strong|i|em|u|p|div|ul|ol|li|h[1-6]|span|a|font)[^>]*>/i.test(htmlData)) {
+                    e.preventDefault();
+                    const cleaned = cleanHtmlForPasting(htmlData);
+                    document.execCommand('insertHTML', false, cleaned);
+                    if (editorRef.current) {
+                      setBody(editorRef.current.innerHTML);
+                    }
+                  } else if (textData) {
+                    e.preventDefault();
+                    const escaped = textData
+                      .replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/\r\n|\r|\n/g, '<br>');
+                    document.execCommand('insertHTML', false, escaped);
+                    if (editorRef.current) {
+                      setBody(editorRef.current.innerHTML);
                     }
                   }
                 }}
@@ -1417,20 +1814,137 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     imageFiles.forEach((imgFile) => handleUploadPastedFile(imgFile));
                   }
                 }}
-                onKeyDown={handleTextareaKeyDown}
-                onClick={(e) => {
-                  checkMentionTrigger(body, (e.target as HTMLTextAreaElement).selectionStart ?? body.length);
-                }}
-                onKeyUp={(e) => {
-                  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                    checkMentionTrigger(body, (e.target as HTMLTextAreaElement).selectionStart ?? body.length);
+                onKeyDown={(e) => {
+                  // Formatting shortcuts
+                  if (e.metaKey || e.ctrlKey) {
+                    const k = e.key.toLowerCase();
+                    if (k === 'b') {
+                      e.preventDefault();
+                      executeFormat('bold');
+                      return;
+                    }
+                    if (k === 'i') {
+                      e.preventDefault();
+                      executeFormat('italic');
+                      return;
+                    }
+                    if (k === 'u') {
+                      e.preventDefault();
+                      executeFormat('underline');
+                      return;
+                    }
+                  }
+
+                  // Mentions navigation
+                  if (mentionQuery !== null && filteredMentions.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setMentionIndex((prev) => (prev + 1) % filteredMentions.length);
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setMentionIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+                      return;
+                    }
+                    if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault();
+                      handleSelectMention(filteredMentions[mentionIndex]);
+                      return;
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setMentionQuery(null);
+                      return;
+                    }
+                  }
+
+                  // Smart Atomic Backspace: If cursor is right after an @Mention tag, delete the whole tag in 1 press
+                  if (e.key === 'Backspace') {
+                    const sel = window.getSelection();
+                    if (sel && sel.isCollapsed && sel.anchorNode) {
+                      const node = sel.anchorNode;
+                      const offset = sel.anchorOffset;
+                      if (node.nodeType === Node.TEXT_NODE) {
+                        const textBefore = node.textContent?.slice(0, offset) || '';
+
+                        for (const staff of staffUsers) {
+                          const name = staff.fullName || staff.email;
+                          if (!name) continue;
+                          const tagWithSpace = `@${name} `;
+                          const tagWithoutSpace = `@${name}`;
+
+                          if (textBefore.endsWith(tagWithSpace)) {
+                            e.preventDefault();
+                            const range = document.createRange();
+                            range.setStart(node, offset - tagWithSpace.length);
+                            range.setEnd(node, offset);
+                            range.deleteContents();
+                            if (editorRef.current) {
+                              setBody(editorRef.current.innerHTML);
+                            }
+                            setMentionQuery(null);
+                            return;
+                          }
+
+                          if (textBefore.endsWith(tagWithoutSpace)) {
+                            e.preventDefault();
+                            const range = document.createRange();
+                            range.setStart(node, offset - tagWithoutSpace.length);
+                            range.setEnd(node, offset);
+                            range.deleteContents();
+                            if (editorRef.current) {
+                              setBody(editorRef.current.innerHTML);
+                            }
+                            setMentionQuery(null);
+                            return;
+                          }
+                        }
+
+                        // Also match any @Mention pattern against staff list case-insensitively
+                        const mentionMatch = textBefore.match(/@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)\s?$/);
+                        if (mentionMatch) {
+                          const matchedTag = mentionMatch[0];
+                          const candidateName = mentionMatch[1].toLowerCase();
+                          const isKnownStaff = staffUsers.some((u) => {
+                            const fn = (u.fullName || '').toLowerCase();
+                            const em = (u.email || '').toLowerCase();
+                            return fn === candidateName || em === candidateName || em.split('@')[0] === candidateName;
+                          });
+                          if (isKnownStaff) {
+                            e.preventDefault();
+                            const range = document.createRange();
+                            range.setStart(node, offset - matchedTag.length);
+                            range.setEnd(node, offset);
+                            range.deleteContents();
+                            if (editorRef.current) {
+                              setBody(editorRef.current.innerHTML);
+                            }
+                            setMentionQuery(null);
+                            return;
+                          }
+                        }
+                      }
+                    }
                   }
                 }}
-                style={{ flex: 1, minHeight: '180px', height: '100%', resize: 'none' }}
+                onClick={() => {
+                  const sel = window.getSelection();
+                  if (sel && sel.anchorNode) {
+                    checkMentionTrigger(sel.anchorNode.textContent || '', sel.anchorOffset);
+                  }
+                }}
+                onKeyUp={() => {
+                  const sel = window.getSelection();
+                  if (sel && sel.anchorNode) {
+                    checkMentionTrigger(sel.anchorNode.textContent || '', sel.anchorOffset);
+                  }
+                }}
+                style={{ flex: 1, minHeight: '180px', height: '100%', outline: 'none' }}
               />
             </div>
 
-            {body.trim().length === 0 && uploadedFiles.length === 0 && (
+            {isBodyEmpty && uploadedFiles.length === 0 && (
               <div
                 style={{
                   padding: '4px 16px 8px',
@@ -1479,13 +1993,13 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
 
               <button
                 type="submit"
-                disabled={isSending || isUploading || (!body.trim() && uploadedFiles.length === 0)}
+                disabled={isSending || isUploading || (isBodyEmpty && uploadedFiles.length === 0)}
                 className={`btn ${isInternal && canWriteInternal ? 'btn-secondary' : 'btn-primary'}`}
                 style={{
                   ...(isInternal && canWriteInternal
                     ? { backgroundColor: '#f59e0b', color: '#ffffff', fontWeight: 600 }
                     : {}),
-                  ...(isSending || isUploading || (!body.trim() && uploadedFiles.length === 0)
+                  ...(isSending || isUploading || (isBodyEmpty && uploadedFiles.length === 0)
                     ? { opacity: 0.5, cursor: 'not-allowed', pointerEvents: 'none' }
                     : { cursor: 'pointer' }),
                 }}

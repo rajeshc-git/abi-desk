@@ -394,6 +394,33 @@ const HtmlEmailRenderer: React.FC<HtmlEmailRendererProps> = ({ rawHtml, classNam
             .email-body-content p {
               margin: 2px 0;
             }
+            .email-body-content table {
+              border-collapse: collapse;
+              margin: 6px 0;
+              width: auto;
+              max-width: 100%;
+              overflow-x: auto;
+              border: 1px solid var(--border-medium, #cbd5e1);
+              font-size: 13px;
+              line-height: 1.35;
+            }
+            .email-body-content th, .email-body-content td {
+              border: 1px solid var(--border-medium, #cbd5e1);
+              padding: 4px 8px;
+              text-align: left;
+              font-size: 13px;
+              line-height: 1.35;
+            }
+            .email-body-content th {
+              background-color: var(--bg-surface-elevated, #f8fafc);
+              font-weight: 600;
+            }
+            .email-body-content mark {
+              background-color: #fef08a;
+              color: inherit;
+              padding: 1px 3px;
+              border-radius: 2px;
+            }
           `}</style>
           <div
             className="email-body-content"

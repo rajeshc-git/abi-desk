@@ -32,6 +32,7 @@ import { TicketModule } from './modules/tickets/ticket.module';
 import { WebhookModule } from './modules/webhooks/webhook.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { RosterModule } from './modules/roster/roster.module';
+import { ScheduledReportModule } from './modules/scheduled-reports/scheduled-report.module';
 
 /**
  * Application composition root.
@@ -89,6 +90,7 @@ export class AppModule {
         SsoModule,
         ChatModule,
         RosterModule,
+        ScheduledReportModule,
       ],
       providers: [
         // Guards run in registration order: authenticate, then authorize, then

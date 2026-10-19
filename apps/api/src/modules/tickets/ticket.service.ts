@@ -1177,10 +1177,10 @@ export class TicketService {
 
         const { textTrail, htmlTrail } = this.buildTicketEmailTrail(ticket, priorComments);
 
-        const emailText = cleanedBody + (textTrail ? `${textTrail}` : '');
+        const emailText = this.stripHtmlToPlainText(cleanedBody) + (textTrail ? `${textTrail}` : '');
         const emailHtml = `
-<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #1e293b; max-width: 680px;">
-  <div style="white-space: pre-wrap;">${escapeHtml(cleanedBody)}</div>
+<div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #1e293b; width: 100%; max-width: 100%;">
+  <div style="font-size: 14px; line-height: 1.6; color: #1e293b; width: 100%; max-width: 100%;">${this.formatEmailBodyHtml(cleanedBody)}</div>
   ${htmlTrail}
 </div>`.trim();
 
@@ -3973,6 +3973,42 @@ export class TicketService {
     return { textTrail, htmlTrail };
   }
 
+  /**
+   * Formats a comment or message body for outbound email HTML.
+   * If already rich HTML, cleans up boilerplate outer tags.
+   * If plain text, escapes HTML characters and converts newlines to `<br />`
+   * ensuring identical line breaks and paragraph spacing across both webmail (Gmail)
+   * and MSO-based desktop clients (Microsoft Outlook).
+   */
+  private formatEmailBodyHtml(raw: string): string {
+    if (!raw) return '';
+    const trimmed = raw.trim();
+
+    if (/<(html|head|body|div|p|span|table|h[1-6]|ul|ol|li|br)[^>]*>/i.test(trimmed)) {
+      let cleaned = trimmed
+        .replace(/<!DOCTYPE[^>]*>/gi, '')
+        .replace(/<\/?(html|head|body)[^>]*>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<meta[^>]*>/gi, '')
+        .replace(/<title[\s\S]*?<\/title>/gi, '')
+        .trim();
+
+      // Ensure copied Excel tables have clean inline borders and spacing across Outlook and Gmail
+      if (/<table[^>]*>/i.test(cleaned)) {
+        cleaned = cleaned
+          .replace(/<table(?![^>]*style=)[^>]*>/gi, '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit;">')
+          .replace(/<table([^>]*style=["'])([^"']*)(["'][^>]*)>/gi, '<table$1border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit; $2$3 border="1" cellpadding="5" cellspacing="0">')
+          .replace(/<td(?![^>]*style=)[^>]*>/gi, '<td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; font-size: 13px; line-height: 1.35;">')
+          .replace(/<th(?![^>]*style=)[^>]*>/gi, '<th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; background-color: #f8fafc; font-weight: 600; font-size: 13px; line-height: 1.35; white-space: nowrap; text-align: left;">');
+      }
+
+      return cleaned;
+    }
+
+    return escapeHtml(trimmed).replace(/\r\n|\r|\n/g, '<br />');
+  }
+
   private cleanHtmlForEmailQuote(raw: string): string {
     if (!raw) return '';
     const trimmed = raw.trim();
@@ -3988,11 +4024,19 @@ export class TicketService {
         .replace(/<title[\s\S]*?<\/title>/gi, '')
         .trim();
 
+      if (/<table[^>]*>/i.test(cleaned)) {
+        cleaned = cleaned
+          .replace(/<table(?![^>]*style=)[^>]*>/gi, '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit;">')
+          .replace(/<td(?![^>]*style=)[^>]*>/gi, '<td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; font-size: 13px; line-height: 1.35;">')
+          .replace(/<th(?![^>]*style=)[^>]*>/gi, '<th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; background-color: #f8fafc; font-weight: 600; font-size: 13px; line-height: 1.35; white-space: nowrap; text-align: left;">');
+      }
+
       return cleaned || '<p style="color:#64748b;font-style:italic;">(No content)</p>';
     }
 
-    // Plain text: escape HTML and preserve line breaks
-    return `<div style="white-space: pre-wrap; font-size: 13.5px; color: #334155;">${escapeHtml(trimmed)}</div>`;
+    // Plain text: escape HTML and convert newlines to <br /> for 100% email client compatibility
+    const formatted = escapeHtml(trimmed).replace(/\r\n|\r|\n/g, '<br />');
+    return `<div style="font-size: 13.5px; line-height: 1.5; color: #334155;">${formatted}</div>`;
   }
 
   private stripHtmlToPlainText(raw: string): string {
@@ -4006,6 +4050,7 @@ export class TicketService {
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+      .replace(/<\/(td|th)>/gi, '\t')
       .replace(/<[^>]+>/g, '')
       .replace(/&nbsp;/gi, ' ')
       .replace(/&amp;/gi, '&')

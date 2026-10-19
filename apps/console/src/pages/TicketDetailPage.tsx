@@ -258,9 +258,11 @@ export const TicketDetailPage: React.FC = () => {
     if (!id) return;
     setIsSending(true);
     try {
+      const isHtml = /<[a-z][\s\S]*>/i.test(body);
       const newComment = await ApiClient.post(`/tickets/${id}/comments`, {
         body,
         visibility: isInternal ? 'INTERNAL' : 'PUBLIC',
+        bodyFormat: isHtml ? 'HTML' : 'MARKDOWN',
         attachments,
         ...(cc && cc.length > 0 ? { cc } : {}),
       });
