@@ -77,6 +77,10 @@ export const createTicketSchema = z.object({
    * ticket to someone else.
    */
   requesterId: uuid.optional(),
+  /** Customer email when staff creates a ticket manually on behalf of a customer. */
+  requesterEmail: z.string().trim().email().optional(),
+  /** Customer full name when staff creates a ticket manually on behalf of a customer. */
+  requesterName: z.string().trim().max(120).optional(),
   customFields: z.record(z.unknown()).optional(),
   /** Diagnostics payload sent when raised via widget. */
   diagnostics: z.record(z.unknown()).optional(),

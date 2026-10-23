@@ -8,11 +8,24 @@ import {
   ChevronDown,
   X,
   Check,
+  Paperclip,
+  Upload,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import { TicketsApi } from '../../api/tickets';
 import { ApiClient } from '../../api/client';
 import { Modal } from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
+
+interface UploadedAttachment {
+  id: string;
+  name: string;
+  previewUrl?: string;
+  isUploading?: boolean;
+  sizeBytes?: number;
+  error?: string;
+}
 
 interface CreateTicketModalProps {
   isOpen: boolean;
@@ -53,6 +66,11 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   const [productSearch, setProductSearch] = useState('');
   const productDropdownRef = useRef<HTMLDivElement>(null);
   const productSearchRef = useRef<HTMLInputElement>(null);
+
+  // Attachments State & Refs
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedAttachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -102,6 +120,115 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     }
   }, [isProductOpen]);
 
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const uploadSingleFile = async (file: File) => {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const isImg = file.type.startsWith('image/');
+    const previewUrl = isImg ? URL.createObjectURL(file) : undefined;
+
+    setUploadedFiles((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        name: file.name,
+        previewUrl,
+        isUploading: true,
+        sizeBytes: file.size,
+      },
+    ]);
+
+    try {
+      const result = await TicketsApi.uploadFile(file);
+      setUploadedFiles((prev) =>
+        prev.map((f) =>
+          f.id === tempId
+            ? {
+                ...f,
+                id: result.id,
+                name: result.originalFilename || file.name,
+                isUploading: false,
+              }
+            : f,
+        ),
+      );
+    } catch (err: any) {
+      setUploadedFiles((prev) =>
+        prev.map((f) =>
+          f.id === tempId
+            ? {
+                ...f,
+                isUploading: false,
+                error: err.message || 'Upload failed',
+              }
+            : f,
+        ),
+      );
+    }
+  };
+
+  const handleFilesUpload = (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      uploadSingleFile(file);
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (id: string) => {
+    setUploadedFiles((prev) => {
+      const file = prev.find((f) => f.id === id);
+      if (file?.previewUrl && file.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(file.previewUrl);
+      }
+      return prev.filter((f) => f.id !== id);
+    });
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const filesToUpload: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) filesToUpload.push(file);
+      }
+    }
+    if (filesToUpload.length > 0) {
+      handleFilesUpload(filesToUpload);
+    }
+  };
+
+  const resetForm = () => {
+    setSubject('');
+    setDescription('');
+    setRequesterName('');
+    setRequesterEmail('');
+    setOrganization('');
+    setProduct('');
+    setIsOrgOpen(false);
+    setIsProductOpen(false);
+    uploadedFiles.forEach((f) => {
+      if (f.previewUrl && f.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(f.previewUrl);
+      }
+    });
+    setUploadedFiles([]);
+    setIsDragging(false);
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -138,6 +265,15 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
       return;
     }
 
+    if (uploadedFiles.some((f) => f.isUploading)) {
+      setError('Please wait for all attachments to finish uploading.');
+      return;
+    }
+
+    const readyAttachmentIds = uploadedFiles
+      .filter((f) => !f.isUploading && !f.error && !f.id.startsWith('temp-'))
+      .map((f) => f.id);
+
     setIsSubmitting(true);
 
     try {
@@ -151,19 +287,11 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
         organization: organization.trim() || undefined,
         product: product.trim() || undefined,
         brandId: activeBrandId || undefined,
+        attachmentIds: readyAttachmentIds.length > 0 ? readyAttachmentIds : undefined,
       });
 
       onCreated(res);
-      onClose();
-      // Reset
-      setSubject('');
-      setDescription('');
-      setRequesterName('');
-      setRequesterEmail('');
-      setOrganization('');
-      setProduct('');
-      setIsOrgOpen(false);
-      setIsProductOpen(false);
+      handleClose();
     } catch (err: any) {
       setError(err.message || 'Failed to create ticket');
     } finally {
@@ -172,7 +300,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Create New Support Ticket" maxWidth="600px">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Create New Support Ticket" maxWidth="620px">
       <form
         onSubmit={handleSubmit}
         style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
@@ -338,6 +466,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            onPaste={handlePaste}
             placeholder="Detailed description of the customer issue..."
             rows={4}
             style={{
@@ -951,8 +1080,233 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
           </div>
         </div>
 
+        {/* Attachments Drag & Drop Area */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontWeight: 600,
+                fontSize: '12px',
+                margin: 0,
+              }}
+            >
+              <Paperclip size={13} style={{ color: 'var(--primary, #2563eb)' }} />
+              Attachments <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+            </label>
+            {uploadedFiles.length > 0 && (
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                {uploadedFiles.length} {uploadedFiles.length === 1 ? 'file' : 'files'}
+              </span>
+            )}
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              if (e.target.files) handleFilesUpload(e.target.files);
+            }}
+          />
+
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsDragging(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsDragging(false);
+              if (e.dataTransfer.files) {
+                handleFilesUpload(e.dataTransfer.files);
+              }
+            }}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              padding: '16px 14px',
+              borderRadius: 'var(--radius-md, 8px)',
+              border: isDragging
+                ? '2px dashed var(--primary, #2563eb)'
+                : '1.5px dashed var(--border-medium, #cbd5e1)',
+              backgroundColor: isDragging
+                ? 'rgba(37, 99, 235, 0.08)'
+                : 'var(--bg-input, rgba(248, 250, 252, 0.5))',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              textAlign: 'center',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                backgroundColor: isDragging
+                  ? 'rgba(37, 99, 235, 0.15)'
+                  : 'var(--bg-surface-elevated, #f1f5f9)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isDragging ? 'var(--primary, #2563eb)' : 'var(--text-muted, #64748b)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Upload size={16} />
+            </div>
+            <div style={{ fontSize: '12.5px', color: 'var(--text-primary)' }}>
+              <span style={{ fontWeight: 600, color: 'var(--primary, #2563eb)' }}>Click to upload</span> or drag and drop
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              Images, PDFs, documents, logs, screen recordings up to 25 MB
+            </div>
+          </div>
+
+          {/* Uploaded Files List */}
+          {uploadedFiles.length > 0 && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                gap: '8px',
+                marginTop: '10px',
+              }}
+            >
+              {uploadedFiles.map((file) => (
+                <div
+                  key={file.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 10px',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                    border: file.error
+                      ? '1px solid rgba(239, 68, 68, 0.3)'
+                      : '1px solid var(--border-medium, #e2e8f0)',
+                    fontSize: '12px',
+                    position: 'relative',
+                  }}
+                >
+                  {/* Thumbnail / Icon */}
+                  {file.previewUrl ? (
+                    <div
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '4px',
+                        overflow: 'hidden',
+                        backgroundColor: '#f1f5f9',
+                        flexShrink: 0,
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                      }}
+                    >
+                      <img
+                        src={file.previewUrl}
+                        alt={file.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        color: 'var(--primary, #2563eb)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <FileText size={16} />
+                    </div>
+                  )}
+
+                  {/* File Info */}
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: 'var(--text-primary)',
+                      }}
+                      title={file.name}
+                    >
+                      {file.name}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10.5px' }}>
+                      {file.isUploading ? (
+                        <span style={{ color: 'var(--primary, #2563eb)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Loader2 size={10} className="animate-spin" /> Uploading...
+                        </span>
+                      ) : file.error ? (
+                        <span style={{ color: '#ef4444' }}>{file.error}</span>
+                      ) : (
+                        <>
+                          <span style={{ color: 'var(--text-muted)' }}>{formatFileSize(file.sizeBytes)}</span>
+                          <span style={{ color: '#16a34a', display: 'flex', alignItems: 'center', gap: '2px', fontWeight: 600 }}>
+                            <Check size={10} /> Ready
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Remove Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFile(file.id);
+                    }}
+                    disabled={file.isUploading}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: file.isUploading ? 'not-allowed' : 'pointer',
+                      padding: '4px',
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                    title="Remove file"
+                    onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-          <button type="button" onClick={onClose} className="btn btn-secondary btn-sm">
+          <button type="button" onClick={handleClose} className="btn btn-secondary btn-sm">
             Cancel
           </button>
           <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-sm">

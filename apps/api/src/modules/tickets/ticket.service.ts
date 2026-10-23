@@ -140,8 +140,6 @@ export class TicketService {
 
     // Raising on someone else's behalf is a staff action. Without this check any
     // customer could attribute a ticket to another user.
-    const requesterId = dto.requesterId ?? principal.userId;
-
     if (dto.requesterId && dto.requesterId !== principal.userId) {
       if (principal.kind !== 'STAFF' && !principal.permissions.has('ticket:update:tenant')) {
         throw AppException.permissionDenied(
@@ -150,7 +148,74 @@ export class TicketService {
       }
     }
 
+    if (
+      dto.requesterEmail &&
+      dto.requesterEmail.toLowerCase().trim() !== principal.email?.toLowerCase().trim()
+    ) {
+      if (principal.kind !== 'STAFF' && !principal.permissions.has('ticket:update:tenant')) {
+        throw AppException.permissionDenied(
+          'Raising a ticket on behalf of another user requires tenant-wide ticket rights.',
+        );
+      }
+    }
+
     const ticket = await this.prisma.run(async (tx) => {
+      let requesterId = dto.requesterId;
+
+      if (!requesterId && dto.requesterEmail) {
+        const cleanEmail = dto.requesterEmail.trim().toLowerCase();
+        let customerUser = await tx.user.findFirst({
+          where: { tenantId, email: cleanEmail },
+          select: { id: true, fullName: true, kind: true },
+        });
+
+        if (!customerUser) {
+          const guestRole = await tx.role.findUnique({
+            where: { key: 'GUEST_CUSTOMER' },
+            select: { id: true },
+          });
+
+          const cleanName =
+            dto.requesterName?.trim() || cleanEmail.split('@')[0] || 'Customer';
+
+          customerUser = await tx.user.create({
+            data: {
+              tenantId,
+              email: cleanEmail,
+              fullName: cleanName,
+              kind: 'CUSTOMER',
+              status: 'ACTIVE',
+              emailVerifiedAt: new Date(),
+              isAvailable: false,
+              ...(guestRole
+                ? {
+                    roles: {
+                      create: { roleId: guestRole.id, tenantId },
+                    },
+                  }
+                : {}),
+            },
+            select: { id: true, fullName: true, kind: true },
+          });
+        } else if (
+          dto.requesterName?.trim() &&
+          customerUser.kind === 'CUSTOMER' &&
+          customerUser.fullName !== dto.requesterName.trim()
+        ) {
+          await tx.user.update({
+            where: { id: customerUser.id },
+            data: { fullName: dto.requesterName.trim() },
+          });
+          customerUser.fullName = dto.requesterName.trim();
+        }
+
+        requesterId = customerUser.id;
+      }
+
+      if (!requesterId) {
+        requesterId = principal.userId;
+      }
+
       const brandId = await this.resolveBrandId(tx, tenantId, dto.brandId);
 
       const tenant = await tx.tenant.findUniqueOrThrow({
@@ -341,17 +406,21 @@ export class TicketService {
       this.gateway.broadcastTicketCreated(tenantId, result);
     }
 
-    // Automated acknowledgment email for Widget-created tickets (routed via SMTP 2)
-    if (result.channel === 'WIDGET' && result.requester?.email) {
+    // Automated acknowledgment email for Widget-created or staff-created customer tickets
+    if ((result.channel === 'WIDGET' || dto.requesterEmail) && result.requester?.email) {
       const senderEmail = result.requester.email;
       const senderName = result.requester.fullName || senderEmail.split('@')[0] || 'Customer';
+      const isWidget = result.channel === 'WIDGET';
+      const trackMessage = isWidget
+        ? 'You can track this ticket in the support widget or reply directly to this email at any time.'
+        : 'You can reply directly to this email at any time to attach further details or follow up with our team.';
 
       this.mailService
         .sendTicketMail(
           {
             to: { email: senderEmail, name: senderName },
             subject: `[Ticket #${result.number}] Received: ${result.subject}`,
-            text: `Hello ${senderName},\n\nWe have received your support request regarding "${result.subject}" (Ticket #${result.number}). Our team is actively reviewing it and will get back to you shortly.\n\nYou can track this ticket in the support widget or reply directly to this email at any time.\n\nBest regards,\nSupport Team`,
+            text: `Hello ${senderName},\n\nWe have received your support request regarding "${result.subject}" (Ticket #${result.number}). Our team is actively reviewing it and will get back to you shortly.\n\n${trackMessage}\n\nBest regards,\nSupport Team`,
             html: `
               <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
                 <div style="margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 12px;">
@@ -366,16 +435,16 @@ export class TicketService {
                   <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #0f172a;">#${result.number}</p>
                 </div>
                 <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 0;">
-                  You can track this ticket in the support widget or reply directly to this email at any time to attach further details.
+                  ${trackMessage}
                 </p>
               </div>
             `,
             tag: 'ticket.created_ack',
           },
-          'WIDGET',
+          isWidget ? 'WIDGET' : 'EMAIL',
         )
         .catch((err) => {
-          this.logger.error({ err, ticketId: result.id }, 'Failed to send widget ticket creation ack email');
+          this.logger.error({ err, ticketId: result.id }, 'Failed to send ticket creation ack email');
         });
     }
 

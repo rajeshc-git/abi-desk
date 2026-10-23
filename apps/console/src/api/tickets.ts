@@ -14,6 +14,7 @@ export interface CreateTicketDto {
   requesterName: string;
   tags?: string[];
   customFields?: Record<string, any>;
+  attachmentIds?: string[];
 }
 
 export const TicketsApi = {
