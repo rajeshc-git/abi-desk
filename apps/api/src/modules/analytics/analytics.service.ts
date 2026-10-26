@@ -507,6 +507,19 @@ export class AnalyticsService {
             select: { authorId: true },
           },
           events: {
+            where: {
+              type: {
+                in: [
+                  'RESOLVED',
+                  'CLOSED',
+                  'STATUS_CHANGED',
+                  'ASSIGNED',
+                  'ESCALATED',
+                  'DEESCALATED',
+                  'REOPENED',
+                ],
+              },
+            },
             select: {
               type: true,
               actorId: true,

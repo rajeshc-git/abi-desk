@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -97,6 +97,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [tierFilter, setTierFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const activeRequestIdRef = useRef<number>(0);
 
   // Sorting state for Agents Table
   const [agentSortField, setAgentSortField] = useState<keyof AgentPerformance>('resolvedCount');
@@ -176,28 +177,21 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
     }
   };
 
-  // Initial date setting when preset changes
-  useEffect(() => {
-    if (preset !== 'custom') {
-      const { start, end } = computeDateRange(preset);
-      setStartDate(start ? start.split('T')[0] : '');
-      setEndDate(end ? end.split('T')[0] : '');
-    }
-  }, [preset]);
-
   // Load Report Data
-  const fetchReportData = async () => {
+  const fetchReportData = async (targetPreset?: ReportDatePreset) => {
     if (!isOpen) return;
+    const currentRequestId = ++activeRequestIdRef.current;
     setIsLoading(true);
     try {
+      const activePreset = targetPreset || preset;
       let fromIso = '';
       let toIso = '';
 
-      if (preset === 'custom') {
+      if (activePreset === 'custom') {
         if (startDate) fromIso = `${startDate}T00:00:00.000Z`;
         if (endDate) toIso = `${endDate}T23:59:59.999Z`;
       } else {
-        const computed = computeDateRange(preset);
+        const computed = computeDateRange(activePreset);
         fromIso = computed.start;
         toIso = computed.end;
       }
@@ -219,9 +213,14 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
         ApiClient.get<any[]>('/admin/users').catch(() => ApiClient.get('/users').catch(() => [])),
         ApiClient.get<any>(`/analytics/overview${queryStr}`).catch(() => null),
         ApiClient.get<any>(`/tickets?${ticketParams.toString()}`).catch(() =>
-          ApiClient.get('/tickets?pageSize=500').catch(() => ({ items: [] }))
+          ApiClient.get('/tickets?pageSize=100').catch(() => ({ tickets: [] }))
         ),
       ]);
+
+      // If a newer request was triggered while in-flight, discard stale results
+      if (activeRequestIdRef.current !== currentRequestId) {
+        return;
+      }
 
       const rawAgentsData = agentsRes.status === 'fulfilled' ? agentsRes.value : [];
       const rawAgents: any[] = Array.isArray(rawAgentsData)
@@ -271,6 +270,8 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
       const rawTicketsData = ticketsRes.status === 'fulfilled' ? ticketsRes.value : null;
       const rawTickets: any[] = Array.isArray(rawTicketsData)
         ? rawTicketsData
+        : Array.isArray(rawTicketsData?.tickets)
+        ? rawTicketsData.tickets
         : Array.isArray(rawTicketsData?.items)
         ? rawTicketsData.items
         : Array.isArray(rawTicketsData?.data)
@@ -572,17 +573,26 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 
       setTeams(teamPerfList);
     } catch (err: any) {
-      toast.error(`Failed to load performance reports: ${err?.message || 'Server error'}`);
+      if (activeRequestIdRef.current === currentRequestId) {
+        toast.error(`Failed to load performance reports: ${err?.message || 'Server error'}`);
+      }
     } finally {
-      setIsLoading(false);
+      if (activeRequestIdRef.current === currentRequestId) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     if (isOpen && isAdmin) {
-      fetchReportData();
+      if (preset !== 'custom') {
+        const { start, end } = computeDateRange(preset);
+        setStartDate(start ? start.split('T')[0] : '');
+        setEndDate(end ? end.split('T')[0] : '');
+      }
+      fetchReportData(preset);
     }
-  }, [isOpen, isAdmin, preset, startDate, endDate]);
+  }, [isOpen, isAdmin, preset, preset === 'custom' ? startDate : '', preset === 'custom' ? endDate : '']);
 
   // Sorting handlers
   const handleAgentSort = (field: keyof AgentPerformance) => {
@@ -1453,7 +1463,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 
             <button
               type="button"
-              onClick={fetchReportData}
+              onClick={() => fetchReportData()}
               disabled={isLoading}
               className="perf-refresh-btn"
               title="Refresh Data"

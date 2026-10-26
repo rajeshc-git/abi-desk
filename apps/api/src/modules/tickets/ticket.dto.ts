@@ -185,7 +185,7 @@ export const listTicketsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   // Capped: an uncapped page size is a trivial way to exhaust memory on a large
   // backlog.
-  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
 });
 
 export class ListTicketsDto extends createZodDto(listTicketsSchema) {}
