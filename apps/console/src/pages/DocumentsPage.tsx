@@ -2155,7 +2155,7 @@ export const DocumentsPage: React.FC = () => {
       const [p1, p2, p3, p4, p5] = await Promise.allSettled([
         ApiClient.get(`/tickets?pageSize=1&createdAfter=${todayStr}T00:00:00.000Z`),
         ApiClient.get(`/tickets?pageSize=1&createdAfter=${last30DaysStart}`),
-        ApiClient.get(`/tickets?pageSize=1&unassigned=true`),
+        ApiClient.get(`/tickets?pageSize=1&unassigned=true&openOnly=true`),
         ApiClient.get(`/tickets?pageSize=1&status=NEW,OPEN,IN_PROGRESS,TRIAGE&createdAfter=${monthStart}`),
         ApiClient.get(`/tickets?pageSize=1&status=RESOLVED,CLOSED&createdAfter=${monthStart}`),
       ]);
@@ -3100,7 +3100,7 @@ export const DocumentsPage: React.FC = () => {
         break;
       }
       case 'unassigned_tickets':
-        generateAndDownload({ unassigned: 'true' }, 'unassigned-tickets-report');
+        generateAndDownload({ unassigned: 'true', openOnly: 'true' }, 'unassigned-tickets-report');
         break;
       case 'this_month_open': {
         const d = new Date();

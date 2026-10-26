@@ -1074,12 +1074,8 @@ export const AnalyticsPage: React.FC = () => {
               <DonutChart3D
                 segments={prioritySegments}
                 title="Priority Breakdown"
-                centerText={
-                  overview?.urgentCount
-                    ? `${overview.urgentCount + (overview.criticalCount || 0)}`
-                    : '0'
-                }
-                centerSubtext="Urgent / Crit"
+                centerText={overview?.totalCreated?.toString()}
+                centerSubtext="Total"
                 size={160}
               />
             </div>

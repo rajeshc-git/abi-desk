@@ -8308,6 +8308,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         isOpen={isCreateTeamOpen}
         onClose={() => setIsCreateTeamOpen(false)}
         title="Create Support Team"
+        maxWidth="560px"
       >
         <form
           onSubmit={handleCreateTeam}
@@ -8695,6 +8696,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
         isOpen={isCreateQueueOpen}
         onClose={() => setIsCreateQueueOpen(false)}
         title="Create Automated Routing Queue"
+        maxWidth="720px"
       >
         <form
           onSubmit={handleCreateQueue}
@@ -8720,7 +8722,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
             <div>
               <label
                 style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
@@ -8786,7 +8788,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               </label>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px' }}>
               {/* Card 1: Least Loaded */}
               <div
                 onClick={() => setQueueRouting('LEAST_LOADED')}
@@ -9116,6 +9118,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
           setEditingQueueId(null);
         }}
         title="Edit Automated Routing Queue"
+        maxWidth="720px"
       >
         <form
           onSubmit={handleUpdateQueue}
@@ -9141,7 +9144,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
             <div>
               <label
                 style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}
@@ -9207,7 +9210,7 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
               </label>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px' }}>
               {/* Card 1: Least Loaded */}
               <div
                 onClick={() => setEditQueueRouting('LEAST_LOADED')}
