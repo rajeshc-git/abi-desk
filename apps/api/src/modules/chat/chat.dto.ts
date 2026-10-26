@@ -41,7 +41,7 @@ export const ListConversationsQuerySchema = z.object({
   status: ChatConversationStatusEnum.optional(),
   brandId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(30),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
 export class ListConversationsQueryDto extends createZodDto(ListConversationsQuerySchema) {}
 

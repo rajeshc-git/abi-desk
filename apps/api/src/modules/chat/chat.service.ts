@@ -503,13 +503,17 @@ export class ChatService {
 
     const where: Prisma.ChatConversationWhereInput = {
       tenantId,
-      ...(query.status ? { status: query.status } : {}),
+      ...(query.status === 'OPEN'
+        ? { status: { in: ['OPEN', 'WAITING'] } }
+        : query.status
+        ? { status: query.status }
+        : {}),
       ...(query.brandId ? { brandId: query.brandId } : {}),
       ...(!isStaff ? { participants: { some: { userId: principal.userId } } } : {}),
     };
 
     const page = Math.max(1, Math.floor(Number(query.page)) || 1);
-    const pageSize = Math.max(1, Math.min(100, Math.floor(Number(query.pageSize)) || 30));
+    const pageSize = Math.max(1, Math.min(100, Math.floor(Number(query.pageSize)) || 50));
     const skip = (page - 1) * pageSize;
 
     const [conversations, total] = await Promise.all([

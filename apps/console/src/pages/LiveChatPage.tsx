@@ -16,6 +16,8 @@ import {
   Square,
   AlertTriangle,
   X,
+  ChevronDown,
+  RefreshCw,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { StatusBadge } from '../components/common/Badge';
@@ -126,6 +128,11 @@ export const LiveChatPage: React.FC = () => {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const { debouncedSearchQuery } = useSearch();
 
+  // Pagination states matching Ticket Desk
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // Status Filter Tabs (Ticket Desk Design Language)
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'QUEUED' | 'CLOSED'>('ALL');
 
@@ -141,13 +148,6 @@ export const LiveChatPage: React.FC = () => {
 
   const filteredConversations = useMemo(() => {
     let list = conversations;
-    if (statusFilter !== 'ALL') {
-      if (statusFilter === 'OPEN') {
-        list = list.filter((c) => c.status === 'OPEN' || c.status === 'WAITING');
-      } else {
-        list = list.filter((c) => c.status === statusFilter);
-      }
-    }
     if (debouncedSearchQuery.trim()) {
       const query = debouncedSearchQuery.toLowerCase();
       list = list.filter((c) => {
@@ -164,7 +164,9 @@ export const LiveChatPage: React.FC = () => {
       });
     }
     return list;
-  }, [conversations, statusFilter, debouncedSearchQuery]);
+  }, [conversations, debouncedSearchQuery]);
+
+  const hasMore = !debouncedSearchQuery && conversations.length < totalCount;
 
   useEffect(() => {
     loadConversations();
@@ -229,12 +231,45 @@ export const LiveChatPage: React.FC = () => {
     };
   }, [socket, activeConv?.id]);
 
-  const loadConversations = async () => {
-    setIsLoading(true);
+  const loadConversations = async (targetStatus?: string, pageNum: number = 1, append: boolean = false) => {
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+    }
     try {
-      const res = await ApiClient.get<{ conversations: ChatConversation[] }>('/chat/conversations');
+      const activeStatus = targetStatus !== undefined ? targetStatus : statusFilter;
+      const params = new URLSearchParams();
+      params.set('page', String(pageNum));
+      params.set('pageSize', '50');
+      if (activeStatus && activeStatus !== 'ALL') {
+        params.set('status', activeStatus);
+      }
+
+      const res = await ApiClient.get<{
+        conversations: ChatConversation[];
+        total?: number;
+        page?: number;
+        pageSize?: number;
+      }>(`/chat/conversations?${params.toString()}`);
+
       const list = res.conversations || [];
-      setConversations(list);
+      const total = typeof res.total === 'number' ? res.total : list.length;
+      setTotalCount(total);
+      setPage(pageNum);
+
+      if (append) {
+        setConversations((prev) => {
+          const existingIds = new Set(prev.map((c) => c.id));
+          const uniqueNew = list.filter((c) => !existingIds.has(c.id));
+          return [...prev, ...uniqueNew];
+        });
+      } else {
+        setConversations(list);
+        if (list.length > 0 && !activeConv) {
+          selectConversation(list[0]);
+        }
+      }
 
       const counts: Record<string, number> = {};
       list.forEach((c) => {
@@ -261,15 +296,20 @@ export const LiveChatPage: React.FC = () => {
         }
       });
       setUnreadCounts((prev) => ({ ...prev, ...counts }));
-
-      if (list.length > 0 && !activeConv) {
-        selectConversation(list[0]);
-      }
     } catch {
       // Fallback
     } finally {
-      setIsLoading(false);
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
+  };
+
+  const handleLoadMore = async () => {
+    if (isLoadingMore || conversations.length >= totalCount) return;
+    await loadConversations(statusFilter, page + 1, true);
   };
 
   const selectConversation = async (conv: ChatConversation) => {
@@ -440,8 +480,10 @@ export const LiveChatPage: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => {
-                  setStatusFilter(tab.id as any);
+                  const newStatus = tab.id as any;
+                  setStatusFilter(newStatus);
                   setSelectedIds(new Set());
+                  loadConversations(newStatus, 1, false);
                 }}
                 className={`inbox-status-tab-btn ${statusFilter === tab.id ? 'active' : ''}`}
               >
@@ -637,8 +679,8 @@ export const LiveChatPage: React.FC = () => {
           )}
         </div>
 
-        {/* Fixed Bottom Status Bar matching Sidebar Baseline */}
-        {!isLoading && filteredConversations.length > 0 && (
+        {/* Fixed Bottom Status Bar matching Ticket Desk Baseline */}
+        {!isLoading && (
           <div
             style={{
               padding: '0 16px',
@@ -650,11 +692,72 @@ export const LiveChatPage: React.FC = () => {
               justifyContent: 'center',
               height: '58px',
               boxSizing: 'border-box',
-              fontSize: '11.5px',
-              color: 'var(--text-muted)',
             }}
           >
-            Showing {filteredConversations.length} {statusFilter !== 'ALL' ? statusFilter.toLowerCase() : ''} conversation{filteredConversations.length !== 1 ? 's' : ''}
+            {hasMore ? (
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={isLoadingMore}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '6px 18px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  backgroundColor: 'var(--bg-surface-elevated, #f8fafc)',
+                  border: '1px solid var(--border-subtle, #e2e8f0)',
+                  borderRadius: '9999px',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                  cursor: isLoadingMore ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isLoadingMore) {
+                    e.currentTarget.style.backgroundColor = 'var(--primary-surface, #eff6ff)';
+                    e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
+                    e.currentTarget.style.color = 'var(--primary, #2563eb)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isLoadingMore) {
+                    e.currentTarget.style.backgroundColor = 'var(--bg-surface-elevated, #f8fafc)';
+                    e.currentTarget.style.borderColor = 'var(--border-subtle, #e2e8f0)';
+                    e.currentTarget.style.color = 'var(--text-primary)';
+                  }
+                }}
+              >
+                {isLoadingMore ? (
+                  <>
+                    <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span>Loading more conversations...</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown size={14} style={{ opacity: 0.8 }} />
+                    <span>Load more conversations</span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        backgroundColor: 'rgba(0, 0, 0, 0.06)',
+                      }}
+                    >
+                      {conversations.length} of {totalCount}
+                    </span>
+                  </>
+                )}
+              </button>
+            ) : filteredConversations.length > 0 ? (
+              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                Showing all {filteredConversations.length} {statusFilter !== 'ALL' ? statusFilter.toLowerCase() : ''} conversation{filteredConversations.length !== 1 ? 's' : ''}
+              </span>
+            ) : null}
           </div>
         )}
       </div>
