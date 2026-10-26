@@ -3926,7 +3926,7 @@ export const DocumentsPage: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Needs Triage • CSV</div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>All Time • CSV</div>
                 </div>
               </div>
               <Download size={15} style={{ color: 'var(--text-muted)' }} />
