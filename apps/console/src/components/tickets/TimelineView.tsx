@@ -825,6 +825,13 @@ const CommentActionMenu: React.FC<{
   );
 };
 
+const getInitials = (name?: string) => {
+  if (!name) return '??';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
 export const TimelineView: React.FC<TimelineViewProps> = ({
   comments,
   activities = [],
@@ -853,7 +860,25 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     <div className="timeline-list">
       {sortedComments.map((comment) => {
         const isInternal = comment.isInternal === true || comment.visibility === 'INTERNAL';
-        const authorName = comment.author?.fullName || 'Support User';
+        const isCustomer =
+          !isInternal &&
+          (comment.author?.kind === 'CUSTOMER' ||
+            comment.author?.kind === 'GUEST' ||
+            Boolean(
+              initialTicket?.requester?.email &&
+                comment.author?.email &&
+                comment.author.email.toLowerCase().trim() === initialTicket.requester.email.toLowerCase().trim(),
+            ) ||
+            Boolean(
+              Array.isArray(initialTicket?.cc) &&
+                comment.author?.email &&
+                initialTicket.cc.some(
+                  (c: string) =>
+                    typeof c === 'string' && c.toLowerCase().trim() === comment.author?.email?.toLowerCase().trim(),
+                ),
+            ));
+        const isStaff = !isInternal && !isCustomer;
+        const authorName = comment.author?.fullName || comment.author?.email || (isStaff ? 'Staff Agent' : 'Customer');
         const formattedDate = new Date(comment.createdAt).toLocaleString(undefined, {
           month: 'short',
           day: 'numeric',
@@ -1008,12 +1033,33 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           <div key={comment.id} className="timeline-item">
             <div
               className="user-avatar"
-              style={{ width: '32px', height: '32px', fontSize: '11px' }}
+              style={{
+                width: '32px',
+                height: '32px',
+                fontSize: '11px',
+                fontWeight: 700,
+                backgroundColor: isInternal ? '#fef3c7' : isStaff ? '#d1fae5' : '#e0f2fe',
+                color: isInternal ? '#92400e' : isStaff ? '#065f46' : '#0369a1',
+                border: isInternal ? '1px solid #f59e0b' : isStaff ? '1px solid #10b981' : '1px solid #38bdf8',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
             >
-              {authorName.slice(0, 2).toUpperCase()}
+              {getInitials(authorName)}
             </div>
 
-            <div className={`timeline-card ${isInternal ? 'internal-note' : ''}`}>
+            <div
+              className={`timeline-card ${isInternal ? 'internal-note' : ''}`}
+              style={{
+                borderLeft: isInternal
+                  ? '3px solid #f59e0b'
+                  : isStaff
+                  ? '3px solid #10b981'
+                  : '3px solid var(--primary, #2563eb)',
+              }}
+            >
               {isInternal && (
                 <div className="internal-badge">
                   <Lock size={12} />
@@ -1024,17 +1070,56 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               <div className="timeline-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span className="author-name">{authorName}</span>
-                  {!isInternal && (
+                  {isInternal ? (
                     <span
                       style={{
-                        display: 'flex',
+                        fontSize: '10px',
+                        color: '#b45309',
+                        backgroundColor: '#fef3c7',
+                        border: '1px solid #fde68a',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        fontWeight: 600,
+                        display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
-                        fontSize: '11px',
-                        color: 'var(--text-muted)',
                       }}
                     >
-                      <Globe size={11} /> Public Reply
+                      <Lock size={10} /> Internal Note
+                    </span>
+                  ) : isStaff ? (
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        color: '#15803d',
+                        backgroundColor: '#dcfce7',
+                        border: '1px solid #bbf7d0',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <Globe size={10} /> Public Reply
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        color: '#0369a1',
+                        backgroundColor: '#e0f2fe',
+                        border: '1px solid #bae6fd',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      Customer Reply
                     </span>
                   )}
                 </div>
@@ -1117,11 +1202,17 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               width: '32px',
               height: '32px',
               fontSize: '11px',
-              backgroundColor: 'var(--primary, #2563eb)',
-              color: '#ffffff',
+              fontWeight: 700,
+              backgroundColor: '#e0f2fe',
+              color: '#0369a1',
+              border: '1px solid #38bdf8',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
             }}
           >
-            {(initialTicket.requester?.fullName || 'Requester').slice(0, 2).toUpperCase()}
+            {getInitials(initialTicket.requester?.fullName || 'Requester')}
           </div>
 
           <div className="timeline-card" style={{ borderLeft: '3px solid var(--primary, #2563eb)' }}>

@@ -10,10 +10,15 @@ import {
   TenantPrismaService,
 } from '../../infra/tenancy/tenant-prisma.service';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
-import { TicketService } from '../tickets/ticket.service';
+import {
+  TicketService,
+  buildTicketSubject,
+  extractEmailThreading,
+  recordOutboundMessageId,
+} from '../tickets/ticket.service';
 import { toPolicySubject } from '../tickets/ticket-scope';
 import { MailService } from '../../infra/mail/mail.service';
-import { escapeHtml } from '../../infra/mail/mail.templates';
+import { escapeHtml, renderTicketNotificationEmail } from '../../infra/mail/mail.templates';
 import { Prisma, type SupportTier } from '@abi-desk/db';
 import { ACTIVE_STATUSES } from '../tickets/ticket.dto';
 import { type AssignDto, type BulkUpdateDto } from './workflow.dto';
@@ -434,24 +439,19 @@ export class AssignmentService {
 
       const brandName = ticket.brand?.name || 'Support Team';
       const formattedStatus = toStatus.replace(/_/g, ' ');
-      let subject = `[Ticket #${ticket.number}] ${formattedStatus}: ${ticket.subject}`;
       let title = `Ticket Status: ${formattedStatus}`;
       let message = `Your ticket status has been updated to <strong>${formattedStatus}</strong>.`;
 
       if (toStatus === 'RESOLVED') {
-        subject = `[Ticket #${ticket.number}] Resolved: ${ticket.subject}`;
         title = 'Ticket Resolved';
         message = `Great news! Your ticket <strong>#${ticket.number}</strong> has been marked as <strong>Resolved</strong> by our support team.`;
       } else if (toStatus === 'CLOSED') {
-        subject = `[Ticket #${ticket.number}] Closed: ${ticket.subject}`;
         title = 'Ticket Closed';
         message = `Your ticket <strong>#${ticket.number}</strong> has been marked as <strong>Closed</strong>. If you still need help or your issue returns, simply reply to this email to reopen it.`;
       } else if (toStatus === 'AWAITING_CUSTOMER_CONFIRMATION' || toStatus === 'PENDING_CUSTOMER') {
-        subject = `[Ticket #${ticket.number}] Awaiting Your Response: ${ticket.subject}`;
         title = 'Awaiting Your Input';
         message = `Our support team has updated ticket <strong>#${ticket.number}</strong> and is awaiting your response. Please reply to this email with any details requested.`;
       } else if (toStatus === 'REOPENED') {
-        subject = `[Ticket #${ticket.number}] Reopened: ${ticket.subject}`;
         title = 'Ticket Reopened';
         message = `Your ticket <strong>#${ticket.number}</strong> has been reopened and placed back in the active support queue.`;
       } else if (toStatus === 'ON_HOLD' || toStatus.startsWith('ESCALATED') || toStatus.startsWith('IN_DEV') || toStatus === 'IN_QA') {
@@ -459,40 +459,68 @@ export class AssignmentService {
         return;
       }
 
-      await this.mailService.sendTicketMail({
+      const subject = buildTicketSubject(ticket.number, ticket.subject);
+      const { inReplyTo, references } = extractEmailThreading(ticket);
+      const customFields = (ticket.customFields as Record<string, any>) || {};
+      const ccRecipients: string[] = Array.isArray(customFields.emailCc) ? customFields.emailCc : [];
+
+      const updateTimestamp =
+        new Date().toLocaleString('en-US', {
+          timeZone: 'Asia/Kolkata',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        }) + ' IST';
+      const updateToken = `${ticket.number}-${toStatus.toLowerCase()}-${Date.now().toString(36)}`;
+
+      let statusType: 'resolved' | 'closed' | 'pending' | 'reopened' | 'default' = 'default';
+      if (toStatus === 'RESOLVED') statusType = 'resolved';
+      else if (toStatus === 'CLOSED') statusType = 'closed';
+      else if (toStatus === 'PENDING_CUSTOMER' || toStatus === 'AWAITING_CUSTOMER_CONFIRMATION') statusType = 'pending';
+      else if (toStatus === 'REOPENED') statusType = 'reopened';
+
+      const subFooterNote = toStatus === 'CLOSED'
+        ? 'If you still need help or your issue returns, simply reply to this email to reopen it.'
+        : 'You can reply directly to this email at any time to communicate with our team.';
+
+      const html = renderTicketNotificationEmail({
+        title,
+        recipientName: ticket.requester.fullName,
+        message,
+        noteFromTeam: comment,
+        ticketNumber: ticket.number,
+        ticketSubject: ticket.subject,
+        statusLabel: toStatus,
+        statusType,
+        updateTimestamp,
+        subFooterNote,
+        updateToken,
+      });
+
+      this.mailService.sendTicketMail({
         to: { email: ticket.requester.email, name: ticket.requester.fullName },
+        ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
         subject,
-        text: `${title}\n\nHello ${ticket.requester.fullName},\n\n${message.replace(/<[^>]+>/g, '')}\n\n${comment ? `Note: ${comment}\n\n` : ''}Best regards,\n${brandName}`,
-        html: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
-            <div style="margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 12px;">
-              <h2 style="margin: 0; color: #2563eb; font-size: 20px;">${title}</h2>
-            </div>
-            <p style="font-size: 15px; margin-bottom: 16px;">Hello <strong>${ticket.requester.fullName}</strong>,</p>
-            <p style="font-size: 14px; line-height: 1.6; color: #334155; margin-bottom: 16px;">
-              ${message}
-            </p>
-            ${
-              comment
-                ? `
-            <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 6px 6px 0;">
-              <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase;">Note from Support Team:</p>
-              <p style="margin: 6px 0 0 0; font-size: 14px; line-height: 1.5; color: #1e293b;">${escapeHtml(comment).replace(/\r\n|\r|\n/g, '<br />')}</p>
-            </div>
-            `
-                : ''
-            }
-            <div style="background-color: #f1f5f9; padding: 12px 16px; margin-bottom: 20px; border-radius: 6px;">
-              <p style="margin: 0; font-size: 13px; color: #475569;"><strong>Ticket:</strong> #${ticket.number} - ${ticket.subject}</p>
-              <p style="margin: 4px 0 0 0; font-size: 13px; color: #475569;"><strong>Current Status:</strong> <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; background: #e2e8f0; font-weight: bold; font-size: 11px;">${toStatus}</span></p>
-            </div>
-            <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 0;">
-              You can reply directly to this email at any time to communicate with our team.
-            </p>
-          </div>
-        `,
+        text: `${title}\n\nHello ${ticket.requester.fullName},\n\n${message.replace(/<[^>]+>/g, '')}\n\n${comment ? `Note: ${comment}\n\n` : ''}Ticket: #${ticket.number} - ${ticket.subject}\nStatus: ${toStatus} (${updateTimestamp})\n\nYou can reply directly to this email at any time to communicate with our team.\n\nBest regards,\n${brandName}`,
+        html,
         tag: `ticket.bulk_${toStatus.toLowerCase()}`,
-      }, ticket.channel);
+        ...(inReplyTo ? { inReplyTo } : {}),
+        ...(references && references.length > 0 ? { references } : {}),
+      }, ticket.channel)
+      .then(async (sendRes) => {
+        if (sendRes?.messageId) {
+          const updatedCustom = recordOutboundMessageId(ticket.customFields, sendRes.messageId);
+          await this.prisma.client.ticket.update({
+            where: { id: ticketId },
+            data: { customFields: updatedCustom },
+          }).catch(() => {});
+        }
+      })
+      .catch((err) => {
+        this.logger.error({ err, ticketId }, 'Failed to send bulk status update email');
+      });
     } catch (err) {
       this.logger.error({ err, ticketId }, 'Failed to send bulk status update email');
     }

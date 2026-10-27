@@ -14,7 +14,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { MediaService } from '../media/media.service';
 import { MailService, isSystemRobotEmail } from '../../infra/mail/mail.service';
-import { escapeHtml } from '../../infra/mail/mail.templates';
+import { escapeHtml, formatRichTextForEmail, renderTicketNotificationEmail } from '../../infra/mail/mail.templates';
 import { StorageService } from '../../infra/storage/storage.service';
 import { SlaService } from '../sla/sla.service';
 import {
@@ -415,34 +415,50 @@ export class TicketService {
         ? 'You can track this ticket in the support widget or reply directly to this email at any time.'
         : 'You can reply directly to this email at any time to attach further details or follow up with our team.';
 
+      const updateTimestamp =
+        new Date().toLocaleString('en-US', {
+          timeZone: 'Asia/Kolkata',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        }) + ' IST';
+      const updateToken = `${result.number}-received-${Date.now().toString(36)}`;
+
+      const html = renderTicketNotificationEmail({
+        title: 'Support Request Received',
+        recipientName: senderName,
+        message: `We have received your support request regarding <strong>"${escapeHtml(result.subject)}"</strong>. Our team is actively reviewing it and will respond as soon as possible.`,
+        ticketNumber: result.number,
+        ticketSubject: result.subject,
+        statusLabel: 'Received',
+        statusType: 'received',
+        updateTimestamp,
+        subFooterNote: trackMessage,
+        updateToken,
+      });
+
       this.mailService
         .sendTicketMail(
           {
             to: { email: senderEmail, name: senderName },
-            subject: `[Ticket #${result.number}] Received: ${result.subject}`,
+            subject: buildTicketSubject(result.number, result.subject),
             text: `Hello ${senderName},\n\nWe have received your support request regarding "${result.subject}" (Ticket #${result.number}). Our team is actively reviewing it and will get back to you shortly.\n\n${trackMessage}\n\nBest regards,\nSupport Team`,
-            html: `
-              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
-                <div style="margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 12px;">
-                  <h2 style="margin: 0; color: #2563eb; font-size: 20px;">Support Request Received</h2>
-                </div>
-                <p style="font-size: 15px; margin-bottom: 16px;">Hello <strong>${senderName}</strong>,</p>
-                <p style="font-size: 14px; line-height: 1.6; color: #334155; margin-bottom: 20px;">
-                  We have received your support request regarding <strong>"${result.subject}"</strong>. Our team is actively reviewing it and will respond as soon as possible.
-                </p>
-                <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 6px 6px 0;">
-                  <p style="margin: 0; font-size: 13px; color: #64748b;">Ticket Reference:</p>
-                  <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #0f172a;">#${result.number}</p>
-                </div>
-                <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 0;">
-                  ${trackMessage}
-                </p>
-              </div>
-            `,
+            html,
             tag: 'ticket.created_ack',
           },
           isWidget ? 'WIDGET' : 'EMAIL',
         )
+        .then(async (sendRes) => {
+          if (sendRes?.messageId) {
+            const updatedCustom = recordOutboundMessageId(result.customFields, sendRes.messageId);
+            await this.prisma.client.ticket.update({
+              where: { id: result.id },
+              data: { customFields: updatedCustom },
+            }).catch(() => {});
+          }
+        })
         .catch((err) => {
           this.logger.error({ err, ticketId: result.id }, 'Failed to send ticket creation ack email');
         });
@@ -1229,28 +1245,10 @@ export class TicketService {
 
       // Outbound email notification for staff public comments on email/support tickets:
       if (isPublic && isStaff) {
-        const priorComments = await tx.ticketComment.findMany({
-          where: {
-            ticketId,
-            visibility: 'PUBLIC',
-            id: { not: created.id },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            body: true,
-            createdAt: true,
-            author: { select: { fullName: true, email: true, kind: true } },
-          },
-        });
-
-        const { textTrail, htmlTrail } = this.buildTicketEmailTrail(ticket, priorComments);
-
-        const emailText = this.stripHtmlToPlainText(cleanedBody) + (textTrail ? `${textTrail}` : '');
+        const emailText = this.stripHtmlToPlainText(cleanedBody);
         const emailHtml = `
 <div dir="ltr" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #1e293b; width: 100%; max-width: 100%;">
   <div style="font-size: 14px; line-height: 1.6; color: #1e293b; width: 100%; max-width: 100%;">${this.formatEmailBodyHtml(cleanedBody)}</div>
-  ${htmlTrail}
 </div>`.trim();
 
         // Load outgoing attachments if any were attached to this comment
@@ -1278,18 +1276,35 @@ export class TicketService {
           outboundAttachments = loaded.filter((a): a is NonNullable<typeof a> => a !== null);
         }
 
+        const { inReplyTo, references } = extractEmailThreading(ticket);
+
         this.mailService.sendTicketMail({
           to: {
             email: ticket.requester.email,
             name: ticket.requester.fullName,
           },
           ...(dto.cc && dto.cc.length > 0 ? { cc: dto.cc } : {}),
-          subject: `Re: [Ticket #${ticket.number}] ${ticket.subject}`,
+          subject: buildTicketSubject(ticket.number, ticket.subject),
           text: emailText,
           html: emailHtml,
           tag: 'ticket.reply',
+          ...(inReplyTo ? { inReplyTo } : {}),
+          ...(references && references.length > 0 ? { references } : {}),
           ...(outboundAttachments && outboundAttachments.length > 0 ? { attachments: outboundAttachments } : {}),
-        }, ticket.channel).catch((err) => {
+        }, ticket.channel)
+        .then(async (sendRes) => {
+          if (sendRes?.messageId) {
+            let updatedCustom = recordOutboundMessageId(ticket.customFields, sendRes.messageId);
+            if (dto.cc && dto.cc.length > 0) {
+              updatedCustom = { ...updatedCustom, emailCc: dto.cc };
+            }
+            await this.prisma.client.ticket.update({
+              where: { id: ticketId },
+              data: { customFields: updatedCustom },
+            }).catch(() => {});
+          }
+        })
+        .catch((err) => {
           this.logger.error({ err, ticketId }, 'Failed to send outbound reply email to customer');
         });
       }
@@ -3172,7 +3187,7 @@ export class TicketService {
       const cleanSubject = stripSubjectPrefixes(subject);
       const isReplyOrFwd = isReplySubject(subject) || Boolean(payload.inReplyTo || payload.references);
 
-      let existingTicket: { id: string; status: any; number?: string; subject?: string } | null = null;
+      let existingTicket: { id: string; status: any; number?: string; subject?: string; customFields?: any } | null = null;
 
       // Strategy 1: Explicit Ticket Number in Subject (e.g. "[Ticket #ABI-4556]" or "ABI-4556")
       const subjectTicketMatch = subject.match(/\[Ticket #([A-Z0-9]+-\d+)\]/i) || subject.match(/\b([A-Z0-9]+-\d+)\b/i);
@@ -3180,7 +3195,7 @@ export class TicketService {
         const ticketNumber = subjectTicketMatch[1].toUpperCase();
         existingTicket = await tx.ticket.findFirst({
           where: { tenantId, number: ticketNumber, deletedAt: null },
-          select: { id: true, status: true, number: true },
+          select: { id: true, status: true, number: true, subject: true, customFields: true },
         });
       }
 
@@ -3191,7 +3206,7 @@ export class TicketService {
           const ticketNumber = bodyTicketMatch[1].toUpperCase();
           existingTicket = await tx.ticket.findFirst({
             where: { tenantId, number: ticketNumber, deletedAt: null },
-            select: { id: true, status: true, number: true },
+            select: { id: true, status: true, number: true, subject: true, customFields: true },
           });
         }
       }
@@ -3208,7 +3223,7 @@ export class TicketService {
           },
           orderBy: { createdAt: 'desc' },
           take: 15,
-          select: { id: true, status: true, number: true, subject: true },
+          select: { id: true, status: true, number: true, subject: true, customFields: true },
         });
 
         for (const candidate of candidateTickets) {
@@ -3238,6 +3253,7 @@ export class TicketService {
             status: true,
             number: true,
             subject: true,
+            customFields: true,
             requester: { select: { email: true } },
           },
         });
@@ -3358,6 +3374,10 @@ export class TicketService {
         }
 
         const shouldReopen = existingTicket.status === 'CLOSED' || existingTicket.status === 'RESOLVED';
+        const existingCustom = (existingTicket.customFields as Record<string, any>) || {};
+        const updatedCustom = payload.messageId
+          ? recordOutboundMessageId(existingCustom, payload.messageId)
+          : undefined;
 
         await tx.ticket.update({
           where: { id: existingTicket.id },
@@ -3367,6 +3387,7 @@ export class TicketService {
             publicCommentCount: { increment: 1 },
             lastCustomerReplyAt: new Date(),
             ...(commentAttachmentCount > 0 ? { attachmentCount: { increment: commentAttachmentCount } } : {}),
+            ...(updatedCustom ? { customFields: updatedCustom } : {}),
           },
         });
 
@@ -3467,6 +3488,8 @@ export class TicketService {
           customFields: {
             ...(autoOrg ? { organization: autoOrg } : {}),
             ...(autoProd ? { product: autoProd } : {}),
+            ...(payload.messageId ? { emailMessageId: payload.messageId, emailReferences: [payload.messageId] } : {}),
+            ...(payload.cc && payload.cc.length > 0 ? { emailCc: payload.cc } : {}),
           },
         },
         select: {
@@ -3569,32 +3592,57 @@ export class TicketService {
         });
       }
 
+      const updateTimestamp =
+        new Date().toLocaleString('en-US', {
+          timeZone: 'Asia/Kolkata',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        }) + ' IST';
+      const updateToken = `${created.number}-received-${Date.now().toString(36)}`;
+      const recipientDisplayName = senderName || senderEmail.split('@')[0] || 'Customer';
+
+      const html = renderTicketNotificationEmail({
+        title: 'Support Request Received',
+        recipientName: recipientDisplayName,
+        message: `We have received your support request regarding <strong>"${escapeHtml(created.subject)}"</strong>. Our team is actively reviewing it and will respond as soon as possible.`,
+        ticketNumber: created.number,
+        ticketSubject: created.subject,
+        statusLabel: 'Received',
+        statusType: 'received',
+        updateTimestamp,
+        subFooterNote: 'You can reply directly to this email at any time to attach further details or follow up with our team.',
+        updateToken,
+      });
+
       // Send automated acknowledgment email to customer & CCs via ServiceDesk SMTP
       this.mailService.sendTicketMail({
-        to: { email: senderEmail, name: senderName || senderEmail.split('@')[0] || 'Customer' },
+        to: { email: senderEmail, name: recipientDisplayName },
         ...(payload.cc && payload.cc.length > 0 ? { cc: payload.cc } : {}),
-        subject: `[Ticket #${created.number}] Received: ${created.subject}`,
-        text: `Hello ${senderName || senderEmail.split('@')[0] || 'Customer'},\n\nWe have received your support request regarding "${created.subject}" (Ticket #${created.number}). Our team is actively reviewing it and will get back to you shortly.\n\nYou can reply directly to this email at any time to provide additional details.\n\nBest regards,\nSupport Team`,
-        html: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
-            <div style="margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 12px;">
-              <h2 style="margin: 0; color: #2563eb; font-size: 20px;">Support Request Received</h2>
-            </div>
-            <p style="font-size: 15px; margin-bottom: 16px;">Hello <strong>${senderName || senderEmail.split('@')[0] || 'Customer'}</strong>,</p>
-            <p style="font-size: 14px; line-height: 1.6; color: #334155; margin-bottom: 20px;">
-              We have received your support request regarding <strong>"${created.subject}"</strong>. Our team is actively reviewing it and will respond as soon as possible.
-            </p>
-            <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 6px 6px 0;">
-              <p style="margin: 0; font-size: 13px; color: #64748b;">Ticket Reference:</p>
-              <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #0f172a;">#${created.number}</p>
-            </div>
-            <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 0;">
-              You can reply directly to this email at any time to attach further details or follow up with our team.
-            </p>
-          </div>
-        `,
+        subject: buildTicketSubject(created.number, created.subject),
+        text: `Hello ${recipientDisplayName},\n\nWe have received your support request regarding "${created.subject}" (Ticket #${created.number}). Our team is actively reviewing it and will get back to you shortly.\n\nYou can reply directly to this email at any time to provide additional details.\n\nBest regards,\nSupport Team`,
+        html,
         tag: 'ticket.created_ack',
-      }, 'EMAIL').catch((err) => {
+        ...(payload.messageId ? { inReplyTo: payload.messageId, references: [payload.messageId] } : {}),
+      }, 'EMAIL')
+      .then(async (sendRes) => {
+        if (sendRes?.messageId) {
+          const currentCustom = {
+            ...(autoOrg ? { organization: autoOrg } : {}),
+            ...(autoProd ? { product: autoProd } : {}),
+            ...(payload.messageId ? { emailMessageId: payload.messageId } : {}),
+            ...(payload.cc && payload.cc.length > 0 ? { emailCc: payload.cc } : {}),
+          };
+          const updatedCustom = recordOutboundMessageId(currentCustom, sendRes.messageId);
+          await this.prisma.unsafeRawClient.ticket.update({
+            where: { id: created.id },
+            data: { customFields: updatedCustom },
+          }).catch(() => {});
+        }
+      })
+      .catch((err) => {
         this.logger.error({ err, ticketId: created.id }, 'Failed to send ticket creation ack email');
       });
 
@@ -3945,102 +3993,6 @@ export class TicketService {
     return eligible[0]?.id ?? null;
   }
 
-  /**
-   * Constructs formatted plain text and HTML conversation history trails for outbound reply emails.
-   * Formatted using standard Gmail/Outlook quote structure (`class="gmail_quote"`) so email clients
-   * automatically collapse the trail behind the `...` (three dots) button without displaying raw HTML.
-   */
-  private buildTicketEmailTrail(
-    ticket: {
-      number: string;
-      subject: string;
-      description?: string | null;
-      createdAt: Date;
-      requester?: { fullName?: string | null; email: string } | null;
-    },
-    priorPublicComments: Array<{
-      id: string;
-      body: string;
-      createdAt: Date;
-      author?: { fullName?: string | null; email?: string | null; kind?: string | null } | null;
-    }>,
-  ): { textTrail: string; htmlTrail: string } {
-    const textBlocks: string[] = [];
-    const htmlBlocks: string[] = [];
-
-    // 1. Quoted prior public comments (newest prior reply first)
-    const reversedComments = [...priorPublicComments].reverse();
-
-    for (const c of reversedComments) {
-      const authorName = c.author?.fullName || c.author?.email || 'Support Agent';
-      const dateStr = new Date(c.createdAt).toLocaleString('en-US', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      });
-
-      // Plain text block
-      const plainBody = this.stripHtmlToPlainText(c.body);
-      const quotedBody = plainBody
-        .split('\n')
-        .map((line) => `> ${line}`)
-        .join('\n');
-      textBlocks.push(`On ${dateStr}, ${authorName} wrote:\n${quotedBody}`);
-
-      // HTML block with native gmail_quote / outlook blockquote formatting
-      const cleanHtml = this.cleanHtmlForEmailQuote(c.body);
-      htmlBlocks.push(`
-<div class="gmail_quote" style="margin-top: 16px;">
-  <div dir="ltr" class="gmail_attr" style="font-size: 12.5px; color: #5f6368; margin-bottom: 6px;">
-    On ${escapeHtml(dateStr)}, <strong>${escapeHtml(authorName)}</strong> wrote:<br>
-  </div>
-  <blockquote class="gmail_quote" style="margin: 0 0 0 0.8ex; border-left: 1px solid #cbd5e1; padding-left: 1ex;">
-    ${cleanHtml}
-  </blockquote>
-</div>`.trim());
-    }
-
-    // 2. Original Ticket Request Description (at base of trail)
-    const requesterName = ticket.requester?.fullName || ticket.requester?.email || 'Customer';
-    const originalDateStr = new Date(ticket.createdAt).toLocaleString('en-US', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-    const originalContent = ticket.description || ticket.subject;
-
-    if (originalContent) {
-      const plainOriginal = this.stripHtmlToPlainText(originalContent);
-      const quotedOriginal = plainOriginal
-        .split('\n')
-        .map((line) => `> ${line}`)
-        .join('\n');
-      textBlocks.push(
-        `On ${originalDateStr}, ${requesterName} (Original Request) wrote:\n${quotedOriginal}`,
-      );
-
-      const cleanOriginalHtml = this.cleanHtmlForEmailQuote(originalContent);
-      htmlBlocks.push(`
-<div class="gmail_quote" style="margin-top: 16px;">
-  <div dir="ltr" class="gmail_attr" style="font-size: 12.5px; color: #5f6368; margin-bottom: 6px;">
-    On ${escapeHtml(originalDateStr)}, <strong>${escapeHtml(requesterName)} (Original Request)</strong> wrote:<br>
-  </div>
-  <blockquote class="gmail_quote" style="margin: 0 0 0 0.8ex; border-left: 1px solid #2563eb; padding-left: 1ex;">
-    ${cleanOriginalHtml}
-  </blockquote>
-</div>`.trim());
-    }
-
-    if (textBlocks.length === 0) {
-      return { textTrail: '', htmlTrail: '' };
-    }
-
-    const textTrail = `\n\n--------------------------------------------------\nConversation History (Ticket #${ticket.number}):\n\n` + textBlocks.join('\n\n');
-    const htmlTrail = `
-<div class="gmail_quote" style="margin-top: 24px;">
-  ${htmlBlocks.join('\n')}
-</div>`.trim();
-
-    return { textTrail, htmlTrail };
-  }
 
   /**
    * Formats a comment or message body for outbound email HTML.
@@ -4050,63 +4002,9 @@ export class TicketService {
    * and MSO-based desktop clients (Microsoft Outlook).
    */
   private formatEmailBodyHtml(raw: string): string {
-    if (!raw) return '';
-    const trimmed = raw.trim();
-
-    if (/<(html|head|body|div|p|span|table|h[1-6]|ul|ol|li|br)[^>]*>/i.test(trimmed)) {
-      let cleaned = trimmed
-        .replace(/<!DOCTYPE[^>]*>/gi, '')
-        .replace(/<\/?(html|head|body)[^>]*>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<meta[^>]*>/gi, '')
-        .replace(/<title[\s\S]*?<\/title>/gi, '')
-        .trim();
-
-      // Ensure copied Excel tables have clean inline borders and spacing across Outlook and Gmail
-      if (/<table[^>]*>/i.test(cleaned)) {
-        cleaned = cleaned
-          .replace(/<table(?![^>]*style=)[^>]*>/gi, '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit;">')
-          .replace(/<table([^>]*style=["'])([^"']*)(["'][^>]*)>/gi, '<table$1border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit; $2$3 border="1" cellpadding="5" cellspacing="0">')
-          .replace(/<td(?![^>]*style=)[^>]*>/gi, '<td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; font-size: 13px; line-height: 1.35;">')
-          .replace(/<th(?![^>]*style=)[^>]*>/gi, '<th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; background-color: #f8fafc; font-weight: 600; font-size: 13px; line-height: 1.35; white-space: nowrap; text-align: left;">');
-      }
-
-      return cleaned;
-    }
-
-    return escapeHtml(trimmed).replace(/\r\n|\r|\n/g, '<br />');
+    return formatRichTextForEmail(raw);
   }
 
-  private cleanHtmlForEmailQuote(raw: string): string {
-    if (!raw) return '';
-    const trimmed = raw.trim();
-
-    // If it contains full HTML document or major HTML block tags
-    if (/<(html|head|body|div|p|span|table|h[1-6]|ul|ol|li|br)[^>]*>/i.test(trimmed)) {
-      let cleaned = trimmed
-        .replace(/<!DOCTYPE[^>]*>/gi, '')
-        .replace(/<\/?(html|head|body)[^>]*>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<meta[^>]*>/gi, '')
-        .replace(/<title[\s\S]*?<\/title>/gi, '')
-        .trim();
-
-      if (/<table[^>]*>/i.test(cleaned)) {
-        cleaned = cleaned
-          .replace(/<table(?![^>]*style=)[^>]*>/gi, '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; border: 1px solid #cbd5e1; margin: 6px 0; width: auto; max-width: 100%; font-size: 13px; line-height: 1.35; font-family: inherit;">')
-          .replace(/<td(?![^>]*style=)[^>]*>/gi, '<td style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; font-size: 13px; line-height: 1.35;">')
-          .replace(/<th(?![^>]*style=)[^>]*>/gi, '<th style="border: 1px solid #cbd5e1; padding: 4px 8px; font-family: inherit; background-color: #f8fafc; font-weight: 600; font-size: 13px; line-height: 1.35; white-space: nowrap; text-align: left;">');
-      }
-
-      return cleaned || '<p style="color:#64748b;font-style:italic;">(No content)</p>';
-    }
-
-    // Plain text: escape HTML and convert newlines to <br /> for 100% email client compatibility
-    const formatted = escapeHtml(trimmed).replace(/\r\n|\r|\n/g, '<br />');
-    return `<div style="font-size: 13.5px; line-height: 1.5; color: #334155;">${formatted}</div>`;
-  }
 
   private stripHtmlToPlainText(raw: string): string {
     if (!raw) return '';
@@ -4131,6 +4029,70 @@ export class TicketService {
       .trim();
   }
 }
+
+export function extractEmailThreading(ticket: { customFields?: any }): {
+  inReplyTo?: string;
+  references?: string[];
+} {
+  const fields = (ticket.customFields as Record<string, any>) || {};
+  const rawRefs: string[] = Array.isArray(fields.emailReferences)
+    ? fields.emailReferences.filter((r: unknown) => typeof r === 'string' && (r as string).trim())
+    : [];
+
+  const inReplyTo =
+    fields.lastEmailMessageId ||
+    (rawRefs.length > 0 ? rawRefs[rawRefs.length - 1] : undefined) ||
+    fields.emailMessageId ||
+    undefined;
+
+  const references = rawRefs.length > 0 ? rawRefs : inReplyTo ? [inReplyTo] : undefined;
+  return { inReplyTo, references };
+}
+
+export function recordOutboundMessageId(
+  existingCustomFields: any,
+  newMessageId: string,
+): Record<string, any> {
+  const fields = (existingCustomFields as Record<string, any>) || {};
+  const prevRefs: string[] = Array.isArray(fields.emailReferences)
+    ? [...fields.emailReferences]
+    : fields.emailMessageId
+      ? [fields.emailMessageId]
+      : [];
+  if (!prevRefs.includes(newMessageId)) {
+    prevRefs.push(newMessageId);
+  }
+  return {
+    ...fields,
+    lastEmailMessageId: newMessageId,
+    emailReferences: prevRefs,
+  };
+}
+
+
+export function stripHtmlToPlainText(raw: string): string {
+  if (!raw) return '';
+  if (!/<[a-z][\s\S]*>/i.test(raw)) {
+    return raw.trim();
+  }
+
+  return raw
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+    .replace(/<\/(td|th)>/gi, '\t')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 
 /** URL-safe tag slug. Deterministic, so the same label always maps to one tag. */
 function slugify(value: string): string {
@@ -4263,12 +4225,18 @@ function isReplySubject(subject: string): boolean {
   return /^\s*(re|fwd|fw|aw|sv|vs|antw)\s*:/i.test(subject);
 }
 
-function stripSubjectPrefixes(subject: string): string {
+export function stripSubjectPrefixes(subject: string): string {
   if (!subject) return '';
   return subject
     .replace(/^(\s*(re|fwd|fw|aw|sv|vs|antw)\s*:\s*)+/gi, '')
     .replace(/\[Ticket #[^\]]+\]\s*/gi, '')
+    .replace(/^(\s*(received|resolved|closed|reopened|awaiting response|awaiting your response)\s*:\s*)+/gi, '')
     .trim();
+}
+
+export function buildTicketSubject(ticketNumber: string, originalSubject: string): string {
+  const clean = stripSubjectPrefixes(originalSubject);
+  return `Re: [Ticket #${ticketNumber}] ${clean || 'Support Request'}`;
 }
 
 export function cleanClipboardFragments(text: string | null | undefined): string {

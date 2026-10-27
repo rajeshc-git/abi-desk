@@ -7,6 +7,8 @@ export interface MailAttachment {
   filename: string;
   content: Buffer;
   contentType?: string;
+  cid?: string;
+  contentDisposition?: 'attachment' | 'inline';
 }
 
 export interface MailMessage {
@@ -26,6 +28,10 @@ export interface MailMessage {
   tag: string;
   /** Optional file attachments (Buffer payloads). */
   attachments?: MailAttachment[];
+  /** In-Reply-To header for RFC 5322 email threading. */
+  inReplyTo?: string;
+  /** References header for RFC 5322 email threading. */
+  references?: string[] | string;
 }
 
 export interface MailSendResult {

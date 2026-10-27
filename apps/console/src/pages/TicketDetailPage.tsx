@@ -1017,7 +1017,7 @@ export const TicketDetailPage: React.FC = () => {
                           createdAt: ticket.createdAt,
                           channel: ticket.channel,
                           mediaAssets: ticket.mediaAssets || [],
-                          cc: (ticket as any).cc || [],
+                          cc: (ticket as any).cc || (ticket as any).customFields?.emailCc || [],
                         }}
                       />
                     </div>
