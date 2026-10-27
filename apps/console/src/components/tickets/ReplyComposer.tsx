@@ -25,6 +25,7 @@ import {
 import { TicketsApi } from '../../api/tickets';
 import { ApiClient } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import {
   SnippetTemplate,
   TicketSnippetContext,
@@ -58,6 +59,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   initialCc,
 }) => {
   const { user } = useAuth();
+  const toast = useToast();
   const [isMinimized, setIsMinimized] = useState(false);
   const [body, setBody] = useState('');
   const [isInternal, setIsInternal] = useState(initialIsInternal);
@@ -76,17 +78,25 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       return () => clearTimeout(timer);
     }
   }, [isMinimized]);
-  const [ccList, setCcList] = useState<string[]>(initialCc || []);
+  const sanitizedInitialCc = useMemo(
+    () =>
+      (initialCc || []).filter(
+        (e) => typeof e === 'string' && e.toLowerCase().trim() !== ticket?.requester?.email?.toLowerCase().trim(),
+      ),
+    [initialCc, ticket?.requester?.email],
+  );
+
+  const [ccList, setCcList] = useState<string[]>(sanitizedInitialCc);
   const initialCcSet = useMemo(
-    () => new Set((initialCc || []).map((e) => e.toLowerCase().trim())),
-    [initialCc],
+    () => new Set(sanitizedInitialCc.map((e) => e.toLowerCase().trim())),
+    [sanitizedInitialCc],
   );
 
   useEffect(() => {
-    if (initialCc && initialCc.length > 0) {
-      setCcList((prev) => (prev.length === 0 ? initialCc : prev));
+    if (sanitizedInitialCc && sanitizedInitialCc.length > 0) {
+      setCcList((prev) => (prev.length === 0 ? sanitizedInitialCc : prev));
     }
-  }, [initialCc]);
+  }, [sanitizedInitialCc]);
   const [ccInput, setCcInput] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<
     Array<{ id: string; name: string; previewUrl?: string; isUploading?: boolean; sizeBytes?: number }>
@@ -341,6 +351,12 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   const handleAddCc = (emailToAdd: string) => {
     const trimmed = emailToAdd.trim().toLowerCase().replace(/,/g, '');
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const requesterEmail = ticket?.requester?.email?.toLowerCase().trim();
+    if (trimmed && trimmed === requesterEmail) {
+      toast.error('The requester is already the primary recipient.');
+      setCcInput('');
+      return;
+    }
     if (trimmed && emailRegex.test(trimmed) && !ccList.includes(trimmed)) {
       setCcList([...ccList, trimmed]);
       setCcInput('');

@@ -13,7 +13,14 @@ import {
 import { createHash, randomUUID } from 'node:crypto';
 import { type AuthenticatedPrincipal } from '../auth/auth.types';
 import { MediaService } from '../media/media.service';
-import { MailService, isSystemRobotEmail } from '../../infra/mail/mail.service';
+import { MailService, isSystemRobotEmail, ABI_DESK_LOGO_BUFFER } from '../../infra/mail/mail.service';
+import {
+  STICKMAN_RESOLVED_BUFFER,
+  STICKMAN_CLOSED_BUFFER,
+  STICKMAN_PENDING_BUFFER,
+  STICKMAN_WALKING_BUFFER,
+  STICKMAN_TOWARDS_BUFFER,
+} from '../../infra/mail/stickman.assets';
 import { escapeHtml, formatRichTextForEmail, renderTicketNotificationEmail } from '../../infra/mail/mail.templates';
 import { StorageService } from '../../infra/storage/storage.service';
 import { SlaService } from '../sla/sla.service';
@@ -581,16 +588,27 @@ export class TicketService {
       throw AppException.notFound('Ticket', id);
     }
 
-    const createdEvent = await this.prisma.client.ticketEvent.findFirst({
-      where: { ticketId: id, type: 'CREATED' },
-      select: { metadata: true },
-    });
-    const eventMeta = createdEvent?.metadata as Record<string, any> | null;
-    const cc = Array.isArray(eventMeta?.cc) ? eventMeta.cc : [];
+    const customFields = (ticket.customFields as Record<string, any>) || {};
+    const requesterEmail = ticket.requester?.email?.toLowerCase().trim();
+    let rawCc: string[] = [];
+    if (Array.isArray(customFields.emailCc)) {
+      rawCc = customFields.emailCc;
+    } else {
+      const createdEvent = await this.prisma.client.ticketEvent.findFirst({
+        where: { ticketId: id, type: 'CREATED' },
+        select: { metadata: true },
+      });
+      const eventMeta = createdEvent?.metadata as Record<string, any> | null;
+      rawCc = Array.isArray(eventMeta?.cc) ? eventMeta.cc : [];
+    }
+    const cleanCc = rawCc
+      .filter((e): e is string => typeof e === 'string' && Boolean(e.trim()))
+      .map((e) => e.trim())
+      .filter((e) => e.toLowerCase() !== requesterEmail);
 
     return {
       ...ticket,
-      cc,
+      cc: cleanCc,
     };
   }
 
@@ -608,10 +626,19 @@ export class TicketService {
         ccByTicketId.set(ev.ticketId, meta.cc);
       }
     }
-    return tickets.map((t) => ({
-      ...t,
-      cc: ccByTicketId.get(t.id) || [],
-    }));
+    return tickets.map((t) => {
+      const custom = (t.customFields as Record<string, any>) || {};
+      const rawCc = Array.isArray(custom.emailCc) ? custom.emailCc : ccByTicketId.get(t.id) || [];
+      const requesterEmail = t.requester?.email?.toLowerCase().trim();
+      const cleanCc = rawCc
+        .filter((e: any): e is string => typeof e === 'string' && Boolean(e.trim()))
+        .map((e: string) => e.trim())
+        .filter((e: string) => e.toLowerCase() !== requesterEmail);
+      return {
+        ...t,
+        cc: cleanCc,
+      };
+    });
   }
 
   /**
@@ -1223,6 +1250,31 @@ export class TicketService {
         });
       }
 
+      const requesterEmail = ticket.requester?.email?.toLowerCase().trim();
+      const supportEmails = getKnownSupportEmails(ticket.brand?.supportEmail);
+
+      const rawDtoCc = Array.isArray(dto.cc) ? dto.cc : [];
+      const sanitizedCc = rawDtoCc
+        .filter((e): e is string => typeof e === 'string' && Boolean(e.trim()))
+        .map((e) => e.trim())
+        .filter((e) => {
+          const lower = e.toLowerCase();
+          return lower !== requesterEmail && !supportEmails.has(lower) && !isSystemRobotEmail(lower);
+        });
+
+      if (dto.cc !== undefined) {
+        const currentCustom = (ticket.customFields as Record<string, any>) || {};
+        await tx.ticket.update({
+          where: { id: ticketId },
+          data: {
+            customFields: {
+              ...currentCustom,
+              emailCc: sanitizedCc,
+            },
+          },
+        });
+      }
+
       await this.recordEvent(tx, {
         tenantId,
         ticketId,
@@ -1231,7 +1283,7 @@ export class TicketService {
         metadata: {
           commentId: created.id,
           visibility: dto.visibility,
-          ...(dto.cc && dto.cc.length > 0 ? { cc: dto.cc } : {}),
+          ...(sanitizedCc.length > 0 ? { cc: sanitizedCc } : {}),
         },
       });
 
@@ -1283,7 +1335,7 @@ export class TicketService {
             email: ticket.requester.email,
             name: ticket.requester.fullName,
           },
-          ...(dto.cc && dto.cc.length > 0 ? { cc: dto.cc } : {}),
+          ...(sanitizedCc.length > 0 ? { cc: sanitizedCc } : {}),
           subject: buildTicketSubject(ticket.number, ticket.subject),
           text: emailText,
           html: emailHtml,
@@ -1295,8 +1347,8 @@ export class TicketService {
         .then(async (sendRes) => {
           if (sendRes?.messageId) {
             let updatedCustom = recordOutboundMessageId(ticket.customFields, sendRes.messageId);
-            if (dto.cc && dto.cc.length > 0) {
-              updatedCustom = { ...updatedCustom, emailCc: dto.cc };
+            if (dto.cc !== undefined) {
+              updatedCustom = { ...updatedCustom, emailCc: sanitizedCc };
             }
             await this.prisma.client.ticket.update({
               where: { id: ticketId },
@@ -1311,7 +1363,7 @@ export class TicketService {
 
       return {
         ...created,
-        cc: dto.cc || [],
+        cc: sanitizedCc,
       };
     });
 
@@ -3187,7 +3239,14 @@ export class TicketService {
       const cleanSubject = stripSubjectPrefixes(subject);
       const isReplyOrFwd = isReplySubject(subject) || Boolean(payload.inReplyTo || payload.references);
 
-      let existingTicket: { id: string; status: any; number?: string; subject?: string; customFields?: any } | null = null;
+      let existingTicket: {
+        id: string;
+        status: any;
+        number?: string;
+        subject?: string;
+        customFields?: any;
+        requester?: { id?: string; email?: string | null } | null;
+      } | null = null;
 
       // Strategy 1: Explicit Ticket Number in Subject (e.g. "[Ticket #ABI-4556]" or "ABI-4556")
       const subjectTicketMatch = subject.match(/\[Ticket #([A-Z0-9]+-\d+)\]/i) || subject.match(/\b([A-Z0-9]+-\d+)\b/i);
@@ -3195,7 +3254,7 @@ export class TicketService {
         const ticketNumber = subjectTicketMatch[1].toUpperCase();
         existingTicket = await tx.ticket.findFirst({
           where: { tenantId, number: ticketNumber, deletedAt: null },
-          select: { id: true, status: true, number: true, subject: true, customFields: true },
+          select: { id: true, status: true, number: true, subject: true, customFields: true, requester: { select: { id: true, email: true } } },
         });
       }
 
@@ -3206,7 +3265,7 @@ export class TicketService {
           const ticketNumber = bodyTicketMatch[1].toUpperCase();
           existingTicket = await tx.ticket.findFirst({
             where: { tenantId, number: ticketNumber, deletedAt: null },
-            select: { id: true, status: true, number: true, subject: true, customFields: true },
+            select: { id: true, status: true, number: true, subject: true, customFields: true, requester: { select: { id: true, email: true } } },
           });
         }
       }
@@ -3223,7 +3282,7 @@ export class TicketService {
           },
           orderBy: { createdAt: 'desc' },
           take: 15,
-          select: { id: true, status: true, number: true, subject: true, customFields: true },
+          select: { id: true, status: true, number: true, subject: true, customFields: true, requester: { select: { id: true, email: true } } },
         });
 
         for (const candidate of candidateTickets) {
@@ -3254,7 +3313,7 @@ export class TicketService {
             number: true,
             subject: true,
             customFields: true,
-            requester: { select: { email: true } },
+            requester: { select: { id: true, email: true } },
           },
         });
 
@@ -3343,6 +3402,11 @@ export class TicketService {
             const buffer = Buffer.from(rawContent, 'base64');
             if (buffer.length === 0) continue;
 
+            const cid = (att as any).cid || (att as any).ContentID || (att as any).content_id || (att as any).contentId;
+            if (isSystemTemplateDecorativeAsset(filename, buffer, cid)) {
+              continue;
+            }
+
             const mediaId = randomUUID();
             const storageKey = buildInboundStorageKey(tenantId, mediaId, mimeType);
             const checksum = createHash('sha256').update(buffer).digest('hex');
@@ -3375,9 +3439,72 @@ export class TicketService {
 
         const shouldReopen = existingTicket.status === 'CLOSED' || existingTicket.status === 'RESOLVED';
         const existingCustom = (existingTicket.customFields as Record<string, any>) || {};
-        const updatedCustom = payload.messageId
-          ? recordOutboundMessageId(existingCustom, payload.messageId)
-          : undefined;
+
+        // 1. Resolve ticket requester's email
+        const ticketRequesterEmail = (existingTicket.requester?.email || '').toLowerCase().trim();
+
+        // 2. Resolve support system emails to filter out
+        const supportEmails = getKnownSupportEmails(recipient);
+        if (origRecipient) {
+          const parsedOrig = parseEmailAddress(origRecipient);
+          if (parsedOrig) supportEmails.add(parsedOrig.toLowerCase().trim());
+        }
+
+        const isValidParticipantCc = (email: string) => {
+          const lower = email.toLowerCase().trim();
+          return (
+            Boolean(lower) &&
+            lower !== ticketRequesterEmail &&
+            !supportEmails.has(lower) &&
+            !isSystemRobotEmail(lower)
+          );
+        };
+
+        // 3. Existing CCs on ticket
+        let currentTicketCcs: string[] = [];
+        if (Array.isArray(existingCustom.emailCc)) {
+          currentTicketCcs = existingCustom.emailCc;
+        } else {
+          const createdEv = await tx.ticketEvent.findFirst({
+            where: { ticketId: existingTicket.id, type: 'CREATED' },
+            select: { metadata: true },
+          });
+          const meta = createdEv?.metadata as any;
+          if (Array.isArray(meta?.cc)) {
+            currentTicketCcs = meta.cc;
+          }
+        }
+
+        // 4. Clean incoming CCs from this reply message
+        const incomingRawCcs: string[] = Array.isArray(payload.cc) ? payload.cc : [];
+        const incomingCleanCcs = incomingRawCcs
+          .filter((e): e is string => typeof e === 'string' && isValidParticipantCc(e))
+          .map((e) => e.trim());
+
+        // 5. Merge existing CCs with incoming CCs (Union without duplicates)
+        // If the sender was already a CC on this ticket, they remain in the ticket's active CC list!
+        const mergedCcMap = new Map<string, string>();
+        for (const e of currentTicketCcs) {
+          if (typeof e === 'string' && isValidParticipantCc(e)) {
+            mergedCcMap.set(e.toLowerCase().trim(), e.trim());
+          }
+        }
+        for (const e of incomingCleanCcs) {
+          mergedCcMap.set(e.toLowerCase().trim(), e.trim());
+        }
+        const mergedTicketCcs = Array.from(mergedCcMap.values());
+
+        // 6. Comment metadata CC: Only record CCs that are NOT the ticket requester and NOT the sender
+        const normalizedSender = senderEmail.toLowerCase().trim();
+        const commentEventCcs = incomingCleanCcs.filter((e) => e.toLowerCase().trim() !== normalizedSender);
+
+        let updatedCustom: Record<string, any> = {
+          ...existingCustom,
+          ...(mergedTicketCcs.length > 0 || Array.isArray(existingCustom.emailCc) ? { emailCc: mergedTicketCcs } : {}),
+        };
+        if (payload.messageId) {
+          updatedCustom = recordOutboundMessageId(updatedCustom, payload.messageId);
+        }
 
         await tx.ticket.update({
           where: { id: existingTicket.id },
@@ -3387,7 +3514,7 @@ export class TicketService {
             publicCommentCount: { increment: 1 },
             lastCustomerReplyAt: new Date(),
             ...(commentAttachmentCount > 0 ? { attachmentCount: { increment: commentAttachmentCount } } : {}),
-            ...(updatedCustom ? { customFields: updatedCustom } : {}),
+            customFields: updatedCustom,
           },
         });
 
@@ -3412,7 +3539,7 @@ export class TicketService {
             commentId: createdComment.id,
             visibility: 'PUBLIC',
             attachmentsAdded: commentAttachmentCount,
-            ...(payload.cc && payload.cc.length > 0 ? { cc: payload.cc } : {}),
+            ...(commentEventCcs.length > 0 ? { cc: commentEventCcs } : {}),
           },
         });
 
@@ -3467,6 +3594,20 @@ export class TicketService {
         autoProd,
       );
 
+      const newSupportEmails = getKnownSupportEmails(recipient);
+      if (origRecipient) {
+        const parsedOrig = parseEmailAddress(origRecipient);
+        if (parsedOrig) newSupportEmails.add(parsedOrig.toLowerCase().trim());
+      }
+
+      const cleanNewTicketCc = (payload.cc || [])
+        .filter((e): e is string => typeof e === 'string' && Boolean(e.trim()))
+        .map((e) => e.trim())
+        .filter((e) => {
+          const lower = e.toLowerCase();
+          return lower !== senderEmail.toLowerCase() && !newSupportEmails.has(lower) && !isSystemRobotEmail(lower);
+        });
+
       const created = await tx.ticket.create({
         data: {
           tenantId,
@@ -3489,7 +3630,7 @@ export class TicketService {
             ...(autoOrg ? { organization: autoOrg } : {}),
             ...(autoProd ? { product: autoProd } : {}),
             ...(payload.messageId ? { emailMessageId: payload.messageId, emailReferences: [payload.messageId] } : {}),
-            ...(payload.cc && payload.cc.length > 0 ? { emailCc: payload.cc } : {}),
+            ...(cleanNewTicketCc.length > 0 ? { emailCc: cleanNewTicketCc } : {}),
           },
         },
         select: {
@@ -3518,6 +3659,11 @@ export class TicketService {
           const mimeType = att.content_type || att.contentType || att.type || (att as any).ContentType || 'application/octet-stream';
           const buffer = Buffer.from(rawContent, 'base64');
           if (buffer.length === 0) continue;
+
+          const cid = (att as any).cid || (att as any).ContentID || (att as any).content_id || (att as any).contentId;
+          if (isSystemTemplateDecorativeAsset(filename, buffer, cid)) {
+            continue;
+          }
 
           const mediaId = randomUUID();
           const storageKey = buildInboundStorageKey(tenantId, mediaId, mimeType);
@@ -3567,7 +3713,7 @@ export class TicketService {
           priority: 'NORMAL',
           attachmentCount: ticketAttachmentCount,
           ...(autoOrg ? { organization: autoOrg } : {}),
-          ...(payload.cc && payload.cc.length > 0 ? { cc: payload.cc } : {}),
+          ...(cleanNewTicketCc.length > 0 ? { cc: cleanNewTicketCc } : {}),
         },
       });
 
@@ -3620,7 +3766,7 @@ export class TicketService {
       // Send automated acknowledgment email to customer & CCs via ServiceDesk SMTP
       this.mailService.sendTicketMail({
         to: { email: senderEmail, name: recipientDisplayName },
-        ...(payload.cc && payload.cc.length > 0 ? { cc: payload.cc } : {}),
+        ...(cleanNewTicketCc.length > 0 ? { cc: cleanNewTicketCc } : {}),
         subject: buildTicketSubject(created.number, created.subject),
         text: `Hello ${recipientDisplayName},\n\nWe have received your support request regarding "${created.subject}" (Ticket #${created.number}). Our team is actively reviewing it and will get back to you shortly.\n\nYou can reply directly to this email at any time to provide additional details.\n\nBest regards,\nSupport Team`,
         html,
@@ -3633,7 +3779,7 @@ export class TicketService {
             ...(autoOrg ? { organization: autoOrg } : {}),
             ...(autoProd ? { product: autoProd } : {}),
             ...(payload.messageId ? { emailMessageId: payload.messageId } : {}),
-            ...(payload.cc && payload.cc.length > 0 ? { emailCc: payload.cc } : {}),
+            ...(cleanNewTicketCc.length > 0 ? { emailCc: cleanNewTicketCc } : {}),
           };
           const updatedCustom = recordOutboundMessageId(currentCustom, sendRes.messageId);
           await this.prisma.unsafeRawClient.ticket.update({
@@ -4126,6 +4272,78 @@ function parseEmailName(raw: string): string | null {
     return match[1].trim().replace(/^['"]|['"]$/g, '');
   }
   return null;
+}
+
+function getKnownSupportEmails(extraEmail?: string | null): Set<string> {
+  const set = new Set<string>();
+  const add = (raw?: string | null) => {
+    if (!raw) return;
+    const parsed = parseEmailAddress(raw);
+    if (parsed) set.add(parsed.toLowerCase().trim());
+  };
+  add(extraEmail);
+  add(process.env.MAIL_FROM);
+  add(process.env.TICKET_MAIL_FROM);
+  add(process.env.TICKET_SMTP_USER);
+  add(process.env.TICKET_SMTP2_USER);
+  add(process.env.TICKET_SMTP_FROM);
+  add(process.env.TICKET_SMTP2_FROM);
+  return set;
+}
+
+const KNOWN_SYSTEM_ASSET_BUFFERS = [
+  ABI_DESK_LOGO_BUFFER,
+  STICKMAN_RESOLVED_BUFFER,
+  STICKMAN_CLOSED_BUFFER,
+  STICKMAN_PENDING_BUFFER,
+  STICKMAN_WALKING_BUFFER,
+  STICKMAN_TOWARDS_BUFFER,
+];
+
+const KNOWN_SYSTEM_ASSET_SIZES = new Set<number>(
+  KNOWN_SYSTEM_ASSET_BUFFERS.map((b) => b.length),
+);
+
+const KNOWN_SYSTEM_ASSET_HASHES = new Set<string>(
+  KNOWN_SYSTEM_ASSET_BUFFERS.map((b) => createHash('sha256').update(b).digest('hex')),
+);
+
+const EXACT_TEMPLATE_FILENAMES = new Set<string>([
+  'abidesk-logo.png',
+  'stickman-towards.gif',
+  'stickman-resolved.gif',
+  'stickman-closed.gif',
+  'stickman-pending.gif',
+  'stickman-walking.gif',
+]);
+
+function isSystemTemplateDecorativeAsset(filename: string, buffer: Buffer, cid?: string): boolean {
+  if (!buffer || buffer.length === 0) return false;
+
+  // 1. Exact binary SHA-256 checksum match
+  // Performance optimization: only compute hash if buffer byte size matches one of our 6 system assets.
+  // Any customer file (e.g. 500KB PDF, 2MB image) skips hashing instantly in 0 CPU cycles.
+  if (KNOWN_SYSTEM_ASSET_SIZES.has(buffer.length)) {
+    const hash = createHash('sha256').update(buffer).digest('hex');
+    if (KNOWN_SYSTEM_ASSET_HASHES.has(hash)) {
+      return true;
+    }
+  }
+
+  // 2. Email template inline CID match (cid:abidesk-logo or cid:stickman-...)
+  // Must have BOTH our specific template CID AND our exact template filename
+  const lowerName = filename.toLowerCase().trim();
+  const lowerCid = (cid || '').toLowerCase().trim().replace(/^<|>$/g, '');
+
+  const isTemplateCid =
+    lowerCid === 'abidesk-logo' ||
+    (lowerCid.startsWith('stickman-') && EXACT_TEMPLATE_FILENAMES.has(`${lowerCid}.gif`));
+
+  if (isTemplateCid && EXACT_TEMPLATE_FILENAMES.has(lowerName)) {
+    return true;
+  }
+
+  return false;
 }
 
 function resolveTenantSlug(params: {

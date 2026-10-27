@@ -247,10 +247,39 @@ function processAndSanitizeEmailHtml(raw: string): ProcessedEmailResult {
     const isUnresolvedCid = img.getAttribute('data-unresolved-cid') === 'true' || src.toLowerCase().startsWith('cid:');
     const w = img.getAttribute('width');
     const h = img.getAttribute('height');
-    const alt = img.getAttribute('alt') || '';
+    const alt = (img.getAttribute('alt') || '').trim();
+    const originalCid = (img.getAttribute('data-original-cid') || '').toLowerCase().trim().replace(/^<|>$/g, '');
+    const lowerSrc = src.toLowerCase().trim();
+
+    // Completely remove system template decorative assets (logo, stickman animations) - no placeholder or clip badge
+    const isTemplateDecorative =
+      originalCid === 'abidesk-logo' ||
+      originalCid.startsWith('stickman-') ||
+      lowerSrc.includes('abidesk-logo') ||
+      lowerSrc.includes('stickman-') ||
+      (isUnresolvedCid && /^(?:abi\s*desk|status|in\s*progress|stickman)$/i.test(alt));
+
+    if (isTemplateDecorative) {
+      const parentTd = img.closest('td');
+      img.remove();
+      if (parentTd && parentTd.textContent?.trim() === '' && !parentTd.querySelector('img, a, span:not(.email-ext-icon)')) {
+        parentTd.style.height = '0px';
+        parentTd.style.padding = '0px';
+        parentTd.style.lineHeight = '0px';
+        const parentTr = parentTd.closest('tr');
+        if (parentTr && parentTr.textContent?.trim() === '' && !parentTr.querySelector('img, a, span:not(.email-ext-icon)')) {
+          parentTr.style.display = 'none';
+        }
+      }
+      return;
+    }
 
     if (isUnresolvedCid) {
-      if (alt && !/(?:logo|signature|icon|avatar|brand|image|spacer|blank)/i.test(alt) && alt.length < 80) {
+      if (
+        alt &&
+        !/(?:logo|signature|icon|avatar|brand|image|spacer|blank|status|in\s*progress|abi\s*desk|abidesk|stickman)/i.test(alt) &&
+        alt.length < 80
+      ) {
         const badge = doc.createElement('span');
         badge.setAttribute(
           'style',

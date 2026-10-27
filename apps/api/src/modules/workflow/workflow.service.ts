@@ -828,7 +828,9 @@ export class WorkflowService {
       const subject = buildTicketSubject(ticket.number, ticket.subject);
       const { inReplyTo, references } = extractEmailThreading(ticket);
       const customFields = (ticket.customFields as Record<string, any>) || {};
-      const ccRecipients: string[] = Array.isArray(customFields.emailCc) ? customFields.emailCc : [];
+      const rawCc: string[] = Array.isArray(customFields.emailCc) ? customFields.emailCc : [];
+      const requesterEmail = ticket.requester?.email?.toLowerCase().trim();
+      const ccRecipients = rawCc.filter((c) => c && typeof c === 'string' && c.toLowerCase().trim() !== requesterEmail);
 
       const updateTimestamp =
         new Date().toLocaleString('en-US', {

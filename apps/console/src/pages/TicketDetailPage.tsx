@@ -1109,9 +1109,14 @@ export const TicketDetailPage: React.FC = () => {
                         ticket={ticket}
                         initialIsInternal={replyMode === 'internal'}
                         initialCc={
-                          [...comments].reverse().find((c) => c.cc && c.cc.length > 0)?.cc ||
-                          (ticket as any).cc ||
-                          []
+                          (
+                            (ticket as any).customFields?.emailCc ||
+                            (ticket as any).cc ||
+                            []
+                          ).filter((e: string) => {
+                            const lower = typeof e === 'string' ? e.toLowerCase().trim() : '';
+                            return lower && lower !== ticket?.requester?.email?.toLowerCase().trim();
+                          })
                         }
                         onClose={() => setIsReplyOpen(false)}
                       />

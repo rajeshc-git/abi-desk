@@ -61,6 +61,7 @@ interface TimelineViewProps {
 
 const urlCache = new Map<string, { url: string; expiresAt: number }>();
 
+
 const AttachmentItem: React.FC<{
   att: { id: string; originalFilename?: string | null; mimeType?: string | null; sizeBytes?: number };
 }> = ({ att }) => {
@@ -1135,39 +1136,46 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </div>
 
               {/* CC Badges if CC recipients were included on this message */}
-              {comment.cc && comment.cc.length > 0 && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: '5px',
-                    padding: '2px 14px 8px',
-                    fontSize: '11.5px',
-                    color: 'var(--text-muted, #64748b)',
-                  }}
-                >
-                  <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
-                  {comment.cc.map((email: string) => (
-                    <span
-                      key={email}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                        color: 'var(--primary, #2563eb)',
-                        border: '1px solid rgba(37, 99, 235, 0.2)',
-                        borderRadius: '10px',
-                        padding: '1px 7px',
-                        fontSize: '11px',
-                        fontWeight: 500,
-                      }}
-                    >
-                      {email}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {(() => {
+                const requesterEmail = initialTicket?.requester?.email?.toLowerCase().trim();
+                const visibleCcs = (comment.cc || []).filter(
+                  (email: string) => typeof email === 'string' && email.toLowerCase().trim() !== requesterEmail,
+                );
+                if (visibleCcs.length === 0) return null;
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '5px',
+                      padding: '2px 14px 8px',
+                      fontSize: '11.5px',
+                      color: 'var(--text-muted, #64748b)',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                    {visibleCcs.map((email: string) => (
+                      <span
+                        key={email}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                          color: 'var(--primary, #2563eb)',
+                          border: '1px solid rgba(37, 99, 235, 0.2)',
+                          borderRadius: '10px',
+                          padding: '1px 7px',
+                          fontSize: '11px',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {email}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
 
               <div className="timeline-body">
                 {isTranscript ? renderTranscript() : <FormattedEmailContent text={comment.body} />}
@@ -1248,39 +1256,46 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               </span>
             </div>
 
-            {initialTicket.cc && initialTicket.cc.length > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '5px',
-                  padding: '2px 14px 8px',
-                  fontSize: '11.5px',
-                  color: 'var(--text-muted, #64748b)',
-                }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
-                {initialTicket.cc.map((email: string) => (
-                  <span
-                    key={email}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                      color: 'var(--primary, #2563eb)',
-                      border: '1px solid rgba(37, 99, 235, 0.2)',
-                      borderRadius: '10px',
-                      padding: '1px 7px',
-                      fontSize: '11px',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {email}
-                  </span>
-                ))}
-              </div>
-            )}
+            {(() => {
+              const requesterEmail = initialTicket?.requester?.email?.toLowerCase().trim();
+              const visibleInitialCcs = (initialTicket.cc || []).filter(
+                (email: string) => typeof email === 'string' && email.toLowerCase().trim() !== requesterEmail,
+              );
+              if (visibleInitialCcs.length === 0) return null;
+              return (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '5px',
+                    padding: '2px 14px 8px',
+                    fontSize: '11.5px',
+                    color: 'var(--text-muted, #64748b)',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: '11px' }}>CC:</span>
+                  {visibleInitialCcs.map((email: string) => (
+                    <span
+                      key={email}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                        color: 'var(--primary, #2563eb)',
+                        border: '1px solid rgba(37, 99, 235, 0.2)',
+                        borderRadius: '10px',
+                        padding: '1px 7px',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {email}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
 
             <div className="timeline-body">
               <FormattedEmailContent text={initialTicket.description} />
