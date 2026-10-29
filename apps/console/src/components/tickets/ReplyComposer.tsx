@@ -110,6 +110,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   // @Mention Autocomplete state
   const [staffUsers, setStaffUsers] = useState<Array<{ id: string; fullName: string; email: string; role?: string; tier?: string }>>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const mentionQueryRef = useRef<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionStartPos, setMentionStartPos] = useState<number>(-1);
 
@@ -141,12 +142,23 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   const detectedMentions = useMemo(() => {
     if (!body || !body.includes('@')) return [];
 
-    // Strip full valid email addresses first so typing contact@company.com or pasting snippets with emails never creates false @domain mentions
-    const textWithoutEmails = body.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ');
-
     const list: string[] = [];
-    // Must be preceded by start of line, whitespace, or punctuation, followed by @
-    const matches = Array.from(textWithoutEmails.matchAll(/(?:^|[\s(\[{<])@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)/g));
+
+    // 1. Direct detection from atomic [data-mention] chips
+    if (editorRef.current) {
+      editorRef.current.querySelectorAll('[data-mention]').forEach((el) => {
+        const m = el.getAttribute('data-mention')?.trim();
+        if (m && !list.includes(m)) {
+          list.push(m);
+        }
+      });
+    }
+
+    // 2. Fallback detection from text for pasted or raw @mentions
+    const textWithoutEmails = body.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ');
+    const cleanText = textWithoutEmails.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
+
+    const matches = Array.from(cleanText.matchAll(/(?:^|[\s(\[{<>"'`])@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)/g));
     
     for (const m of matches) {
       const rawName = m[1].trim();
@@ -181,21 +193,28 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     const textBefore = text.slice(0, cursor);
 
     // Look for @ that is at start of string or preceded by whitespace / opening brackets
-    // It must NOT be preceded by an alphanumeric character (e.g. "contact@" is an email, not a mention trigger)
-    const match = textBefore.match(/(?:^|[\s(\[{<])@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]*)?)$/);
+    // Strictly contiguous characters without spaces immediately following @ (e.g. "@", "@raj", "@rajesh")
+    // Once space is typed or mention is inserted, it will never trigger again until next @
+    const match = textBefore.match(/(?:^|[\s(\[{<])@([a-zA-Z0-9._-]*)$/);
     if (match) {
       const query = match[1];
       // If user typed something that looks like an email domain (e.g. "gmail.com"), don't trigger mention autocomplete
       if (/\.[a-zA-Z]{2,}$/.test(query)) {
         setMentionQuery(null);
+        mentionQueryRef.current = null;
         savedMentionRangeRef.current = null;
         return;
       }
 
+      // Only reset arrow selection to index 0 if the query text actually changed
+      if (mentionQueryRef.current !== query) {
+        setMentionIndex(0);
+      }
+      mentionQueryRef.current = query;
       setMentionQuery(query);
+
       const atIndex = textBefore.lastIndexOf('@');
       setMentionStartPos(atIndex);
-      setMentionIndex(0);
 
       const sel = window.getSelection();
       if (sel && sel.anchorNode && sel.anchorNode.nodeType === Node.TEXT_NODE) {
@@ -207,6 +226,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       }
     } else {
       setMentionQuery(null);
+      mentionQueryRef.current = null;
       savedMentionRangeRef.current = null;
     }
   };
@@ -216,58 +236,96 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     if (!editor) return;
 
     editor.focus();
-    const mentionTag = `@${targetUser.fullName || targetUser.email} `;
 
     let replaced = false;
     const saved = savedMentionRangeRef.current;
+    const sel = window.getSelection();
+
+    let targetNode: Node | null = null;
+    let atIdx = -1;
+    let endOffset = -1;
 
     if (saved && editor.contains(saved.node) && saved.node.nodeType === Node.TEXT_NODE) {
-      const currentText = saved.node.textContent || '';
-      if (saved.atIdx >= 0 && saved.atIdx < currentText.length) {
-        const sel = window.getSelection();
-        const range = document.createRange();
-        const end = Math.min(Math.max(saved.endOffset, saved.atIdx + 1), currentText.length);
-        range.setStart(saved.node, saved.atIdx);
-        range.setEnd(saved.node, end);
-        range.deleteContents();
-        if (sel) {
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-        replaced = true;
+      targetNode = saved.node;
+      atIdx = saved.atIdx;
+      endOffset = Math.min(Math.max(saved.endOffset, saved.atIdx + 1), (targetNode.textContent || '').length);
+    } else if (sel && sel.anchorNode && editor.contains(sel.anchorNode) && sel.anchorNode.nodeType === Node.TEXT_NODE) {
+      targetNode = sel.anchorNode;
+      const textBefore = targetNode.textContent?.slice(0, sel.anchorOffset) || '';
+      atIdx = textBefore.lastIndexOf('@');
+      endOffset = sel.anchorOffset;
+    }
+
+    if (targetNode && atIdx >= 0 && endOffset >= atIdx) {
+      const fullText = targetNode.textContent || '';
+      const textBeforeAt = fullText.slice(0, atIdx);
+
+      // Check if we need a leading space before the badge
+      const needsLeadingSpace = textBeforeAt.length > 0 && !/[\s(\[{<]$/.test(textBeforeAt);
+
+      const range = document.createRange();
+      range.setStart(targetNode, atIdx);
+      range.setEnd(targetNode, endOffset);
+      range.deleteContents();
+
+      const frag = document.createDocumentFragment();
+
+      if (needsLeadingSpace) {
+        frag.appendChild(document.createTextNode(' '));
       }
+
+      // Industry-standard atomic mention chip (contenteditable=false)
+      const badge = document.createElement('span');
+      badge.className = 'mention-chip';
+      badge.setAttribute('contenteditable', 'false');
+      badge.setAttribute('data-mention', targetUser.fullName || targetUser.email);
+      badge.setAttribute(
+        'style',
+        'display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px; font-size: 12px; font-weight: 600; background-color: rgba(37, 99, 235, 0.12); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 4px; margin: 0 2px; user-select: all; line-height: 1.4; vertical-align: baseline;',
+      );
+      badge.textContent = `@${targetUser.fullName || targetUser.email}`;
+      frag.appendChild(badge);
+
+      // Guaranteed non-breaking space after mention so normal text is separated and never corrupts the mention
+      const spaceNode = document.createTextNode('\u00A0');
+      frag.appendChild(spaceNode);
+
+      range.insertNode(frag);
+
+      // Position cursor immediately after the trailing space
+      const afterRange = document.createRange();
+      afterRange.setStart(spaceNode, 1);
+      afterRange.setEnd(spaceNode, 1);
+      afterRange.collapse(true);
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(afterRange);
+      }
+      replaced = true;
     }
 
     if (!replaced) {
-      const sel = window.getSelection();
-      if (sel && sel.anchorNode && sel.anchorNode.nodeType === Node.TEXT_NODE) {
-        const node = sel.anchorNode;
-        const offset = sel.anchorOffset;
-        const textBefore = node.textContent?.slice(0, offset) || '';
-        const atIdx = textBefore.lastIndexOf('@');
-        if (atIdx >= 0) {
-          const range = document.createRange();
-          range.setStart(node, atIdx);
-          range.setEnd(node, offset);
-          range.deleteContents();
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-      }
+      // Fallback: direct insert with guaranteed leading & trailing space
+      document.execCommand('insertText', false, ` @${targetUser.fullName || targetUser.email}\u00A0`);
     }
 
-    document.execCommand('insertText', false, mentionTag);
     savedMentionRangeRef.current = null;
+    mentionQueryRef.current = null;
     setBody(editor.innerHTML);
     setMentionQuery(null);
   };
 
   const handleRemoveMention = (name: string) => {
+    if (editorRef.current) {
+      // Remove any matching atomic badges first
+      editorRef.current.querySelectorAll(`[data-mention="${name}"]`).forEach((el) => el.remove());
+    }
     // Cleanly removes @Name (and optional trailing space) from composer body
     const regex = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s?`, 'g');
-    const newBody = body.replace(regex, '');
+    const newBody = (editorRef.current ? editorRef.current.innerHTML : body).replace(regex, '');
     setBody(newBody);
     setMentionQuery(null);
+    mentionQueryRef.current = null;
     if (editorRef.current) {
       editorRef.current.innerHTML = newBody;
       editorRef.current.focus();
@@ -1871,6 +1929,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     if (e.key === 'Escape') {
                       e.preventDefault();
                       setMentionQuery(null);
+                      mentionQueryRef.current = null;
                       return;
                     }
                   }
@@ -1950,7 +2009,10 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     checkMentionTrigger(sel.anchorNode.textContent || '', sel.anchorOffset);
                   }
                 }}
-                onKeyUp={() => {
+                onKeyUp={(e) => {
+                  if (['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+                    return;
+                  }
                   const sel = window.getSelection();
                   if (sel && sel.anchorNode) {
                     checkMentionTrigger(sel.anchorNode.textContent || '', sel.anchorOffset);
