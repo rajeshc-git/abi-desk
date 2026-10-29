@@ -49,6 +49,12 @@ interface ReplyComposerProps {
   initialCc?: string[];
 }
 
+const isMentionChip = (node: Node | null): node is HTMLElement => {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+  const el = node as HTMLElement;
+  return el.classList.contains('mention-chip') || el.hasAttribute('data-mention');
+};
+
 export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   onSend,
   isSending = false,
@@ -105,6 +111,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const mentionDropdownRef = useRef<HTMLDivElement>(null);
+  const mentionListRef = useRef<HTMLDivElement>(null);
   const savedMentionRangeRef = useRef<{ node: Node; atIdx: number; endOffset: number } | null>(null);
 
   // @Mention Autocomplete state
@@ -114,13 +121,43 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionStartPos, setMentionStartPos] = useState<number>(-1);
 
-  // Fetch available team members for @mentions
+  // Auto-scroll mention list when navigating with keyboard arrow keys
   useEffect(() => {
+    if (mentionQuery !== null && mentionListRef.current) {
+      const selectedEl = mentionListRef.current.querySelector<HTMLElement>(`[data-mention-index="${mentionIndex}"]`);
+      if (selectedEl) {
+        selectedEl.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [mentionIndex, mentionQuery]);
+
+  // Fetch available team members for @mentions (strictly active staff teammates only, never suspended, deactivated, guests or customers)
+  useEffect(() => {
+    const isStaffMember = (u: any) => {
+      if (!u || u.status === 'DEACTIVATED' || u.status === 'SUSPENDED') return false;
+      if (u.kind === 'CUSTOMER' || u.kind === 'SYSTEM' || u.kind === 'GUEST') return false;
+      if (u.kind === 'STAFF') return true;
+
+      const roleKey = (u.roles?.[0]?.role?.key || u.role || '').toUpperCase();
+      const roleName = (u.roles?.[0]?.role?.name || '').toLowerCase();
+      if (
+        roleKey === 'GUEST_CUSTOMER' ||
+        roleKey === 'CUSTOMER' ||
+        roleKey === 'GUEST' ||
+        roleKey === 'SYSTEM'
+      ) {
+        return false;
+      }
+      if (roleName.includes('guest') || roleName.includes('customer')) return false;
+
+      return true;
+    };
+
     ApiClient.get<any[]>('/admin/users')
       .catch(() => ApiClient.get<any[]>('/users'))
       .then((res) => {
         if (Array.isArray(res)) {
-          setStaffUsers(res.filter((u: any) => u.status !== 'DEACTIVATED'));
+          setStaffUsers(res.filter(isStaffMember));
         }
       })
       .catch(() => {});
@@ -129,22 +166,69 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
   const filteredMentions = useMemo(() => {
     if (mentionQuery === null) return [];
     const q = mentionQuery.toLowerCase().trim();
-    return staffUsers
-      .filter((u) => {
-        const name = (u.fullName || '').toLowerCase();
-        const email = (u.email || '').toLowerCase();
+
+    if (!q) {
+      // User just typed '@': show all staff users sorted alphabetically by name
+      return [...staffUsers].sort((a, b) =>
+        (a.fullName || a.email || '').localeCompare(b.fullName || b.email || ''),
+      );
+    }
+
+    // Split multi-word query (e.g. "rajesh l2") into words
+    const queryWords = q.split(/\s+/).filter(Boolean);
+
+    const scored = staffUsers
+      .map((u) => {
+        const name = (u.fullName || '').toLowerCase().trim();
+        const email = (u.email || '').toLowerCase().trim();
         const emailPrefix = email.split('@')[0];
-        return name.includes(q) || email.includes(q) || emailPrefix.includes(q);
+        const nameWords = name.split(/\s+/).filter(Boolean);
+
+        // Check if all query words match in either name or email
+        const matchesAllWords = queryWords.every(
+          (qw) => name.includes(qw) || email.includes(qw) || emailPrefix.includes(qw),
+        );
+
+        if (!matchesAllWords) return null;
+
+        let score = 0;
+
+        // Exact full name match
+        if (name === q) score += 1000;
+        else if (email === q || emailPrefix === q) score += 900;
+        // Prefix match
+        else if (name.startsWith(q)) score += 500;
+        else if (email.startsWith(q) || emailPrefix.startsWith(q)) score += 400;
+        // Word boundary match (e.g. "l2" matches "Rajesh L2")
+        else if (nameWords.some((w) => w.startsWith(q))) score += 300;
+        else if (name.includes(q)) score += 200;
+        else if (emailPrefix.includes(q)) score += 100;
+        else score += 50;
+
+        // Bonus if full name has the exact sequence of query words
+        if (name.includes(q)) score += 50;
+
+        return { user: u, score };
       })
-      .slice(0, 6);
+      .filter((item): item is { user: (typeof staffUsers)[0]; score: number } => item !== null)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (a.user.fullName || a.user.email || '').localeCompare(b.user.fullName || b.user.email || '');
+      })
+      .map((item) => item.user);
+
+    return scored;
   }, [mentionQuery, staffUsers]);
 
   const detectedMentions = useMemo(() => {
-    if (!body || !body.includes('@')) return [];
+    // Only finalized atomic mention chips ([data-mention]) are shown in @ Mentioning.
+    // Plain text being actively typed or searched will NEVER be prematurely finalized
+    // until the user explicitly selects via Click, Tab, or Enter!
+    if (!body || !body.includes('data-mention')) return [];
 
     const list: string[] = [];
 
-    // 1. Direct detection from atomic [data-mention] chips
+    // 1. Direct detection from finalized atomic [data-mention] chips in editor DOM
     if (editorRef.current) {
       editorRef.current.querySelectorAll('[data-mention]').forEach((el) => {
         const m = el.getAttribute('data-mention')?.trim();
@@ -154,48 +238,24 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       });
     }
 
-    // 2. Fallback detection from text for pasted or raw @mentions
-    const textWithoutEmails = body.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ');
-    const cleanText = textWithoutEmails.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
-
-    const matches = Array.from(cleanText.matchAll(/(?:^|[\s(\[{<>"'`])@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)/g));
-    
-    for (const m of matches) {
-      const rawName = m[1].trim();
-      if (!rawName) continue;
-
-      // Validate against known staff users if available
-      const matchedStaff = staffUsers.length > 0
-        ? staffUsers.find((u) => {
-            const fullName = (u.fullName || '').toLowerCase();
-            const email = (u.email || '').toLowerCase();
-            const emailPrefix = email.split('@')[0];
-            const q = rawName.toLowerCase();
-            return fullName === q || email === q || emailPrefix === q;
-          })
-        : null;
-
-      if (staffUsers.length > 0) {
-        if (matchedStaff) {
-          const displayLabel = matchedStaff.fullName || matchedStaff.email;
-          if (!list.includes(displayLabel)) {
-            list.push(displayLabel);
-          }
-        }
-      } else if (!rawName.includes('.') && !list.includes(rawName)) {
-        list.push(rawName);
+    // 2. Also parse [data-mention="..."] directly from body HTML string
+    const chipMatches = Array.from(body.matchAll(/data-mention="([^"]+)"/g));
+    for (const cm of chipMatches) {
+      const m = cm[1].trim();
+      if (m && !list.includes(m)) {
+        list.push(m);
       }
     }
+
     return list;
-  }, [body, staffUsers]);
+  }, [body]);
 
   const checkMentionTrigger = (text: string, cursor: number) => {
     const textBefore = text.slice(0, cursor);
 
     // Look for @ that is at start of string or preceded by whitespace / opening brackets
-    // Strictly contiguous characters without spaces immediately following @ (e.g. "@", "@raj", "@rajesh")
-    // Once space is typed or mention is inserted, it will never trigger again until next @
-    const match = textBefore.match(/(?:^|[\s(\[{<])@([a-zA-Z0-9._-]*)$/);
+    // Allow multi-word queries with spaces up to 35 chars total (e.g. "@", "@rajesh", "@rajesh l2", "@rajesh l2 cb")
+    const match = textBefore.match(/(?:^|[\s(\[{<])@([a-zA-Z0-9._-]{0,30}(?:\s[a-zA-Z0-9._-]{0,20})*)$/);
     if (match) {
       const query = match[1];
       // If user typed something that looks like an email domain (e.g. "gmail.com"), don't trigger mention autocomplete
@@ -231,7 +291,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
     }
   };
 
-  const handleSelectMention = (targetUser: { fullName: string; email: string }) => {
+  const handleSelectMention = (targetUser: { id?: string; fullName: string; email: string }) => {
     const editor = editorRef.current;
     if (!editor) return;
 
@@ -279,6 +339,12 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       badge.className = 'mention-chip';
       badge.setAttribute('contenteditable', 'false');
       badge.setAttribute('data-mention', targetUser.fullName || targetUser.email);
+      if (targetUser.id) {
+        badge.setAttribute('data-user-id', targetUser.id);
+      }
+      if (targetUser.email) {
+        badge.setAttribute('data-user-email', targetUser.email);
+      }
       badge.setAttribute(
         'style',
         'display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px; font-size: 12px; font-weight: 600; background-color: rgba(37, 99, 235, 0.12); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 4px; margin: 0 2px; user-select: all; line-height: 1.4; vertical-align: baseline;',
@@ -317,19 +383,37 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
 
   const handleRemoveMention = (name: string) => {
     if (editorRef.current) {
-      // Remove any matching atomic badges first
-      editorRef.current.querySelectorAll(`[data-mention="${name}"]`).forEach((el) => el.remove());
+      const lower = name.toLowerCase().trim();
+      // Remove matching atomic badges
+      editorRef.current.querySelectorAll('[data-mention], .mention-chip').forEach((el) => {
+        const m = (el.getAttribute('data-mention') || el.textContent?.replace(/^@/, '') || '').trim();
+        if (m.toLowerCase() === lower) {
+          // If followed by trailing whitespace, remove that too
+          if (
+            el.nextSibling &&
+            el.nextSibling.nodeType === Node.TEXT_NODE &&
+            (el.nextSibling.textContent === '\u00A0' || el.nextSibling.textContent === ' ' || !el.nextSibling.textContent)
+          ) {
+            el.nextSibling.remove();
+          }
+          el.remove();
+        }
+      });
+      // Cleanly remove plain-text @Name (and optional trailing space/nbsp) from composer body
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`@${escaped}[\\s\\u00A0]?`, 'gi');
+      editorRef.current.normalize();
+      const newBody = editorRef.current.innerHTML.replace(regex, '');
+      editorRef.current.innerHTML = newBody;
+      setBody(newBody);
+      editorRef.current.focus();
+    } else {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`@${escaped}[\\s\\u00A0]?`, 'gi');
+      setBody(body.replace(regex, ''));
     }
-    // Cleanly removes @Name (and optional trailing space) from composer body
-    const regex = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s?`, 'g');
-    const newBody = (editorRef.current ? editorRef.current.innerHTML : body).replace(regex, '');
-    setBody(newBody);
     setMentionQuery(null);
     mentionQueryRef.current = null;
-    if (editorRef.current) {
-      editorRef.current.innerHTML = newBody;
-      editorRef.current.focus();
-    }
   };
 
 
@@ -1474,7 +1558,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                   </div>
 
                   {/* Mentions List */}
-                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                  <div ref={mentionListRef} style={{ maxHeight: '200px', overflowY: 'auto' }}>
                     {filteredMentions.length === 0 ? (
                       <div style={{ padding: '14px 12px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
                         No staff members found matching "{mentionQuery}"
@@ -1485,6 +1569,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                         return (
                           <div
                             key={staff.id}
+                            data-mention-index={idx}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => handleSelectMention(staff)}
                             style={{
@@ -1909,16 +1994,16 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     }
                   }
 
-                  // Mentions navigation
+                  // Mentions navigation (clamped at top and bottom, no loop)
                   if (mentionQuery !== null && filteredMentions.length > 0) {
                     if (e.key === 'ArrowDown') {
                       e.preventDefault();
-                      setMentionIndex((prev) => (prev + 1) % filteredMentions.length);
+                      setMentionIndex((prev) => Math.min(prev + 1, filteredMentions.length - 1));
                       return;
                     }
                     if (e.key === 'ArrowUp') {
                       e.preventDefault();
-                      setMentionIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+                      setMentionIndex((prev) => Math.max(prev - 1, 0));
                       return;
                     }
                     if (e.key === 'Enter' || e.key === 'Tab') {
@@ -1934,31 +2019,195 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                     }
                   }
 
-                  // Smart Atomic Backspace: If cursor is right after an @Mention tag, delete the whole tag in 1 press
-                  if (e.key === 'Backspace') {
+                  // Smart Atomic Backspace & Delete for @Mention Chips & plain-text mentions
+                  if (e.key === 'Backspace' || e.key === 'Delete') {
                     const sel = window.getSelection();
-                    if (sel && sel.isCollapsed && sel.anchorNode) {
-                      const node = sel.anchorNode;
-                      const offset = sel.anchorOffset;
-                      if (node.nodeType === Node.TEXT_NODE) {
+                    if (sel) {
+                      let chipToDelete: HTMLElement | null = null;
+                      const isForwardDelete = e.key === 'Delete';
+
+                      // 1. Non-collapsed selection: user selected or highlighted a mention chip
+                      if (!sel.isCollapsed && sel.rangeCount > 0) {
+                        const range = sel.getRangeAt(0);
+                        const common = range.commonAncestorContainer;
+                        const container = common.nodeType === Node.ELEMENT_NODE ? (common as Element) : common.parentElement;
+                        if (container && isMentionChip(container)) {
+                          chipToDelete = container;
+                        } else if (container) {
+                          const chip = container.querySelector('.mention-chip, [data-mention]');
+                          if (chip && range.intersectsNode(chip)) {
+                            chipToDelete = chip as HTMLElement;
+                          }
+                        }
+                      } else if (sel.isCollapsed && sel.anchorNode) {
+                        const node = sel.anchorNode;
+                        const offset = sel.anchorOffset;
+
+                        if (e.key === 'Backspace') {
+                          // Case A: Cursor is in a TEXT_NODE
+                          if (node.nodeType === Node.TEXT_NODE) {
+                            const text = node.textContent || '';
+
+                            // Subcase 1: If cursor is immediately after a single auto-inserted whitespace (\u00A0 or ' ')
+                            // right after a mention chip, first Backspace deletes this whitespace cleanly!
+                            if (offset === 1 && (text === '\u00A0' || text === ' ')) {
+                              let prev = node.previousSibling;
+                              while (prev && prev.nodeType === Node.TEXT_NODE && !prev.textContent) {
+                                prev = prev.previousSibling;
+                              }
+                              if (isMentionChip(prev)) {
+                                e.preventDefault();
+                                node.textContent = '';
+                                const r = document.createRange();
+                                r.setStart(node, 0);
+                                r.setEnd(node, 0);
+                                sel.removeAllRanges();
+                                sel.addRange(r);
+                                if (editorRef.current) {
+                                  setBody(editorRef.current.innerHTML);
+                                }
+                                setMentionQuery(null);
+                                mentionQueryRef.current = null;
+                                return;
+                              }
+                            }
+
+                            // Subcase 2: Cursor is at offset 0 (or text node is empty), check previous sibling for mention chip
+                            if (offset === 0 || !text) {
+                              let prev = node.previousSibling;
+                              while (prev && prev.nodeType === Node.TEXT_NODE && !prev.textContent) {
+                                prev = prev.previousSibling;
+                              }
+                              if (isMentionChip(prev)) {
+                                chipToDelete = prev;
+                              }
+                            }
+                          } else if (node.nodeType === Node.ELEMENT_NODE) {
+                            // Case B: Cursor is in an ELEMENT_NODE
+                            let targetIdx = offset - 1;
+                            while (targetIdx >= 0) {
+                              const child = node.childNodes[targetIdx];
+                              if (child && child.nodeType === Node.TEXT_NODE && !child.textContent) {
+                                targetIdx--;
+                                continue;
+                              }
+                              if (isMentionChip(child)) {
+                                chipToDelete = child;
+                              }
+                              break;
+                            }
+                          }
+                        } else if (isForwardDelete) {
+                          // Forward Delete: cursor right before chip
+                          if (node.nodeType === Node.TEXT_NODE) {
+                            const len = node.textContent?.length || 0;
+                            if (offset === len) {
+                              let next = node.nextSibling;
+                              while (next && next.nodeType === Node.TEXT_NODE && !next.textContent) {
+                                next = next.nextSibling;
+                              }
+                              if (isMentionChip(next)) {
+                                chipToDelete = next;
+                              }
+                            }
+                          } else if (node.nodeType === Node.ELEMENT_NODE) {
+                            let targetIdx = offset;
+                            while (targetIdx < node.childNodes.length) {
+                              const child = node.childNodes[targetIdx];
+                              if (child && child.nodeType === Node.TEXT_NODE && !child.textContent) {
+                                targetIdx++;
+                                continue;
+                              }
+                              if (isMentionChip(child)) {
+                                chipToDelete = child;
+                              }
+                              break;
+                            }
+                          }
+                        }
+                      }
+
+                      // If an atomic chip is to be deleted
+                      if (chipToDelete) {
+                        e.preventDefault();
+                        const prev = chipToDelete.previousSibling;
+                        const next = chipToDelete.nextSibling;
+                        const parent = chipToDelete.parentNode || editorRef.current;
+
+                        // Also clean up any trailing whitespace node right after the chip
+                        if (
+                          next &&
+                          next.nodeType === Node.TEXT_NODE &&
+                          (next.textContent === '\u00A0' || next.textContent === ' ' || !next.textContent)
+                        ) {
+                          next.remove();
+                        }
+
+                        chipToDelete.remove();
+
+                        if (parent && sel) {
+                          const newRange = document.createRange();
+                          if (prev && prev.isConnected && prev.nodeType === Node.TEXT_NODE) {
+                            const len = prev.textContent?.length || 0;
+                            newRange.setStart(prev, len);
+                            newRange.setEnd(prev, len);
+                          } else if (next && next.isConnected && next.nodeType === Node.TEXT_NODE) {
+                            newRange.setStart(next, 0);
+                            newRange.setEnd(next, 0);
+                          } else {
+                            const textNode = document.createTextNode('');
+                            if (prev && prev.isConnected) {
+                              prev.after(textNode);
+                            } else {
+                              parent.appendChild(textNode);
+                            }
+                            newRange.setStart(textNode, 0);
+                            newRange.setEnd(textNode, 0);
+                          }
+                          sel.removeAllRanges();
+                          sel.addRange(newRange);
+                        }
+
+                        if (editorRef.current) {
+                          setBody(editorRef.current.innerHTML);
+                        }
+                        setMentionQuery(null);
+                        mentionQueryRef.current = null;
+                        return;
+                      }
+
+                      // Fallback: plain-text @Mention backspace handling
+                      if (e.key === 'Backspace' && sel.isCollapsed && sel.anchorNode?.nodeType === Node.TEXT_NODE) {
+                        const node = sel.anchorNode;
+                        const offset = sel.anchorOffset;
                         const textBefore = node.textContent?.slice(0, offset) || '';
 
-                        for (const staff of staffUsers) {
+                        // Sort staff by length descending to match longest full name first (avoid partial substring collisions)
+                        const sortedStaff = [...staffUsers].sort((a, b) => {
+                          const lenA = (a.fullName || a.email || '').length;
+                          const lenB = (b.fullName || b.email || '').length;
+                          return lenB - lenA;
+                        });
+
+                        for (const staff of sortedStaff) {
                           const name = staff.fullName || staff.email;
                           if (!name) continue;
                           const tagWithSpace = `@${name} `;
+                          const tagWithNbsp = `@${name}\u00A0`;
                           const tagWithoutSpace = `@${name}`;
 
-                          if (textBefore.endsWith(tagWithSpace)) {
+                          if (textBefore.endsWith(tagWithSpace) || textBefore.endsWith(tagWithNbsp)) {
                             e.preventDefault();
+                            const tagLen = textBefore.endsWith(tagWithSpace) ? tagWithSpace.length : tagWithNbsp.length;
                             const range = document.createRange();
-                            range.setStart(node, offset - tagWithSpace.length);
+                            range.setStart(node, offset - tagLen);
                             range.setEnd(node, offset);
                             range.deleteContents();
                             if (editorRef.current) {
                               setBody(editorRef.current.innerHTML);
                             }
                             setMentionQuery(null);
+                            mentionQueryRef.current = null;
                             return;
                           }
 
@@ -1972,30 +2221,7 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
                               setBody(editorRef.current.innerHTML);
                             }
                             setMentionQuery(null);
-                            return;
-                          }
-                        }
-
-                        // Also match any @Mention pattern against staff list case-insensitively
-                        const mentionMatch = textBefore.match(/@([a-zA-Z0-9._-]+(?:\s[a-zA-Z0-9._-]+)?)\s?$/);
-                        if (mentionMatch) {
-                          const matchedTag = mentionMatch[0];
-                          const candidateName = mentionMatch[1].toLowerCase();
-                          const isKnownStaff = staffUsers.some((u) => {
-                            const fn = (u.fullName || '').toLowerCase();
-                            const em = (u.email || '').toLowerCase();
-                            return fn === candidateName || em === candidateName || em.split('@')[0] === candidateName;
-                          });
-                          if (isKnownStaff) {
-                            e.preventDefault();
-                            const range = document.createRange();
-                            range.setStart(node, offset - matchedTag.length);
-                            range.setEnd(node, offset);
-                            range.deleteContents();
-                            if (editorRef.current) {
-                              setBody(editorRef.current.innerHTML);
-                            }
-                            setMentionQuery(null);
+                            mentionQueryRef.current = null;
                             return;
                           }
                         }

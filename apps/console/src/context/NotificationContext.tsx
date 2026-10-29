@@ -189,22 +189,35 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Check if current user is @mentioned in the comment body
       const userFullName = (user.fullName || '').toLowerCase().trim();
       const userEmail = (user.email || '').toLowerCase().trim();
-      const userEmailPrefix = userEmail.split('@')[0] || '';
-      const userFirstName = userFullName.split(/\s+/)[0] || '';
+
+      // Check atomic mention chip attribute directly first ([data-user-id="..."], [data-user-email="..."], [data-mention="..."])
+      const hasAtomicMention =
+        Boolean(user.id && commentBody.includes(`data-user-id="${user.id}"`)) ||
+        Boolean(userEmail && commentBody.toLowerCase().includes(`data-user-email="${userEmail}"`)) ||
+        Boolean(userFullName && commentBody.toLowerCase().includes(`data-mention="${userFullName}"`)) ||
+        Boolean(userEmail && commentBody.toLowerCase().includes(`data-mention="${userEmail}"`));
+
+      // Strip atomic chips from body so inner text of another user's chip (e.g. @RAJESH L2 CB)
+      // does not accidentally trigger plain-text prefix match for a shorter name (e.g. Rajesh L2)
+      const bodyWithoutChips = commentBody.replace(/<span[^>]*data-mention="[^"]*"[^>]*>.*?<\/span>/gi, ' ');
 
       // Strip full email addresses first so typing contact@company.com never triggers mention of "company.com" or "@company"
-      const bodyWithoutEmails = commentBody.toLowerCase().replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ');
+      const bodyWithoutEmails = bodyWithoutChips.toLowerCase().replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, ' ');
 
-      // Check mention patterns with whitespace / boundary preceding @: @FullName, @Email, @FirstName, or @Username
+      // Strip HTML tags and entities so mention detection works cleanly on atomic chips and formatted text
+      const cleanCommentText = bodyWithoutEmails
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ');
+
+      // Strict exact match: match exact Full Name or exact Email with word boundaries. NEVER match partial first names or substrings!
       const escapeReg = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const isMentioned =
+        hasAtomicMention ||
         (userFullName && (
-          new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userFullName)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails) ||
-          new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userFullName.replace(/\\s+/g, ''))}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails)
+          new RegExp(`(?:^|[\\s(\\[{<>"'\`])@${escapeReg(userFullName)}(?:\\b|\\s|$|[)\\]}>"'\`])`, 'i').test(cleanCommentText)
         )) ||
-        (userEmail && new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userEmail)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails)) ||
-        (userEmailPrefix && userEmailPrefix.length >= 2 && new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userEmailPrefix)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails)) ||
-        (userFirstName && userFirstName.length >= 2 && new RegExp(`(?:^|[\\s(\\[{<])@${escapeReg(userFirstName)}(?:\\b|\\s|$)`, 'i').test(bodyWithoutEmails));
+        (userEmail && new RegExp(`(?:^|[\\s(\\[{<>"'\`])@${escapeReg(userEmail)}(?:\\b|\\s|$|[)\\]}>"'\`])`, 'i').test(cleanCommentText));
 
       if (isMentioned) {
         // High priority mention notification!
