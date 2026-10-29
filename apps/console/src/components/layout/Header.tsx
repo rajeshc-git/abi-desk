@@ -188,6 +188,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
         setSelectedProduct(null);
       }
     } else if (e.key === 'Escape') {
+      if (searchQuery) {
+        setSearchQuery('');
+      }
       setShowSuggestions(false);
     }
   };
@@ -216,6 +219,11 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Close suggestions when navigating between pages
+  useEffect(() => {
+    setShowSuggestions(false);
+  }, [location.pathname]);
+
   return (
     <header className="app-header">
       <div className="header-left" style={{ flex: 1, minWidth: 0 }}>
@@ -237,7 +245,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
               position: 'relative',
               display: 'flex',
               alignItems: 'center',
-              backgroundColor: '#f8fafc',
+              backgroundColor: isFocused ? '#ffffff' : '#f8fafc',
               border: isFocused ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-md)',
               padding: '0 10px',
@@ -479,6 +487,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                 flex: 1,
                 border: 'none',
                 background: 'transparent',
+                backgroundColor: 'transparent',
+                boxShadow: 'none',
+                borderRadius: 0,
                 outline: 'none',
                 fontSize: '13px',
                 color: 'var(--text-primary)',
@@ -486,6 +497,52 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                 minWidth: 0,
               }}
             />
+
+            {/* Quick Clear Search Button */}
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setSearchQuery('');
+                  setShowSuggestions(false);
+                  inputRef.current?.focus();
+                }}
+                onMouseDown={(e) => {
+                  // Prevent blurring the input before click triggers
+                  e.preventDefault();
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted, #94a3b8)',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '50%',
+                  width: '18px',
+                  height: '18px',
+                  flexShrink: 0,
+                  transition: 'all 0.15s ease',
+                  marginLeft: '4px',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--text-primary, #0f172a)';
+                  e.currentTarget.style.backgroundColor = 'var(--border-subtle, #e2e8f0)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-muted, #94a3b8)';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+                title="Clear search (Esc)"
+                aria-label="Clear search"
+              >
+                <X size={13} strokeWidth={2.5} />
+              </button>
+            )}
 
             {/* Suggestions Popover */}
             {showSuggestions && hasSuggestions && (

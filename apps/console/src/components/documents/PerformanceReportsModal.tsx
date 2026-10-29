@@ -21,11 +21,15 @@ import {
   ArrowDown,
   Shield,
   Activity,
+  Settings,
 } from 'lucide-react';
 import { ApiClient } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
+import { useSocket } from '../../context/SocketContext';
 import { LoadingSpinner } from '../common/LoadingSpinner';
+import { fireCelebrationConfetti } from '../../utils/confetti';
+import { AgentBroadcastModal } from './AgentBroadcastModal';
 
 export type ReportDatePreset =
   | 'today'
@@ -47,6 +51,7 @@ interface AgentPerformance {
   agentId: string;
   fullName: string;
   email: string;
+  avatarUrl?: string;
   jobTitle?: string;
   roles?: string[];
   teamNames?: string[];
@@ -84,6 +89,39 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 }) => {
   const { user } = useAuth();
   const toast = useToast();
+  const { socket } = useSocket();
+
+  const getPresetLabel = (p: ReportDatePreset) => {
+    switch (p) {
+      case 'today': return 'Today';
+      case 'this_week': return 'This Week';
+      case '7days': return 'Last 7 Days';
+      case 'this_month': return 'This Month';
+      case 'last_month': return 'Last Month';
+      case 'this_quarter': return 'This Quarter';
+      case 'this_year': return 'This Year';
+      case 'all': return 'All Time';
+      case 'custom': return 'Custom Range';
+      default: return p;
+    }
+  };
+
+  const handleCelebrateAgent = (agent: { agentId: string; fullName: string; resolvedCount: number }) => {
+    fireCelebrationConfetti();
+    const tfLabel = getPresetLabel(preset);
+    const durText = startDate && endDate ? `${startDate} to ${endDate}` : tfLabel;
+    if (socket) {
+      socket.emit('celebrate_agent', {
+        agentId: agent.agentId,
+        agentName: agent.fullName,
+        adminName: user?.fullName || 'Admin',
+        timeframeLabel: tfLabel,
+        resolvedCount: agent.resolvedCount,
+        durationText: durText,
+      });
+    }
+    toast.success(`🎉 Celebrated ${agent.fullName} as Top Performer!`);
+  };
 
   const isAdmin = Boolean(
     user?.roles?.some((r: string) =>
@@ -97,6 +135,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [tierFilter, setTierFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState<boolean>(false);
   const activeRequestIdRef = useRef<number>(0);
 
   // Sorting state for Agents Table
@@ -361,6 +400,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
               agentId: u.id || userKey,
               fullName: u.fullName || u.email?.split('@')[0] || 'Support Agent',
               email: u.email || '',
+              avatarUrl: u.avatarUrl || u.profilePicture || u.photoUrl || '',
               jobTitle: u.jobTitle || roles[0] || 'Support Agent',
               roles,
               teamNames: (u.teamMembers || []).map((tm: any) => tm.team?.name).filter(Boolean),
@@ -388,6 +428,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                 agentId: user.id || userKey,
                 fullName: user.fullName || existing.fullName || user.email?.split('@')[0] || 'Support Agent',
                 email: user.email || existing.email || '',
+                avatarUrl: user.avatarUrl || user.profilePicture || existing.avatarUrl || '',
                 jobTitle: user.jobTitle || existing.jobTitle || 'Support Agent',
                 roles: existing.roles || [],
                 teamNames: teams,
@@ -413,6 +454,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
               agentId: a.id || userKey,
               fullName: a.fullName || a.email?.split('@')[0] || 'Support Agent',
               email: a.email || '',
+              avatarUrl: a.avatarUrl || a.profilePicture || '',
               jobTitle: a.jobTitle || 'Support Agent',
               roles: [],
               teamNames: t.team?.name ? [t.team.name] : [],
@@ -441,6 +483,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           agentId: ag.agentId || prev.agentId || userKey,
           fullName: ag.fullName || u?.fullName || prev.fullName || 'Support Agent',
           email: ag.email || u?.email || prev.email || '',
+          avatarUrl: ag.avatarUrl || u?.avatarUrl || prev.avatarUrl || '',
           jobTitle: ag.jobTitle || u?.jobTitle || prev.jobTitle || roles[0] || 'Support Agent',
           roles: roles.length > 0 ? roles : prev.roles || [],
           teamNames: teamNames.length > 0 ? teamNames : prev.teamNames || [],
@@ -488,10 +531,13 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           ])
         );
 
+        const u = userMetaMap.get(ag.agentId) || userMetaMap.get(ag.email?.toLowerCase());
+
         return {
           agentId: ag.agentId,
           fullName: ag.fullName,
           email: ag.email,
+          avatarUrl: ag.avatarUrl || u?.avatarUrl || '',
           jobTitle: ag.jobTitle || rolesList[0] || 'Support Agent',
           roles: rolesList,
           teamNames: teamNamesList.length > 0 ? teamNamesList : ['General Support Queue'],
@@ -1258,23 +1304,55 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 
           <div className="perf-header-actions">
             {activeTab === 'agents' ? (
-              <button
-                type="button"
-                onClick={exportAgentReportCsv}
-                className="btn btn-primary"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  fontSize: '12.5px',
-                  fontWeight: 700,
-                  height: '36px',
-                  padding: '0 14px',
-                  borderRadius: '8px',
-                }}
-              >
-                <Download size={14} /> Export Agent CSV ({filteredAgents.length})
-              </button>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsBroadcastModalOpen(true)}
+                  title="Broadcast Announcement to Agents"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--border-medium, #cbd5e1)',
+                    color: 'var(--text-secondary, #475569)',
+                    borderRadius: '8px',
+                    width: '36px',
+                    height: '36px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--bg-surface-hover, #f1f5f9)';
+                    e.currentTarget.style.color = 'var(--primary, #2563eb)';
+                    e.currentTarget.style.borderColor = 'var(--primary, #2563eb)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = 'var(--text-secondary, #475569)';
+                    e.currentTarget.style.borderColor = 'var(--border-medium, #cbd5e1)';
+                  }}
+                >
+                  <Settings size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={exportAgentReportCsv}
+                  className="btn btn-primary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12.5px',
+                    fontWeight: 700,
+                    height: '36px',
+                    padding: '0 14px',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <Download size={14} /> Export Agent CSV ({filteredAgents.length})
+                </button>
+              </div>
             ) : activeTab === 'teams' ? (
               <button
                 type="button"
@@ -1875,6 +1953,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <div
                                 style={{
+                                  position: 'relative',
                                   width: '30px',
                                   height: '30px',
                                   borderRadius: '50%',
@@ -1886,27 +1965,75 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   flexShrink: 0,
+                                  overflow: 'hidden',
                                 }}
                               >
-                                {agent.fullName.substring(0, 2).toUpperCase()}
+                                <span style={{ userSelect: 'none' }}>
+                                  {agent.fullName.substring(0, 2).toUpperCase()}
+                                </span>
+                                {agent.avatarUrl && (
+                                  <img
+                                    src={agent.avatarUrl}
+                                    alt={agent.fullName}
+                                    style={{
+                                      position: 'absolute',
+                                      top: 0,
+                                      left: 0,
+                                      width: '100%',
+                                      height: '100%',
+                                      objectFit: 'cover',
+                                    }}
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                    }}
+                                  />
+                                )}
                               </div>
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ fontWeight: 700, color: 'var(--text-primary, #0f172a)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                                   {agent.fullName}
                                   {isTop && (
-                                    <span
-                                      style={{
-                                        fontSize: '9.5px',
-                                        backgroundColor: '#16a34a',
-                                        color: '#ffffff',
-                                        padding: '1px 5px',
-                                        borderRadius: '4px',
-                                        fontWeight: 800,
-                                        letterSpacing: '0.03em',
-                                      }}
-                                    >
-                                      #TOP
-                                    </span>
+                                    <>
+                                      <span
+                                        style={{
+                                          fontSize: '9.5px',
+                                          backgroundColor: '#16a34a',
+                                          color: '#ffffff',
+                                          padding: '1px 5px',
+                                          borderRadius: '4px',
+                                          fontWeight: 800,
+                                          letterSpacing: '0.03em',
+                                        }}
+                                      >
+                                        #TOP
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCelebrateAgent(agent);
+                                        }}
+                                        title={`Celebrate ${agent.fullName} as Top Performer!`}
+                                        style={{
+                                          background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+                                          border: '1px solid #f59e0b',
+                                          borderRadius: '4px',
+                                          padding: '0 4px',
+                                          height: '16px',
+                                          boxSizing: 'border-box',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          lineHeight: 1,
+                                          transition: 'transform 0.15s ease',
+                                        }}
+                                        onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.15)')}
+                                        onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+                                      >
+                                        <span style={{ fontSize: '9px', lineHeight: 1, display: 'inline-block' }}>🎉</span>
+                                      </button>
+                                    </>
                                   )}
                                 </div>
                                 <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -2467,6 +2594,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                   <div
                                                     style={{
+                                                      position: 'relative',
                                                       width: '24px',
                                                       height: '24px',
                                                       borderRadius: '50%',
@@ -2478,9 +2606,29 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                                                       alignItems: 'center',
                                                       justifyContent: 'center',
                                                       flexShrink: 0,
+                                                      overflow: 'hidden',
                                                     }}
                                                   >
-                                                    {m.fullName.substring(0, 2).toUpperCase()}
+                                                    <span style={{ userSelect: 'none' }}>
+                                                      {m.fullName.substring(0, 2).toUpperCase()}
+                                                    </span>
+                                                    {m.avatarUrl && (
+                                                      <img
+                                                        src={m.avatarUrl}
+                                                        alt={m.fullName}
+                                                        style={{
+                                                          position: 'absolute',
+                                                          top: 0,
+                                                          left: 0,
+                                                          width: '100%',
+                                                          height: '100%',
+                                                          objectFit: 'cover',
+                                                        }}
+                                                        onError={(e) => {
+                                                          (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                        }}
+                                                      />
+                                                    )}
                                                   </div>
                                                   <span>{m.fullName}</span>
                                                 </div>
@@ -2610,6 +2758,11 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           </div>
         </div>
       </div>
+      <AgentBroadcastModal
+        isOpen={isBroadcastModalOpen}
+        onClose={() => setIsBroadcastModalOpen(false)}
+        agents={agents}
+      />
     </div>,
     document.body
   );

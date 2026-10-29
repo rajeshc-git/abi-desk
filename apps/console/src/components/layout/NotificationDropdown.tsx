@@ -24,7 +24,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   onClose,
   triggerRef,
 }) => {
-  const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll } = useNotifications();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll, openCelebration, openBroadcast } = useNotifications();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'ALL' | 'MENTIONS'>('ALL');
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -58,8 +58,9 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   const userProductIds = (user?.productIds || []).map((p) => String(p).toLowerCase().trim()).filter(Boolean);
 
   const filteredNotifications = notifications.filter((n) => {
-    if (activeTab === 'MENTIONS') return n.type === 'MENTION';
-    if (n.type === 'MENTION') return true;
+    const isHonored = n.type === 'MENTION' || n.type === 'CELEBRATION' || n.type === 'BROADCAST';
+    if (activeTab === 'MENTIONS') return isHonored;
+    if (isHonored) return true;
     if (isTenantAdmin) return true;
 
     if (userProducts.length > 0 || userProductIds.length > 0) {
@@ -74,7 +75,11 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   const handleNotificationClick = (item: AppNotification) => {
     markAsRead(item.id);
     onClose();
-    if (item.linkUrl) {
+    if (item.type === 'CELEBRATION' && item.celebrationData) {
+      openCelebration(item.celebrationData);
+    } else if (item.type === 'BROADCAST' && item.broadcastData) {
+      openBroadcast(item.broadcastData);
+    } else if (item.linkUrl) {
       navigate(item.linkUrl);
     }
   };
@@ -248,7 +253,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
               boxShadow: activeTab === 'MENTIONS' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
             }}
           >
-            <AtSign size={13} /> Mentions ({notifications.filter((n) => n.type === 'MENTION').length})
+            <AtSign size={13} /> Mentions ({notifications.filter((n) => n.type === 'MENTION' || n.type === 'CELEBRATION').length})
           </button>
         </div>
       </div>
@@ -282,17 +287,19 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
               <Bell size={18} />
             </div>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              {activeTab === 'MENTIONS' ? 'No mentions yet' : 'No notifications'}
+              {activeTab === 'MENTIONS' ? 'No mentions or honors yet' : 'No notifications'}
             </div>
             <div style={{ fontSize: '11px', maxWidth: '220px' }}>
               {activeTab === 'MENTIONS'
-                ? 'When a teammate @mentions you in an internal note or reply, it will appear here.'
+                ? 'When a teammate @mentions you or you are celebrated as a Top Performer, it will appear here.'
                 : 'Updates regarding your tickets, mentions, and customer replies will show here.'}
             </div>
           </div>
         ) : (
           filteredNotifications.map((item) => {
             const isMention = item.type === 'MENTION';
+            const isCelebration = item.type === 'CELEBRATION';
+            const isBroadcast = item.type === 'BROADCAST';
             return (
               <div
                 key={item.id}
@@ -302,11 +309,19 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                   borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
                   backgroundColor: item.isRead
                     ? 'var(--bg-surface)'
+                    : isCelebration
+                    ? '#fefce8'
+                    : isBroadcast
+                    ? '#eff6ff'
                     : isMention
                     ? 'rgba(37, 99, 235, 0.04)'
                     : 'var(--bg-surface-elevated, #f8fafc)',
                   borderLeft: !item.isRead
-                    ? isMention
+                    ? isCelebration
+                      ? '3px solid #f59e0b'
+                      : isBroadcast
+                      ? '3px solid var(--primary, #2563eb)'
+                      : isMention
                       ? '3px solid var(--primary, #2563eb)'
                       : '3px solid #10b981'
                     : '3px solid transparent',
@@ -320,6 +335,8 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                 onMouseLeave={(e) =>
                   (e.currentTarget.style.backgroundColor = item.isRead
                     ? 'var(--bg-surface)'
+                    : isCelebration
+                    ? '#fefce8'
                     : isMention
                     ? 'rgba(37, 99, 235, 0.04)'
                     : 'var(--bg-surface-elevated, #f8fafc)')
@@ -332,18 +349,32 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                       width: '32px',
                       height: '32px',
                       borderRadius: '50%',
-                      backgroundColor: isMention ? 'rgba(37, 99, 235, 0.12)' : '#e2e8f0',
-                      color: isMention ? 'var(--primary, #2563eb)' : '#334155',
+                      backgroundColor: isCelebration
+                        ? '#fef3c7'
+                        : isBroadcast
+                        ? '#dbeafe'
+                        : isMention
+                        ? 'rgba(37, 99, 235, 0.12)'
+                        : '#e2e8f0',
+                      color: isCelebration ? '#b45309' : isBroadcast ? '#1d4ed8' : isMention ? 'var(--primary, #2563eb)' : '#334155',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '11px',
+                      fontSize: isCelebration || isBroadcast ? '15px' : '11px',
                       fontWeight: 700,
                     }}
                   >
-                    {isMention ? <AtSign size={16} /> : getInitials(item.authorName)}
+                    {isCelebration ? (
+                      '🎉'
+                    ) : isBroadcast ? (
+                      '📢'
+                    ) : isMention ? (
+                      <AtSign size={16} />
+                    ) : (
+                      getInitials(item.authorName)
+                    )}
                   </div>
-                  {isMention && (
+                  {(isMention || isCelebration || isBroadcast) && (
                     <div
                       style={{
                         position: 'absolute',
@@ -352,7 +383,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                         width: '14px',
                         height: '14px',
                         borderRadius: '50%',
-                        backgroundColor: '#f59e0b',
+                        backgroundColor: isCelebration ? '#16a34a' : isBroadcast ? '#2563eb' : '#f59e0b',
                         color: '#ffffff',
                         display: 'flex',
                         alignItems: 'center',
@@ -361,9 +392,9 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                         fontWeight: 800,
                         border: '1.5px solid var(--bg-surface, #ffffff)',
                       }}
-                      title="Internal Note / Mention"
+                      title={isCelebration ? 'Top Performer Celebration' : isBroadcast ? 'Admin Announcement' : 'Internal Note / Mention'}
                     >
-                      ★
+                      {isBroadcast ? '!' : '★'}
                     </div>
                   )}
                 </div>

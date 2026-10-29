@@ -249,6 +249,50 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { status: 'left', ticketId: data.ticketId };
   }
 
+  @SubscribeMessage('celebrate_agent')
+  async handleCelebrateAgent(
+    socket: AuthenticatedSocket,
+    data: {
+      agentId: string;
+      agentName: string;
+      adminName: string;
+      timeframeLabel: string;
+      resolvedCount: number;
+      durationText?: string;
+    },
+  ) {
+    if (!socket.data?.tenantId) return { status: 'error' };
+
+    this.server.to(`tenant:${socket.data.tenantId}`).emit('agent.celebrated', {
+      ...data,
+      adminId: socket.data.userId,
+      celebratedAt: new Date().toISOString(),
+    });
+
+    return { status: 'celebrated' };
+  }
+
+  @SubscribeMessage('broadcast_announcement')
+  async handleBroadcastAnnouncement(
+    socket: AuthenticatedSocket,
+    data: {
+      title?: string;
+      message: string;
+      adminName: string;
+      targetAgentIds?: string[];
+    },
+  ) {
+    if (!socket.data?.tenantId) return { status: 'error' };
+
+    this.server.to(`tenant:${socket.data.tenantId}`).emit('agent.broadcast', {
+      ...data,
+      adminId: socket.data.userId,
+      broadcastAt: new Date().toISOString(),
+    });
+
+    return { status: 'broadcasted' };
+  }
+
   @SubscribeMessage('send_message')
   async handleSendMessage(
     socket: AuthenticatedSocket,

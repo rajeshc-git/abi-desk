@@ -538,6 +538,7 @@ export class AnalyticsService {
           id: true,
           fullName: true,
           email: true,
+          avatarUrl: true,
           jobTitle: true,
           roles: {
             select: {
@@ -672,6 +673,7 @@ export class AnalyticsService {
         agentId: agent.id,
         fullName: agent.fullName,
         email: agent.email,
+        avatarUrl: (agent as any).avatarUrl ?? null,
         jobTitle: agent.jobTitle,
         isOnline,
         isL1,

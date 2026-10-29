@@ -3,9 +3,13 @@ import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 
+import { CelebrationModal, CelebrationData } from '../components/documents/CelebrationModal';
+import { AnnouncementModal, BroadcastData } from '../components/documents/AnnouncementModal';
+import { fireCelebrationConfetti } from '../utils/confetti';
+
 export interface AppNotification {
   id: string;
-  type: 'MENTION' | 'REPLY' | 'ASSIGNMENT' | 'TICKET_CREATED';
+  type: 'MENTION' | 'REPLY' | 'ASSIGNMENT' | 'TICKET_CREATED' | 'CELEBRATION' | 'BROADCAST';
   title: string;
   message: string;
   ticketId: string;
@@ -19,6 +23,8 @@ export interface AppNotification {
   createdAt: string;
   isRead: boolean;
   linkUrl: string;
+  celebrationData?: CelebrationData;
+  broadcastData?: BroadcastData;
 }
 
 interface NotificationContextType {
@@ -28,6 +34,8 @@ interface NotificationContextType {
   markAllAsRead: () => void;
   clearAll: () => void;
   addNotification: (notif: Omit<AppNotification, 'id' | 'createdAt' | 'isRead'>) => void;
+  openCelebration: (data: CelebrationData) => void;
+  openBroadcast: (data: BroadcastData) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -49,6 +57,17 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return [];
     }
   });
+
+  const [celebrationModalData, setCelebrationModalData] = useState<CelebrationData | null>(null);
+  const [broadcastModalData, setBroadcastModalData] = useState<BroadcastData | null>(null);
+
+  const openCelebration = useCallback((data: CelebrationData) => {
+    setCelebrationModalData(data);
+  }, []);
+
+  const openBroadcast = useCallback((data: BroadcastData) => {
+    setBroadcastModalData(data);
+  }, []);
 
   // Keep state in sync with user change
   useEffect(() => {
@@ -75,7 +94,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const userProductIds = (user?.productIds || []).map((p: string) => String(p).toLowerCase().trim()).filter(Boolean);
 
   const scopedNotifications = notifications.filter((n) => {
-    if (n.type === 'MENTION') return true;
+    if (n.type === 'MENTION' || n.type === 'CELEBRATION' || n.type === 'BROADCAST') return true;
     if (isTenantAdmin) return true;
     if (userProducts.length > 0 || userProductIds.length > 0) {
       if (n.product) return userProducts.includes(n.product.toLowerCase().trim());
@@ -272,16 +291,75 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         isInternal: false,
         linkUrl: `/inbox?ticketId=${incoming.id}`,
       });
+    };
 
-      toast.info(`📬 New Ticket #${cleanNumber}: ${incoming.subject || 'New ticket received'}`);
+    const handleAgentCelebrated = (data: any) => {
+      if (!data?.agentId) return;
+
+      const isTargetAgent =
+        data.agentId === user.id ||
+        (user.email && data.agentEmail && user.email.toLowerCase() === data.agentEmail.toLowerCase());
+
+      const adminName = data.adminName || 'The Administrator';
+      const timeframe = data.timeframeLabel || 'the selected period';
+      const count = data.resolvedCount ? `${data.resolvedCount} tickets resolved` : '';
+
+      addNotification({
+        type: 'CELEBRATION',
+        title: isTargetAgent ? '🎉 You were celebrated as Top Performer!' : `🎉 ${data.agentName} celebrated as Top Performer!`,
+        message: isTargetAgent
+          ? `${adminName} celebrated you as the Top Agent Performer for ${timeframe}${count ? ` (${count})` : ''}!`
+          : `${adminName} celebrated ${data.agentName} as Top Performer for ${timeframe}.`,
+        ticketId: '',
+        linkUrl: '',
+        authorName: adminName,
+        celebrationData: data,
+      });
+
+      if (isTargetAgent) {
+        toast.success(`🎉 Congratulations! ${adminName} celebrated you as Top Performer!`);
+        fireCelebrationConfetti();
+        setCelebrationModalData(data);
+      }
+    };
+
+    const handleAgentBroadcast = (data: any) => {
+      if (!data?.message) return;
+
+      const isTarget =
+        !data.targetAgentIds ||
+        data.targetAgentIds.length === 0 ||
+        (user?.id && data.targetAgentIds.includes(user.id));
+
+      if (!isTarget) return;
+
+      const adminName = data.adminName || 'The Administrator';
+      const title = data.title || `📢 Announcement from ${adminName}`;
+
+      addNotification({
+        type: 'BROADCAST',
+        title,
+        message: data.message,
+        ticketId: '',
+        linkUrl: '',
+        authorName: adminName,
+        broadcastData: data,
+      });
+
+      toast.info(`📢 ${title}`);
+      setBroadcastModalData(data);
     };
 
     socket.on('ticket.commented', handleTicketCommented);
     socket.on('ticket.created', handleTicketCreated);
+    socket.on('agent.celebrated', handleAgentCelebrated);
+    socket.on('agent.broadcast', handleAgentBroadcast);
 
     return () => {
       socket.off('ticket.commented', handleTicketCommented);
       socket.off('ticket.created', handleTicketCreated);
+      socket.off('agent.celebrated', handleAgentCelebrated);
+      socket.off('agent.broadcast', handleAgentBroadcast);
     };
   }, [socket, user, addNotification, toast]);
 
@@ -294,9 +372,21 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         markAllAsRead,
         clearAll,
         addNotification,
+        openCelebration,
+        openBroadcast,
       }}
     >
       {children}
+      <CelebrationModal
+        isOpen={Boolean(celebrationModalData)}
+        onClose={() => setCelebrationModalData(null)}
+        data={celebrationModalData}
+      />
+      <AnnouncementModal
+        isOpen={Boolean(broadcastModalData)}
+        onClose={() => setBroadcastModalData(null)}
+        data={broadcastModalData}
+      />
     </NotificationContext.Provider>
   );
 };
