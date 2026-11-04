@@ -1530,7 +1530,7 @@ export class TicketService {
           const conversationTrailHtml = trailHtmlParts.join('');
           const conversationTrailText = trailTextParts.join('\n\n--------------------\n\n');
 
-          const appUrl = (process.env.APP_URL || 'http://192.168.10.246.nip.io:9999').replace(/\/+$/, '');
+          const appUrl = (process.env.CONSOLE_URL || '').replace(/\/+$/, '');
           const ticketLinkUrl = `${appUrl}/tickets/${ticketId}`;
 
           // 3. Outbound email alert to mentioned staff via donotreply SMTP
