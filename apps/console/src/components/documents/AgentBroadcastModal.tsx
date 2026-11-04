@@ -28,6 +28,7 @@ interface AgentItem {
   jobTitle?: string;
   roles?: string[];
   avatarUrl?: string;
+  isOnline?: boolean;
 }
 
 interface AgentBroadcastModalProps {
@@ -93,7 +94,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
 
   const [currentStep, setCurrentStep] = useState<WizardStep>('recipients');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'selected' | 'unselected'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'online' | 'selected' | 'unselected'>('all');
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(
     () => new Set(agents.map((a) => a.agentId)),
   );
@@ -125,6 +126,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
       const isSelected = selectedAgentIds.has(a.agentId);
       if (filterType === 'selected' && !isSelected) return false;
       if (filterType === 'unselected' && isSelected) return false;
+      if (filterType === 'online' && !a.isOnline) return false;
 
       if (!q) return true;
       return (
@@ -417,7 +419,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
 
                 {/* Filter Pills */}
                 <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-app, #f1f5f9)', padding: '3px', borderRadius: '8px' }}>
-                  {(['all', 'selected', 'unselected'] as const).map((t) => (
+                  {(['all', 'online', 'selected', 'unselected'] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -435,7 +437,15 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                         textTransform: 'capitalize',
                       }}
                     >
-                      {t} ({t === 'all' ? agents.length : t === 'selected' ? selectedAgentIds.size : agents.length - selectedAgentIds.size})
+                      {t} ({
+                        t === 'all'
+                          ? agents.length
+                          : t === 'online'
+                          ? agents.filter((a) => !!a.isOnline).length
+                          : t === 'selected'
+                          ? selectedAgentIds.size
+                          : agents.length - selectedAgentIds.size
+                      })
                     </button>
                   ))}
                 </div>
@@ -504,49 +514,73 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                           transition: 'all 0.12s ease',
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                          <div
-                            style={{
-                              position: 'relative',
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '50%',
-                              background: isChecked
-                                ? 'linear-gradient(135deg, var(--primary, #2563eb), var(--primary-hover, #1d4ed8))'
-                                : 'var(--bg-app, #e2e8f0)',
-                              color: isChecked ? '#ffffff' : 'var(--text-secondary, #475569)',
-                              fontSize: '11px',
-                              fontWeight: 750,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                              overflow: 'hidden',
-                            }}
-                          >
-                            <span style={{ userSelect: 'none' }}>
-                              {agent.fullName.substring(0, 2).toUpperCase()}
-                            </span>
-                            {agent.avatarUrl && (
-                              <img
-                                src={agent.avatarUrl}
-                                alt={agent.fullName}
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  width: '100%',
-                                  height: '100%',
-                                  objectFit: 'cover',
-                                }}
-                                onError={(e) => {
-                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
-                                }}
-                              />
-                            )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1, marginRight: '8px' }}>
+                          <div style={{ position: 'relative', flexShrink: 0 }}>
+                            <div
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: isChecked
+                                  ? 'linear-gradient(135deg, var(--primary, #2563eb), var(--primary-hover, #1d4ed8))'
+                                  : 'var(--bg-app, #e2e8f0)',
+                                color: isChecked ? '#ffffff' : 'var(--text-secondary, #475569)',
+                                fontSize: '11px',
+                                fontWeight: 750,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              <span style={{ userSelect: 'none' }}>
+                                {agent.fullName.substring(0, 2).toUpperCase()}
+                              </span>
+                              {agent.avatarUrl && (
+                                <img
+                                  src={agent.avatarUrl}
+                                  alt={agent.fullName}
+                                  style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                  }}
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
+                              )}
+                            </div>
+                            {/* Online / Offline status dot on avatar */}
+                            <span
+                              style={{
+                                position: 'absolute',
+                                bottom: '-1px',
+                                right: '-1px',
+                                width: '9px',
+                                height: '9px',
+                                borderRadius: '50%',
+                                backgroundColor: agent.isOnline ? '#10b981' : '#ef4444',
+                                border: '2px solid var(--bg-surface, #ffffff)',
+                                boxShadow: agent.isOnline ? '0 0 5px #10b981' : '0 0 3px rgba(239, 68, 68, 0.6)',
+                              }}
+                              title={agent.isOnline ? 'Online' : 'Offline'}
+                            />
                           </div>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                fontSize: '12.5px',
+                                fontWeight: 700,
+                                color: 'var(--text-primary)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
                               {agent.fullName}
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
