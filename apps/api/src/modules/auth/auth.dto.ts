@@ -167,3 +167,13 @@ export const updateAvatarSchema = z.object({
 
 export class UpdateAvatarDto extends createZodDto(updateAvatarSchema) {}
 
+export const updateProfileSchema = z.object({
+  fullName: z
+    .string()
+    .trim()
+    .min(1, 'Full name cannot be empty')
+    .max(120, 'Full name cannot exceed 120 characters'),
+});
+
+export class UpdateProfileDto extends createZodDto(updateProfileSchema) {}
+

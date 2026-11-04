@@ -753,7 +753,9 @@ export const InboxPage: React.FC = () => {
       setPage(1);
       setHasMore(1 < pages);
 
-      const targetTicketId = searchParams.get('ticketId') || sessionStorage.getItem('last_selected_ticket_id');
+      const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+      const explicitParamId = searchParams.get('ticketId');
+      const targetTicketId = explicitParamId || (!isMobile ? sessionStorage.getItem('last_selected_ticket_id') : null);
       const matched = targetTicketId ? list.find((t: any) => t.id === targetTicketId) : null;
 
       if (matched) {
@@ -763,16 +765,16 @@ export const InboxPage: React.FC = () => {
           .then((t) => {
             if (t) {
               setSelectedTicket(t);
-            } else if (list.length > 0 && (!selectedTicket || reset)) {
+            } else if (!isMobile && list.length > 0 && (!selectedTicket || reset)) {
               setSelectedTicket(list[0]);
             }
           })
           .catch(() => {
-            if (list.length > 0 && (!selectedTicket || reset)) {
+            if (!isMobile && list.length > 0 && (!selectedTicket || reset)) {
               setSelectedTicket(list[0]);
             }
           });
-      } else if (list.length > 0 && (!selectedTicket || reset)) {
+      } else if (!isMobile && list.length > 0 && (!selectedTicket || reset)) {
         setSelectedTicket(list[0]);
       }
     } catch {
@@ -879,7 +881,9 @@ export const InboxPage: React.FC = () => {
 
   // Sync selectedTicket when ticketId query param or tickets list changes
   useEffect(() => {
-    const paramId = searchParams.get('ticketId') || sessionStorage.getItem('last_selected_ticket_id');
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+    const explicitParamId = searchParams.get('ticketId');
+    const paramId = explicitParamId || (!isMobile ? sessionStorage.getItem('last_selected_ticket_id') : null);
     if (paramId) {
       setUnreadTicketIds((prev) => {
         if (!prev.has(paramId)) return prev;

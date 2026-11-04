@@ -2149,6 +2149,22 @@ export class AuthService {
     });
   }
 
+  /** Updates personal profile details (e.g. fullName) for the user. */
+  async updateProfile(userId: string, dto: { fullName: string }): Promise<{ success: boolean; user: { id: string; fullName: string; email: string } }> {
+    const trimmed = dto.fullName?.trim();
+    if (!trimmed) {
+      throw AppException.badRequest('Full name cannot be empty');
+    }
+    return this.contexts.runWithBypass('authentication', { userId }, async () => {
+      const updated = await this.prisma.client.user.update({
+        where: { id: userId },
+        data: { fullName: trimmed },
+        select: { id: true, fullName: true, email: true },
+      });
+      return { success: true, user: updated };
+    });
+  }
+
   /** Uploads a cropped user avatar photo to MinIO and caches it in Redis. */
   async uploadAvatar(
     userId: string,

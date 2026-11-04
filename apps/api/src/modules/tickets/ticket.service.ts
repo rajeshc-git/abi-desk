@@ -196,10 +196,10 @@ export class TicketService {
               isAvailable: false,
               ...(guestRole
                 ? {
-                    roles: {
-                      create: { roleId: guestRole.id, tenantId },
-                    },
-                  }
+                  roles: {
+                    create: { roleId: guestRole.id, tenantId },
+                  },
+                }
                 : {}),
             },
             select: { id: true, fullName: true, kind: true },
@@ -463,7 +463,7 @@ export class TicketService {
             await this.prisma.client.ticket.update({
               where: { id: result.id },
               data: { customFields: updatedCustom },
-            }).catch(() => {});
+            }).catch(() => { });
           }
         })
         .catch((err) => {
@@ -1344,21 +1344,227 @@ export class TicketService {
           ...(references && references.length > 0 ? { references } : {}),
           ...(outboundAttachments && outboundAttachments.length > 0 ? { attachments: outboundAttachments } : {}),
         }, ticket.channel)
-        .then(async (sendRes) => {
-          if (sendRes?.messageId) {
-            let updatedCustom = recordOutboundMessageId(ticket.customFields, sendRes.messageId);
-            if (dto.cc !== undefined) {
-              updatedCustom = { ...updatedCustom, emailCc: sanitizedCc };
+          .then(async (sendRes) => {
+            if (sendRes?.messageId) {
+              let updatedCustom = recordOutboundMessageId(ticket.customFields, sendRes.messageId);
+              if (dto.cc !== undefined) {
+                updatedCustom = { ...updatedCustom, emailCc: sanitizedCc };
+              }
+              await this.prisma.client.ticket.update({
+                where: { id: ticketId },
+                data: { customFields: updatedCustom },
+              }).catch(() => { });
             }
-            await this.prisma.client.ticket.update({
-              where: { id: ticketId },
-              data: { customFields: updatedCustom },
-            }).catch(() => {});
-          }
-        })
-        .catch((err) => {
-          this.logger.error({ err, ticketId }, 'Failed to send outbound reply email to customer');
+          })
+          .catch((err) => {
+            this.logger.error({ err, ticketId }, 'Failed to send outbound reply email to customer');
+          });
+      }
+
+      // =========================================================================
+      // Handle @Mentions: In-App DB Notifications & Outbound Email Notification
+      // =========================================================================
+      if (cleanedBody.includes('@')) {
+        const mentionedUserIds = new Set<string>();
+        const mentionedEmails = new Set<string>();
+
+        const userIdMatches = Array.from(cleanedBody.matchAll(/data-user-id="([a-f0-9-]+)"/gi));
+        for (const m of userIdMatches) {
+          if (m[1]) mentionedUserIds.add(m[1]);
+        }
+
+        const userEmailMatches = Array.from(cleanedBody.matchAll(/data-user-email="([^"]+)"/gi));
+        for (const m of userEmailMatches) {
+          if (m[1]) mentionedEmails.add(m[1].toLowerCase().trim());
+        }
+
+        const allActiveStaff = await tx.user.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: 'ACTIVE',
+            kind: 'STAFF',
+            id: { not: principal.userId }, // Never notify author
+          },
+          select: { id: true, fullName: true, email: true },
         });
+
+        const mentionedStaff = allActiveStaff.filter((staff) => {
+          if (mentionedUserIds.has(staff.id)) return true;
+          if (mentionedEmails.has(staff.email.toLowerCase())) return true;
+          const name = staff.fullName?.trim();
+          if (name && cleanedBody.includes(`@${name}`)) return true;
+          if (staff.email && cleanedBody.includes(`@${staff.email}`)) return true;
+          return false;
+        });
+
+        if (mentionedStaff.length > 0) {
+          const authorName = principal.fullName || principal.email || 'A team member';
+          const isInternalNote = dto.visibility === 'INTERNAL';
+          const noteLabel = isInternalNote ? 'an internal note' : 'a reply';
+
+          // 1. Create in-app Notification records in DB for offline/online persistence
+          await tx.notification.createMany({
+            data: mentionedStaff.map((staff) => ({
+              tenantId,
+              userId: staff.id,
+              channel: 'IN_APP',
+              status: 'PENDING',
+              eventType: 'ticket.mention',
+              title: `💬 ${authorName} mentioned you`,
+              body: `Mentioned you in ${noteLabel} on Ticket #${ticket.number}`,
+              linkUrl: `/tickets/${ticketId}`,
+              resourceType: 'ticket',
+              resourceId: ticketId,
+            })),
+          });
+
+          // 2. Load the full conversation trail (initial customer request + all replies & notes up to this mention)
+          const allComments = await tx.ticketComment.findMany({
+            where: { ticketId, tenantId },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              body: true,
+              visibility: true,
+              createdAt: true,
+              author: { select: { fullName: true, email: true, kind: true } },
+            },
+          });
+
+          const formatTimestamp = (d: Date | string) =>
+            new Date(d).toLocaleString('en-US', {
+              timeZone: 'Asia/Kolkata',
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+            }) + ' IST';
+
+          // Build Trail items HTML & plain text
+          const trailHtmlParts: string[] = [];
+          const trailTextParts: string[] = [];
+
+          // 1. Initial Ticket Creation (Customer Description / Email)
+          const requesterName = ticket.requester?.fullName || ticket.requester?.email || 'Customer';
+          const initialTimeStr = formatTimestamp(ticket.createdAt);
+          const initialCleanBody = this.stripHtmlToPlainText(ticket.description || '');
+          const initialHtmlBody = this.formatEmailBodyHtml(ticket.description || 'No description provided');
+
+          trailHtmlParts.push(`
+            <div style="padding: 12px 14px; margin-bottom: 12px; border-left: 3px solid #64748b; background-color: #f8fafc; border-radius: 0 6px 6px 0;">
+              <div style="margin-bottom: 6px; font-size: 12px; color: #475569;">
+                <strong style="color: #0f172a;">${escapeHtml(requesterName)}</strong>
+                <span style="display: inline-block; padding: 1px 7px; font-size: 10.5px; border-radius: 4px; background-color: #e2e8f0; color: #334155; font-weight: 700; margin-left: 6px;">Initial Ticket Request</span>
+                <span style="font-size: 11px; color: #64748b; margin-left: 8px;">${escapeHtml(initialTimeStr)}</span>
+              </div>
+              <div style="font-size: 13.5px; line-height: 1.55; color: #1e293b;">
+                ${initialHtmlBody}
+              </div>
+            </div>
+          `);
+
+          trailTextParts.push(
+            `[Initial Request] - ${requesterName} (${initialTimeStr}):\n${initialCleanBody}`,
+          );
+
+          // 2. All comments / notes up to this moment
+          for (const c of allComments) {
+            const cAuthor = c.author?.fullName || c.author?.email || 'Team Member';
+            const cTimeStr = formatTimestamp(c.createdAt);
+            const isNote = c.visibility === 'INTERNAL';
+            const isCurrentMentionNote = c.id === created.id;
+
+            const badgeBgColor = isCurrentMentionNote
+              ? '#fef3c7'
+              : isNote
+                ? '#fef3c7'
+                : '#e0f2fe';
+            const badgeTextColor = isCurrentMentionNote
+              ? '#92400e'
+              : isNote
+                ? '#92400e'
+                : '#0369a1';
+            const badgeLabel = isCurrentMentionNote
+              ? isNote
+                ? 'Private Note (Mentioned You)'
+                : 'Reply (Mentioned You)'
+              : isNote
+                ? 'Private Internal Note'
+                : 'Public Reply';
+
+            const borderLeftColor = isCurrentMentionNote
+              ? '#f59e0b'
+              : isNote
+                ? '#d97706'
+                : '#2563eb';
+            const blockBgColor = isCurrentMentionNote
+              ? '#fffbeb'
+              : isNote
+                ? '#fffdf5'
+                : '#f8fafc';
+
+            const cCleanBody = this.stripHtmlToPlainText(c.body);
+            const cHtmlBody = this.formatEmailBodyHtml(c.body);
+
+            trailHtmlParts.push(`
+              <div style="padding: 12px 14px; margin-bottom: 12px; border-left: 3px solid ${borderLeftColor}; background-color: ${blockBgColor}; border-radius: 0 6px 6px 0;">
+                <div style="margin-bottom: 6px; font-size: 12px; color: #475569;">
+                  <strong style="color: #0f172a;">${escapeHtml(cAuthor)}</strong>
+                  <span style="display: inline-block; padding: 1px 7px; font-size: 10.5px; border-radius: 4px; background-color: ${badgeBgColor}; color: ${badgeTextColor}; font-weight: 700; margin-left: 6px;">${badgeLabel}</span>
+                  <span style="font-size: 11px; color: #64748b; margin-left: 8px;">${escapeHtml(cTimeStr)}</span>
+                </div>
+                <div style="font-size: 13.5px; line-height: 1.55; color: #1e293b;">
+                  ${cHtmlBody}
+                </div>
+              </div>
+            `);
+
+            trailTextParts.push(
+              `[${badgeLabel}] - ${cAuthor} (${cTimeStr}):\n${cCleanBody}`,
+            );
+          }
+
+          const conversationTrailHtml = trailHtmlParts.join('');
+          const conversationTrailText = trailTextParts.join('\n\n--------------------\n\n');
+
+          const appUrl = (process.env.APP_URL || 'http://192.168.10.246.nip.io:9999').replace(/\/+$/, '');
+          const ticketLinkUrl = `${appUrl}/tickets/${ticketId}`;
+
+          // 3. Outbound email alert to mentioned staff via donotreply SMTP
+          for (const staff of mentionedStaff) {
+            const emailSubject = `[Ticket #${ticket.number}] ${authorName} mentioned you in ${noteLabel}: ${ticket.subject}`;
+            const notificationHtml = renderTicketNotificationEmail({
+              title: `${authorName} mentioned you on Ticket #${ticket.number}`,
+              recipientName: staff.fullName || staff.email,
+              message: `<strong>${escapeHtml(authorName)}</strong> mentioned you in ${isInternalNote ? '<span style="color:#d97706;font-weight:700;">a private internal note</span>' : 'a reply'} on Ticket <strong>#${ticket.number}</strong>:`,
+              noteFromTeam: this.formatEmailBodyHtml(cleanedBody),
+              conversationTrailHtml,
+              ctaButtonText: 'Open Ticket in ABI Desk',
+              ctaButtonUrl: ticketLinkUrl,
+              ticketNumber: String(ticket.number),
+              ticketSubject: ticket.subject,
+              statusLabel: ticket.status || 'Open',
+              statusType: ticket.status === 'RESOLVED' ? 'resolved' : ticket.status === 'CLOSED' ? 'closed' : 'default',
+              subFooterNote: `This is an automated mail. Please do not reply directly to this email. Log in to ABI Desk to view Ticket #${ticket.number} and respond.`,
+            });
+
+            // Send via system do-not-reply SMTP (donotreply@abi-health.in)
+            this.mailService
+              .send({
+                to: { email: staff.email, name: staff.fullName },
+                subject: emailSubject,
+                text: `Hello ${staff.fullName || staff.email},\n\n${authorName} mentioned you in ${noteLabel} on Ticket #${ticket.number} (${ticket.subject}):\n\n${this.stripHtmlToPlainText(cleanedBody)}\n\nView Ticket: ${ticketLinkUrl}\n\n========================================\nCOMPLETE TICKET TRAIL & CONVERSATION HISTORY\n========================================\n\n${conversationTrailText}\n\n(This is an automated notification from donotreply. Please do not reply directly to this email.)`,
+                html: notificationHtml,
+                tag: 'ticket.mention',
+              })
+              .catch((err) => {
+                this.logger.error({ err, staffId: staff.id }, 'Failed to send mention notification email');
+              });
+          }
+        }
       }
 
       return {
@@ -3773,24 +3979,24 @@ export class TicketService {
         tag: 'ticket.created_ack',
         ...(payload.messageId ? { inReplyTo: payload.messageId, references: [payload.messageId] } : {}),
       }, 'EMAIL')
-      .then(async (sendRes) => {
-        if (sendRes?.messageId) {
-          const currentCustom = {
-            ...(autoOrg ? { organization: autoOrg } : {}),
-            ...(autoProd ? { product: autoProd } : {}),
-            ...(payload.messageId ? { emailMessageId: payload.messageId } : {}),
-            ...(cleanNewTicketCc.length > 0 ? { emailCc: cleanNewTicketCc } : {}),
-          };
-          const updatedCustom = recordOutboundMessageId(currentCustom, sendRes.messageId);
-          await this.prisma.unsafeRawClient.ticket.update({
-            where: { id: created.id },
-            data: { customFields: updatedCustom },
-          }).catch(() => {});
-        }
-      })
-      .catch((err) => {
-        this.logger.error({ err, ticketId: created.id }, 'Failed to send ticket creation ack email');
-      });
+        .then(async (sendRes) => {
+          if (sendRes?.messageId) {
+            const currentCustom = {
+              ...(autoOrg ? { organization: autoOrg } : {}),
+              ...(autoProd ? { product: autoProd } : {}),
+              ...(payload.messageId ? { emailMessageId: payload.messageId } : {}),
+              ...(cleanNewTicketCc.length > 0 ? { emailCc: cleanNewTicketCc } : {}),
+            };
+            const updatedCustom = recordOutboundMessageId(currentCustom, sendRes.messageId);
+            await this.prisma.unsafeRawClient.ticket.update({
+              where: { id: created.id },
+              data: { customFields: updatedCustom },
+            }).catch(() => { });
+          }
+        })
+        .catch((err) => {
+          this.logger.error({ err, ticketId: created.id }, 'Failed to send ticket creation ack email');
+        });
 
       return created;
     });

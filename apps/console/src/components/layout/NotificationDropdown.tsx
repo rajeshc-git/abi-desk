@@ -24,7 +24,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   onClose,
   triggerRef,
 }) => {
-  const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll, openCelebration, openBroadcast } = useNotifications();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clearAll, deleteNotification, openCelebration, openBroadcast } = useNotifications();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'ALL' | 'MENTIONS'>('ALL');
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -467,19 +467,49 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                   )}
                 </div>
 
-                {/* Unread indicator */}
-                {!item.isRead && (
-                  <div
-                    style={{
-                      width: '7px',
-                      height: '7px',
-                      borderRadius: '50%',
-                      backgroundColor: 'var(--primary, #2563eb)',
-                      flexShrink: 0,
-                      marginTop: '6px',
+                {/* Unread indicator & Dismiss button */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', flexShrink: 0, marginTop: '4px' }}>
+                  {!item.isRead && (
+                    <div
+                      style={{
+                        width: '7px',
+                        height: '7px',
+                        borderRadius: '50%',
+                        backgroundColor: 'var(--primary, #2563eb)',
+                      }}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    title="Dismiss notification"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteNotification(item.id);
                     }}
-                  />
-                )}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      borderRadius: '3px',
+                      opacity: 0.6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = '1';
+                      e.currentTarget.style.color = '#ef4444';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = '0.6';
+                      e.currentTarget.style.color = 'var(--text-muted)';
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               </div>
             );
           })

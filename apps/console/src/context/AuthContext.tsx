@@ -52,6 +52,7 @@ interface AuthContextType {
   reloadBrands: () => Promise<void>;
   updatePersonalTheme: (color: string | null) => Promise<void>;
   updateAvatar: (avatarUrl: string | null) => void;
+  updateFullName: (fullName: string) => void;
   reloadUser: () => Promise<void>;
 }
 
@@ -489,6 +490,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('abidesk_brand_id');
     localStorage.removeItem('abidesk_theme_color');
     localStorage.removeItem('unread_ticket_ids');
+    try {
+      sessionStorage.removeItem('last_selected_ticket_id');
+    } catch {}
     window.dispatchEvent(new Event('unread_tickets_updated'));
     window.dispatchEvent(new Event('unread_chats_updated'));
     applyPrimaryTheme('#2563eb');
@@ -538,6 +542,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updated: UserSession = {
         ...prev,
         avatarUrl: avatarUrl || undefined,
+      };
+      localStorage.setItem('abidesk_user', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const updateFullName = (fullName: string) => {
+    setUser((prev) => {
+      if (!prev) return null;
+      const updated: UserSession = {
+        ...prev,
+        fullName,
       };
       localStorage.setItem('abidesk_user', JSON.stringify(updated));
       return updated;
@@ -603,6 +619,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reloadBrands: loadTenantBrands,
         updatePersonalTheme,
         updateAvatar,
+        updateFullName,
         reloadUser,
       }}
     >

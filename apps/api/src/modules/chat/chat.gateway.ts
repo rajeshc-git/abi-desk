@@ -10,6 +10,7 @@ import { type Logger } from 'pino';
 import { Server, Socket } from 'socket.io';
 import { PINO_LOGGER } from '../../common/logging/logging.module';
 import { TenantContextService } from '../../infra/tenancy/tenant-context.service';
+import { TenantPrismaService } from '../../infra/tenancy/tenant-prisma.service';
 import { TokenService } from '../auth/token.service';
 import {
   type PromoteToTicketDto,
@@ -52,6 +53,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly analyticsService: AnalyticsService,
     private readonly tokens: TokenService,
     private readonly tenantContext: TenantContextService,
+    private readonly db: TenantPrismaService,
     @Inject(PINO_LOGGER) rootLogger: Logger,
   ) {
     this.logger = rootLogger.child({ context: 'ChatGateway' });
@@ -282,13 +284,59 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       targetAgentIds?: string[];
     },
   ) {
-    if (!socket.data?.tenantId) return { status: 'error' };
+    const tenantId = socket.data?.tenantId;
+    if (!tenantId) return { status: 'error' };
 
-    this.server.to(`tenant:${socket.data.tenantId}`).emit('agent.broadcast', {
+    this.server.to(`tenant:${tenantId}`).emit('agent.broadcast', {
       ...data,
       adminId: socket.data.userId,
       broadcastAt: new Date().toISOString(),
     });
+
+    // Also persist in DB so offline agents see the announcement in their notification bell when they log in
+    try {
+      await this.tenantContext.runWithTenant(
+        tenantId,
+        { userId: socket.data.userId },
+        async () => {
+          let targetIds = data.targetAgentIds;
+
+          if (!targetIds || targetIds.length === 0) {
+            // Broadcast targets all active staff in the tenant
+            const staff = await this.db.client.user.findMany({
+              where: {
+                tenantId,
+                deletedAt: null,
+                status: 'ACTIVE',
+                kind: { not: 'CUSTOMER' },
+              },
+              select: { id: true },
+            });
+            targetIds = staff.map((s) => s.id);
+          }
+
+          if (targetIds && targetIds.length > 0) {
+            const records = targetIds.map((uId) => ({
+              tenantId,
+              userId: uId,
+              channel: 'IN_APP' as const,
+              status: 'PENDING' as const,
+              eventType: 'broadcast.announcement',
+              title: (data.title?.trim() || '📢 Team Announcement').slice(0, 200),
+              body: (data.message?.trim() || '').slice(0, 2000),
+              resourceType: (data.adminName || socket.data.fullName || 'Administrator').slice(0, 60),
+              linkUrl: '/dashboard',
+            }));
+
+            await this.db.client.notification.createMany({
+              data: records,
+            });
+          }
+        },
+      );
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to persist broadcast notifications to DB');
+    }
 
     return { status: 'broadcasted' };
   }

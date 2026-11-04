@@ -442,6 +442,9 @@ export interface TicketNotificationEmailOptions {
   recipientName: string;
   message: string;
   noteFromTeam?: string | null;
+  conversationTrailHtml?: string | null;
+  ctaButtonText?: string;
+  ctaButtonUrl?: string;
   ticketNumber: string;
   ticketSubject: string;
   statusLabel: string;
@@ -457,6 +460,9 @@ export function renderTicketNotificationEmail(options: TicketNotificationEmailOp
     recipientName,
     message,
     noteFromTeam,
+    conversationTrailHtml,
+    ctaButtonText,
+    ctaButtonUrl,
     ticketNumber,
     ticketSubject,
     statusLabel,
@@ -686,10 +692,39 @@ export function renderTicketNotificationEmail(options: TicketNotificationEmailOp
       <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; background: ${badgeBg}; color: ${badgeText}; border: 1px solid ${badgeBorder}; font-weight: 700; font-size: 11.5px;">${escapeHtml(formatHumanStatusLabel(statusLabel))}</span>
       ${updateTimestamp ? `<span style="font-size: 11.5px; color: #64748b; margin-left: 6px;">(${escapeHtml(updateTimestamp)})</span>` : ''}
     </p>
+    ${
+      ctaButtonUrl
+        ? `
+    <div style="margin: 12px 0 10px 0;">
+      <a href="${escapeHtml(ctaButtonUrl)}" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 13px; font-weight: 700; text-decoration: none; padding: 9px 18px; border-radius: 6px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        ${escapeHtml(ctaButtonText || 'Open Ticket in ABI Desk')} &rarr;
+      </a>
+    </div>
+    `
+        : ''
+    }
     <p style="margin: 0; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; line-height: 1.4;">
       ${escapeHtml(subFooterNote)}
     </p>
   </div>
+
+  ${
+    conversationTrailHtml
+      ? `
+  <!-- Conversation History & Complete Ticket Trail -->
+  <div style="margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
+    <div style="background-color: #f1f5f9; padding: 10px 14px; border-bottom: 1px solid #e2e8f0;">
+      <span style="font-size: 11.5px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.04em; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        📜 Ticket Trail &amp; Conversation History
+      </span>
+    </div>
+    <div style="padding: 14px;">
+      ${conversationTrailHtml}
+    </div>
+  </div>
+  `
+      : ''
+  }
 
   ${updateToken ? `<span style="display:none;font-size:0;line-height:0;color:transparent;opacity:0;">[${escapeHtml(updateToken)}]</span>` : ''}
 </div>

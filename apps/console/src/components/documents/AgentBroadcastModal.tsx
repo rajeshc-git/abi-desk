@@ -215,6 +215,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
 
   const modalContent = (
     <div
+      className="broadcast-wizard-overlay"
       style={{
         position: 'fixed',
         top: 0,
@@ -232,7 +233,113 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
       }}
       onClick={onClose}
     >
+      <style>{`
+        .broadcast-wizard-close-mobile {
+          display: none !important;
+        }
+        .broadcast-btn-text-mobile {
+          display: none !important;
+        }
+
+        @media (max-width: 768px) {
+          .broadcast-wizard-overlay {
+            padding: 8px !important;
+          }
+          .broadcast-wizard-dialog {
+            max-width: 100% !important;
+            height: 94vh !important;
+            max-height: 94vh !important;
+            border-radius: 12px !important;
+          }
+          .broadcast-wizard-header {
+            padding: 10px 14px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+          }
+          .broadcast-wizard-top-row {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            width: 100% !important;
+          }
+          .broadcast-wizard-subtitle {
+            display: none !important;
+          }
+          .broadcast-wizard-close-desktop {
+            display: none !important;
+          }
+          .broadcast-wizard-close-mobile {
+            display: flex !important;
+          }
+          .broadcast-wizard-stepper {
+            width: 100% !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            gap: 4px !important;
+            padding: 3px !important;
+          }
+          .broadcast-wizard-stepper-btn {
+            flex: 1 !important;
+            justify-content: center !important;
+            padding: 5px 4px !important;
+            font-size: 11px !important;
+            gap: 4px !important;
+          }
+          .broadcast-wizard-body {
+            padding: 12px 14px !important;
+            gap: 10px !important;
+          }
+          .broadcast-wizard-search-box {
+            min-width: 100% !important;
+          }
+          .broadcast-wizard-pills-row {
+            width: 100% !important;
+            display: flex !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            scrollbar-width: none !important;
+          }
+          .broadcast-wizard-pills-row::-webkit-scrollbar {
+            display: none !important;
+          }
+          .broadcast-wizard-selectall-btn {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+          .broadcast-wizard-agents-grid {
+            grid-template-columns: 1fr !important;
+            gap: 6px !important;
+            padding: 6px !important;
+          }
+          .broadcast-wizard-status-bar {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 2px !important;
+          }
+          .broadcast-wizard-status-note {
+            font-size: 10.5px !important;
+          }
+          .broadcast-wizard-templates-grid {
+            grid-template-columns: 1fr !important;
+            gap: 8px !important;
+            max-height: 160px !important;
+            overflow-y: auto !important;
+          }
+          .broadcast-wizard-footer {
+            padding: 10px 14px !important;
+          }
+          .broadcast-btn-text-full {
+            display: none !important;
+          }
+          .broadcast-btn-text-mobile {
+            display: inline !important;
+          }
+        }
+      `}</style>
       <div
+        className="broadcast-wizard-dialog"
         style={{
           width: '100%',
           maxWidth: '840px',
@@ -250,6 +357,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
       >
         {/* Wizard Header */}
         <div
+          className="broadcast-wizard-header"
           style={{
             padding: '16px 24px',
             borderBottom: '1px solid var(--border-subtle, #e2e8f0)',
@@ -260,33 +368,56 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
             flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div
+          <div className="broadcast-wizard-top-row" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--primary-surface, #eff6ff)',
+                  color: 'var(--primary, #2563eb)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Megaphone size={18} />
+              </div>
+              <div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
+                  Broadcast Wizard
+                </div>
+                <div className="broadcast-wizard-subtitle" style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
+                  Real-time team announcement & instant notification dispatch
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="broadcast-wizard-close-mobile"
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                backgroundColor: 'var(--primary-surface, #eff6ff)',
-                color: 'var(--primary, #2563eb)',
-                display: 'flex',
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                borderRadius: '8px',
+                padding: '6px',
                 alignItems: 'center',
-                justifyContent: 'center',
+                transition: 'all 0.15s ease',
               }}
+              aria-label="Close modal"
             >
-              <Megaphone size={18} />
-            </div>
-            <div>
-              <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary, #0f172a)' }}>
-                Broadcast Wizard
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted, #64748b)' }}>
-                Real-time team announcement & instant notification dispatch
-              </div>
-            </div>
+              <X size={18} />
+            </button>
           </div>
 
           {/* Stepper Navigation */}
           <div
+            className="broadcast-wizard-stepper"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -308,6 +439,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                   key={s.id}
                   type="button"
                   onClick={() => setCurrentStep(s.id)}
+                  className="broadcast-wizard-stepper-btn"
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -322,6 +454,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                     boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   <span
@@ -340,6 +473,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                       justifyContent: 'center',
                       fontSize: '9px',
                       fontWeight: 800,
+                      flexShrink: 0,
                     }}
                   >
                     {isPast ? <Check size={10} strokeWidth={3} /> : s.number}
@@ -353,6 +487,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            className="broadcast-wizard-close-desktop"
             style={{
               border: 'none',
               background: 'transparent',
@@ -372,13 +507,14 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
         </div>
 
         {/* Wizard Step Content Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column' }}>
+        <div className="broadcast-wizard-body" style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column' }}>
           {/* STEP 1: RECIPIENTS */}
           {currentStep === 'recipients' && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '14px' }}>
               {/* Search and Filter Row */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <div
+                  className="broadcast-wizard-search-box"
                   style={{
                     flex: 1,
                     minWidth: '240px',
@@ -418,7 +554,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                 </div>
 
                 {/* Filter Pills */}
-                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-app, #f1f5f9)', padding: '3px', borderRadius: '8px' }}>
+                <div className="broadcast-wizard-pills-row" style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--bg-app, #f1f5f9)', padding: '3px', borderRadius: '8px' }}>
                   {(['all', 'online', 'selected', 'unselected'] as const).map((t) => (
                     <button
                       key={t}
@@ -435,6 +571,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                         fontWeight: filterType === t ? 700 : 550,
                         cursor: 'pointer',
                         textTransform: 'capitalize',
+                        whiteSpace: 'nowrap',
                       }}
                     >
                       {t} ({
@@ -452,6 +589,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
 
                 <button
                   type="button"
+                  className="broadcast-wizard-selectall-btn"
                   onClick={toggleSelectAll}
                   style={{
                     backgroundColor: 'var(--primary-surface, #eff6ff)',
@@ -475,6 +613,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
 
               {/* 2-Column Responsive Card Grid */}
               <div
+                className="broadcast-wizard-agents-grid"
                 style={{
                   flex: 1,
                   overflowY: 'auto',
@@ -613,11 +752,11 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
               </div>
 
               {/* Status bar */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
+              <div className="broadcast-wizard-status-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                   <strong style={{ color: 'var(--primary, #2563eb)' }}>{selectedAgentIds.size}</strong> of {agents.length} agents selected
                 </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                <span className="broadcast-wizard-status-note" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                   Selected agents will receive an instant pop-up & notification.
                 </span>
               </div>
@@ -633,7 +772,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                   <Sparkles size={14} style={{ color: '#f59e0b' }} /> Quick Announcement Templates
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                <div className="broadcast-wizard-templates-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                   {BROADCAST_TEMPLATES.map((tmpl) => {
                     const isSelected = selectedTemplateId === tmpl.id;
                     return (
@@ -880,6 +1019,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
 
         {/* Wizard Footer Controls */}
         <div
+          className="broadcast-wizard-footer"
           style={{
             padding: '14px 24px',
             borderTop: '1px solid var(--border-subtle, #e2e8f0)',
@@ -952,7 +1092,9 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                 boxShadow: '0 1px 3px rgba(37, 99, 235, 0.25)',
               }}
             >
-              Continue to Message ({selectedAgentIds.size} selected) <ArrowRight size={14} />
+              <span className="broadcast-btn-text-full">Continue to Message ({selectedAgentIds.size} selected)</span>
+              <span className="broadcast-btn-text-mobile">Continue ({selectedAgentIds.size})</span>
+              <ArrowRight size={14} />
             </button>
           )}
 
@@ -977,7 +1119,9 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                 boxShadow: '0 1px 3px rgba(37, 99, 235, 0.25)',
               }}
             >
-              Preview Announcement <ArrowRight size={14} />
+              <span className="broadcast-btn-text-full">Preview Announcement</span>
+              <span className="broadcast-btn-text-mobile">Preview</span>
+              <ArrowRight size={14} />
             </button>
           )}
 
@@ -1003,9 +1147,14 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
               }}
             >
               <Send size={14} />
-              {isSending
-                ? 'Broadcasting...'
-                : `Launch Broadcast (${selectedAgentIds.size} ${selectedAgentIds.size === 1 ? 'agent' : 'agents'})`}
+              <span className="broadcast-btn-text-full">
+                {isSending
+                  ? 'Broadcasting...'
+                  : `Launch Broadcast (${selectedAgentIds.size} ${selectedAgentIds.size === 1 ? 'agent' : 'agents'})`}
+              </span>
+              <span className="broadcast-btn-text-mobile">
+                {isSending ? 'Broadcasting...' : `Launch (${selectedAgentIds.size})`}
+              </span>
             </button>
           )}
         </div>

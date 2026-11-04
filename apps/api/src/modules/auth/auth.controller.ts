@@ -32,6 +32,7 @@ import {
   SessionIdParamDto,
   UpdateAvatarDto,
   UpdatePreferencesDto,
+  UpdateProfileDto,
   VerifyRegisterOtpDto,
   VerifyWidgetOtpDto,
 } from './auth.dto';
@@ -429,6 +430,24 @@ export class AuthController {
     @Body() dto: UpdatePreferencesDto,
   ) {
     return this.auth.updateUserPreferences(principal.userId, dto);
+  }
+
+  /** Updates personal profile information (e.g. fullName) for the signed-in user (PATCH). */
+  @Patch('me/profile')
+  async updateProfilePatch(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.auth.updateProfile(principal.userId, dto);
+  }
+
+  /** Updates personal profile information (e.g. fullName) for the signed-in user (PUT). */
+  @Put('me/profile')
+  async updateProfilePut(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.auth.updateProfile(principal.userId, dto);
   }
 
   /** Uploads and updates personal profile avatar photo (PUT). */

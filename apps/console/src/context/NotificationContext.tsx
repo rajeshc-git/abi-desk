@@ -6,6 +6,7 @@ import { useToast } from './ToastContext';
 import { CelebrationModal, CelebrationData } from '../components/documents/CelebrationModal';
 import { AnnouncementModal, BroadcastData } from '../components/documents/AnnouncementModal';
 import { fireCelebrationConfetti } from '../utils/confetti';
+import { ApiClient } from '../api/client';
 
 export interface AppNotification {
   id: string;
@@ -33,6 +34,7 @@ interface NotificationContextType {
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
   clearAll: () => void;
+  deleteNotification: (id: string) => void;
   addNotification: (notif: Omit<AppNotification, 'id' | 'createdAt' | 'isRead'>) => void;
   openCelebration: (data: CelebrationData) => void;
   openBroadcast: (data: BroadcastData) => void;
@@ -69,15 +71,104 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setBroadcastModalData(data);
   }, []);
 
-  // Keep state in sync with user change
+  // Keep state in sync with user change & fetch persisted notifications from DB
   useEffect(() => {
     if (!user?.id) return;
+
+    // 1. Load from localStorage first for instant display
     try {
       const stored = localStorage.getItem(`abidesk_notifications_${user.id}`);
-      setNotifications(stored ? JSON.parse(stored) : []);
+      if (stored) {
+        setNotifications(JSON.parse(stored));
+      } else {
+        setNotifications([]);
+      }
     } catch {
       setNotifications([]);
     }
+
+    // 2. Fetch from database to load any notifications received while offline
+    ApiClient.get<any[]>('/notifications')
+      .then((serverNotifs) => {
+        if (!Array.isArray(serverNotifs) || serverNotifs.length === 0) return;
+
+        const mappedServerNotifs: AppNotification[] = serverNotifs.map((dbN) => {
+          let nType: AppNotification['type'] = 'MENTION';
+          if (dbN.eventType === 'broadcast.announcement' || dbN.eventType?.includes('broadcast')) nType = 'BROADCAST';
+          else if (dbN.eventType === 'agent.celebrated' || dbN.eventType?.includes('celebrat')) nType = 'CELEBRATION';
+          else if (dbN.eventType === 'ticket.reply') nType = 'REPLY';
+          else if (dbN.eventType === 'ticket.assigned') nType = 'ASSIGNMENT';
+
+          let bData: BroadcastData | undefined;
+          if (nType === 'BROADCAST') {
+            bData = {
+              id: dbN.id,
+              title: dbN.title,
+              message: dbN.body,
+              adminName: dbN.resourceType || 'Administrator',
+              broadcastAt: dbN.createdAt,
+            };
+          }
+
+          return {
+            id: dbN.id,
+            type: nType,
+            title: dbN.title,
+            message: dbN.body,
+            ticketId: dbN.resourceId || '',
+            linkUrl: dbN.linkUrl || (dbN.resourceId ? `/tickets/${dbN.resourceId}` : ''),
+            authorName: dbN.resourceType || (nType === 'BROADCAST' ? 'Administrator' : undefined),
+            createdAt: dbN.createdAt,
+            isRead: dbN.status === 'READ' || Boolean(dbN.readAt),
+            broadcastData: bData,
+          };
+        });
+
+        // Merge DB notifications into state with broadcast deduplication and state sync
+        setNotifications((prev) => {
+          // If a broadcast was already marked read in local state, preserve isRead = true
+          const readBroadcastMessages = new Set(
+            prev.filter((p) => p.type === 'BROADCAST' && p.isRead).map((p) => p.message),
+          );
+
+          const normalizedServerNotifs = mappedServerNotifs.map((sn) => {
+            if (sn.type === 'BROADCAST' && readBroadcastMessages.has(sn.message)) {
+              return { ...sn, isRead: true };
+            }
+            return sn;
+          });
+
+          // Pop up unread broadcast if one exists and was NOT already read
+          const latestUnreadBroadcast = normalizedServerNotifs.find(
+            (n) => n.type === 'BROADCAST' && !n.isRead && n.broadcastData,
+          );
+          if (latestUnreadBroadcast?.broadcastData) {
+            setTimeout(() => {
+              toast.info(`📢 ${latestUnreadBroadcast.title || 'Team Announcement'}`);
+              setBroadcastModalData(latestUnreadBroadcast.broadcastData!);
+            }, 600);
+          }
+
+          const serverIds = new Set(normalizedServerNotifs.map((n) => n.id));
+          const serverBroadcastMessages = new Set(
+            normalizedServerNotifs.filter((n) => n.type === 'BROADCAST').map((n) => n.message),
+          );
+
+          const combined = [...normalizedServerNotifs];
+          for (const p of prev) {
+            if (serverIds.has(p.id)) continue;
+            // Deduplicate broadcasts: if the same broadcast message is already in server notifications, do not add duplicate!
+            if (p.type === 'BROADCAST' && serverBroadcastMessages.has(p.message)) {
+              continue;
+            }
+            combined.push(p);
+          }
+
+          combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          return combined.slice(0, 500);
+        });
+      })
+      .catch(() => {});
   }, [user?.id]);
 
   // Save to localStorage on change
@@ -111,19 +202,42 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
     );
+    ApiClient.patch(`/notifications/${id}/read`).catch(() => {});
   }, []);
 
   const markAllAsRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    ApiClient.post('/notifications/read-all').catch(() => {});
   }, []);
 
   const clearAll = useCallback(() => {
     setNotifications([]);
+    if (storageKey) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {}
+    }
+    ApiClient.delete('/notifications').catch(() => {
+      ApiClient.post('/notifications/clear-all').catch(() => {});
+    });
+  }, [storageKey]);
+
+  const deleteNotification = useCallback((id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    ApiClient.delete(`/notifications/${id}`).catch(() => {});
   }, []);
 
   const addNotification = useCallback(
     (notif: Omit<AppNotification, 'id' | 'createdAt' | 'isRead'>) => {
       setNotifications((prev) => {
+        // Prevent duplicate broadcast announcement with same message
+        if (
+          notif.type === 'BROADCAST' &&
+          prev.some((p) => p.type === 'BROADCAST' && p.message === notif.message)
+        ) {
+          return prev;
+        }
+
         // Prevent duplicate notification for same ticketId + type within last 4 seconds
         const isDuplicate = prev.some(
           (p) =>
@@ -384,6 +498,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         markAsRead,
         markAllAsRead,
         clearAll,
+        deleteNotification,
         addNotification,
         openCelebration,
         openBroadcast,
@@ -397,7 +512,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       />
       <AnnouncementModal
         isOpen={Boolean(broadcastModalData)}
-        onClose={() => setBroadcastModalData(null)}
+        onClose={() => {
+          if (broadcastModalData?.id) {
+            markAsRead(broadcastModalData.id);
+          }
+          if (broadcastModalData?.message) {
+            // 1. Mark in local state by message so any copy is marked read immediately
+            setNotifications((prev) =>
+              prev.map((n) =>
+                n.type === 'BROADCAST' && n.message === broadcastModalData.message
+                  ? { ...n, isRead: true }
+                  : n,
+              ),
+            );
+            // 2. Mark in database by broadcast message so PostgreSQL status becomes READ permanently!
+            ApiClient.post('/notifications/read-broadcast', { message: broadcastModalData.message }).catch(() => {});
+          }
+          setBroadcastModalData(null);
+        }}
         data={broadcastModalData}
       />
     </NotificationContext.Provider>

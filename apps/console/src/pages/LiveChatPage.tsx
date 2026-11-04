@@ -266,7 +266,8 @@ export const LiveChatPage: React.FC = () => {
         });
       } else {
         setConversations(list);
-        if (list.length > 0 && !activeConv) {
+        const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+        if (!isMobile && list.length > 0 && !activeConv) {
           selectConversation(list[0]);
         }
       }

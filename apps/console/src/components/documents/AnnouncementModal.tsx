@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Megaphone, CheckCircle2, RotateCw, Sparkles } from 'lucide-react';
 
 export interface BroadcastData {
+  id?: string;
   title?: string;
   message: string;
   adminName: string;

@@ -134,6 +134,7 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
   const [endDate, setEndDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [tierFilter, setTierFilter] = useState<string>('all');
+  const [showMobileKpi, setShowMobileKpi] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState<boolean>(false);
   const activeRequestIdRef = useRef<number>(0);
@@ -1076,7 +1077,20 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           flex-shrink: 0;
         }
 
+        .perf-mobile-kpi-toggle {
+          display: none;
+        }
+        .perf-tab-text-mobile {
+          display: none;
+        }
+
         @media (max-width: 768px) {
+          .perf-tab-text-desktop {
+            display: none !important;
+          }
+          .perf-tab-text-mobile {
+            display: inline !important;
+          }
           .perf-modal-overlay {
             padding: 0 !important;
           }
@@ -1088,40 +1102,73 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
             border: none !important;
           }
           .perf-modal-header {
-            flex-direction: column !important;
-            align-items: stretch !important;
-            padding: 12px 14px !important;
-            gap: 10px !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            padding: 6px 12px !important;
+            min-height: 44px !important;
+            gap: 8px !important;
           }
           .perf-header-main {
-            justify-content: space-between !important;
-            align-items: flex-start !important;
-            width: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            min-width: 0 !important;
+            flex: 1 !important;
           }
-          .perf-close-btn-desktop {
+          .perf-header-title-box h2 {
+            font-size: 13.5px !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            max-width: 175px !important;
+          }
+          .perf-header-title-box span {
+            display: none !important;
+          }
+          .perf-header-desc {
             display: none !important;
           }
           .perf-close-btn-mobile {
-            display: flex !important;
-            flex-shrink: 0;
-          }
-          .perf-header-desc {
-            font-size: 11.5px !important;
-            line-height: 1.35;
+            display: none !important;
           }
           .perf-header-actions {
-            width: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-shrink: 0 !important;
+            width: auto !important;
           }
-          .perf-header-actions button,
-          .perf-header-actions .btn {
-            width: 100% !important;
+          .perf-header-actions-group {
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            width: auto !important;
+          }
+          .perf-close-btn-desktop {
+            display: flex !important;
+            width: 32px !important;
+            height: 32px !important;
+            flex-shrink: 0 !important;
+          }
+          .perf-export-text {
+            display: none !important;
+          }
+          .perf-export-btn,
+          .perf-action-btn {
+            width: 32px !important;
+            min-width: 32px !important;
+            max-width: 32px !important;
+            height: 32px !important;
+            padding: 0 !important;
             justify-content: center !important;
+            flex-shrink: 0 !important;
           }
           .perf-filter-toolbar {
-            padding: 10px 14px !important;
+            padding: 6px 10px !important;
             flex-direction: column !important;
             align-items: stretch !important;
-            gap: 10px !important;
+            gap: 6px !important;
             width: 100% !important;
             box-sizing: border-box !important;
             overflow: hidden !important;
@@ -1135,94 +1182,130 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
             flex-wrap: nowrap !important;
             display: flex !important;
             align-items: center !important;
-            gap: 6px !important;
-            padding: 2px 2px 6px 2px !important;
+            gap: 4px !important;
+            padding: 1px 0 3px 0 !important;
             -webkit-overflow-scrolling: touch !important;
             scrollbar-width: none !important;
-            touch-action: pan-x !important;
           }
-          .perf-presets-scroll::-webkit-scrollbar {
-            display: none;
+          .perf-presets-scroll span {
+            display: none !important;
           }
           .perf-preset-btn {
+            font-size: 11px !important;
+            padding: 3px 8px !important;
+            height: 25px !important;
+            line-height: 1 !important;
             flex-shrink: 0 !important;
             white-space: nowrap !important;
-            font-size: 12.5px !important;
-            padding: 6px 12px !important;
-            touch-action: pan-x !important;
           }
           .perf-filter-controls {
             display: flex !important;
             align-items: center !important;
-            gap: 8px !important;
+            gap: 6px !important;
             width: 100% !important;
-            justify-content: space-between !important;
           }
           .perf-tier-select {
             flex: 1 !important;
-            height: 38px !important;
-            min-height: 38px !important;
-            font-size: 14px !important;
-            padding: 0 12px !important;
-            border-radius: 8px !important;
-          }
-          .perf-tier-select option {
-            font-size: 14px !important;
-            padding: 8px 12px !important;
+            height: 30px !important;
+            min-height: 30px !important;
+            font-size: 12px !important;
+            padding: 0 8px !important;
           }
           .perf-refresh-btn {
-            height: 38px !important;
-            min-height: 38px !important;
-            padding: 0 14px !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
-            border-radius: 8px !important;
+            height: 30px !important;
+            min-height: 30px !important;
+            padding: 0 10px !important;
+            font-size: 11.5px !important;
+            flex-shrink: 0 !important;
           }
-          .perf-kpi-grid {
-            padding: 10px 14px !important;
-            grid-template-columns: repeat(2, 1fr) !important;
+          .perf-mobile-kpi-toggle {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            padding: 4px 10px !important;
+            background-color: var(--bg-surface-elevated, #f8fafc) !important;
+            border-bottom: 1px solid var(--border-subtle, #e2e8f0) !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            height: 26px !important;
+            box-sizing: border-box !important;
+            flex-shrink: 0 !important;
+          }
+          .perf-kpi-grid.mobile-collapsed {
+            display: none !important;
+          }
+          .perf-kpi-grid.mobile-open {
+            display: flex !important;
+            overflow-x: auto !important;
+            padding: 6px 10px !important;
             gap: 8px !important;
+            -webkit-overflow-scrolling: touch !important;
+            scrollbar-width: none !important;
+            flex-shrink: 0 !important;
           }
-          .perf-kpi-card-wide {
-            grid-column: span 2 !important;
+          .perf-kpi-grid.mobile-open > div {
+            min-width: 140px !important;
+            flex-shrink: 0 !important;
+            padding: 6px 10px !important;
           }
           .perf-tabs-toolbar {
-            padding: 10px 14px !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 10px !important;
+            padding: 6px 10px !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 8px !important;
           }
           .perf-tabs-list {
-            display: grid !important;
-            grid-template-columns: 1fr 1fr !important;
-            width: 100% !important;
-            gap: 6px !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+            flex-shrink: 0 !important;
+            width: auto !important;
           }
           .perf-tabs-list button {
-            justify-content: center !important;
-            padding: 8px 10px !important;
-            font-size: 11.5px !important;
-          }
-          .perf-search-box {
-            width: 100% !important;
-          }
-          .perf-content-area {
-            padding: 10px 14px !important;
-          }
-          .perf-table-wrapper {
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch !important;
-          }
-          .perf-table-wrapper table th,
-          .perf-table-wrapper table td {
+            height: 30px !important;
+            padding: 0 8px !important;
+            font-size: 11px !important;
             white-space: nowrap !important;
           }
+          .perf-search-box {
+            flex: 1 !important;
+            width: auto !important;
+            min-width: 0 !important;
+          }
+          .perf-search-box input {
+            height: 30px !important;
+            font-size: 11.5px !important;
+            padding-left: 28px !important;
+          }
+          .perf-content-area {
+            flex: 1 1 0% !important;
+            min-height: 0 !important;
+            overflow-y: auto !important;
+            padding: 6px 8px !important;
+          }
+          .perf-table-wrapper {
+            height: 100% !important;
+            max-height: 100% !important;
+            overflow: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            border-radius: 8px !important;
+            border: 1px solid var(--border-subtle, #e2e8f0) !important;
+          }
+          .perf-table-wrapper table th {
+            font-size: 11px !important;
+            padding: 8px 10px !important;
+          }
+          .perf-table-wrapper table td {
+            font-size: 11.5px !important;
+            padding: 8px 10px !important;
+          }
           .perf-footer-bar {
-            padding: 10px 14px !important;
-            flex-direction: column !important;
-            align-items: stretch !important;
+            padding: 6px 10px !important;
+            font-size: 11px !important;
+            flex-direction: row !important;
+            justify-content: space-between !important;
+            align-items: center !important;
             gap: 8px !important;
-            text-align: center !important;
           }
           .perf-footer-bar button {
             width: 100% !important;
@@ -1304,11 +1387,12 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
 
           <div className="perf-header-actions">
             {activeTab === 'agents' ? (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <div className="perf-header-actions-group" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                 <button
                   type="button"
                   onClick={() => setIsBroadcastModalOpen(true)}
                   title="Broadcast Announcement to Agents"
+                  className="perf-action-btn"
                   style={{
                     background: 'transparent',
                     border: '1px solid var(--border-medium, #cbd5e1)',
@@ -1338,10 +1422,12 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                 <button
                   type="button"
                   onClick={exportAgentReportCsv}
-                  className="btn btn-primary"
+                  className="btn btn-primary perf-export-btn"
+                  title={`Export Agent CSV (${filteredAgents.length})`}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: '8px',
                     fontSize: '12.5px',
                     fontWeight: 700,
@@ -1350,17 +1436,20 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                     borderRadius: '8px',
                   }}
                 >
-                  <Download size={14} /> Export Agent CSV ({filteredAgents.length})
+                  <Download size={14} />
+                  <span className="perf-export-text">Export Agent CSV ({filteredAgents.length})</span>
                 </button>
               </div>
             ) : activeTab === 'teams' ? (
               <button
                 type="button"
                 onClick={exportTeamReportCsv}
-                className="btn btn-primary"
+                className="btn btn-primary perf-export-btn"
+                title={`Export Team CSV (${filteredTeams.length})`}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: '8px',
                   fontSize: '12.5px',
                   fontWeight: 700,
@@ -1369,7 +1458,8 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                   borderRadius: '8px',
                 }}
               >
-                <Download size={14} /> Export Team CSV ({filteredTeams.length})
+                <Download size={14} />
+                <span className="perf-export-text">Export Team CSV ({filteredTeams.length})</span>
               </button>
             ) : (
               <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
@@ -1552,8 +1642,25 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
           </div>
         </div>
 
+        {/* Mobile Collapsible Metrics Summary Bar */}
+        <div
+          className="perf-mobile-kpi-toggle"
+          onClick={() => setShowMobileKpi(!showMobileKpi)}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Activity size={13} style={{ color: 'var(--primary, #2563eb)' }} />
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Metrics Summary: {summaryKpis.totalResolved} Resolved • {summaryKpis.avgVelocity}% Velocity
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', color: 'var(--primary, #2563eb)', fontWeight: 700 }}>
+            <span>{showMobileKpi ? 'Hide Cards' : 'Show Cards'}</span>
+            <ChevronDown size={12} style={{ transform: showMobileKpi ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+          </div>
+        </div>
+
         {/* Executive KPI Scorecards */}
-        <div className="perf-kpi-grid">
+        <div className={`perf-kpi-grid ${showMobileKpi ? 'mobile-open' : 'mobile-collapsed'}`}>
           {/* Card 1: Action Credits */}
           <div
             style={{
@@ -1723,7 +1830,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                 transition: 'all 0.15s ease',
               }}
             >
-              <User size={15} /> Individual Agents ({filteredAgents.length})
+              <User size={15} />
+              <span className="perf-tab-text-desktop">Individual Agents ({filteredAgents.length})</span>
+              <span className="perf-tab-text-mobile">Agent</span>
             </button>
 
             <button
@@ -1744,7 +1853,9 @@ export const PerformanceReportsModal: React.FC<PerformanceReportsModalProps> = (
                 transition: 'all 0.15s ease',
               }}
             >
-              <Users size={15} /> Team-wise Performance ({filteredTeams.length})
+              <Users size={15} />
+              <span className="perf-tab-text-desktop">Team-wise Performance ({filteredTeams.length})</span>
+              <span className="perf-tab-text-mobile">Team</span>
             </button>
           </div>
 

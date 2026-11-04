@@ -8,6 +8,8 @@ import {
   Trash2,
   Copy,
   Check,
+  X,
+  Pencil,
   User,
   Mail,
   Building2,
@@ -25,16 +27,58 @@ interface ProfileModalProps {
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
-  const { user, updateAvatar } = useAuth();
+  const { user, updateAvatar, updateFullName, reloadUser } = useAuth();
 
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [isCropOpen, setIsCropOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleStartEditName = () => {
+    setEditedName(user?.fullName || '');
+    setIsEditingName(true);
+    setTimeout(() => nameInputRef.current?.focus(), 50);
+  };
+
+  const handleCancelEditName = () => {
+    setIsEditingName(false);
+    setEditedName('');
+  };
+
+  const handleSaveName = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = editedName.trim();
+    if (!trimmed) {
+      alert('Please enter a valid full name.');
+      return;
+    }
+    if (trimmed === user?.fullName) {
+      setIsEditingName(false);
+      return;
+    }
+
+    setIsSavingName(true);
+    try {
+      await ApiClient.patch('/auth/me/profile', { fullName: trimmed });
+      updateFullName(trimmed);
+      reloadUser().catch(() => {});
+      setIsEditingName(false);
+      showToast('Full name updated successfully!');
+    } catch (err: any) {
+      console.error('Failed to update full name:', err);
+      alert(err?.message || 'Failed to update name. Please try again.');
+    } finally {
+      setIsSavingName(false);
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -179,12 +223,55 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
 
             {/* Profile Header Title */}
             <div className="profile-header-meta">
-              <h3 className="profile-name-title">
-                {user?.fullName || 'Support Agent'}
-                <span className="profile-verified-badge" title="Verified Agent">
-                  <ShieldCheck size={14} />
-                </span>
-              </h3>
+              {isEditingName ? (
+                <form onSubmit={handleSaveName} className="profile-name-edit-form">
+                  <input
+                    ref={nameInputRef}
+                    type="text"
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    className="profile-name-edit-input"
+                    placeholder="Enter full name"
+                    maxLength={100}
+                    disabled={isSavingName}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') handleCancelEditName();
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="profile-name-edit-action save"
+                    disabled={isSavingName || !editedName.trim()}
+                    title="Save Full Name"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="profile-name-edit-action cancel"
+                    onClick={handleCancelEditName}
+                    disabled={isSavingName}
+                    title="Cancel"
+                  >
+                    <X size={14} />
+                  </button>
+                </form>
+              ) : (
+                <h3 className="profile-name-title">
+                  <span>{user?.fullName || 'Support Agent'}</span>
+                  <button
+                    type="button"
+                    className="profile-name-pen-btn"
+                    onClick={handleStartEditName}
+                    title="Edit Full Name"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <span className="profile-verified-badge" title="Verified Agent">
+                    <ShieldCheck size={14} />
+                  </span>
+                </h3>
+              )}
               <p className="profile-email-subtitle">{user?.email || 'agent@workspace.local'}</p>
             </div>
 
@@ -224,8 +311,52 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
               </div>
               <div className="profile-info-content">
                 <span className="profile-info-label">Full Name</span>
-                <span className="profile-info-value">{user?.fullName || 'Support Agent'}</span>
+                {isEditingName ? (
+                  <form onSubmit={handleSaveName} className="profile-card-edit-form">
+                    <input
+                      type="text"
+                      value={editedName}
+                      onChange={(e) => setEditedName(e.target.value)}
+                      className="profile-name-edit-input card"
+                      placeholder="Enter full name"
+                      maxLength={100}
+                      disabled={isSavingName}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') handleCancelEditName();
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      className="profile-name-edit-action save"
+                      disabled={isSavingName || !editedName.trim()}
+                      title="Save Full Name"
+                    >
+                      <Check size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="profile-name-edit-action cancel"
+                      onClick={handleCancelEditName}
+                      disabled={isSavingName}
+                      title="Cancel"
+                    >
+                      <X size={13} />
+                    </button>
+                  </form>
+                ) : (
+                  <span className="profile-info-value">{user?.fullName || 'Support Agent'}</span>
+                )}
               </div>
+              {!isEditingName && (
+                <button
+                  type="button"
+                  className="profile-copy-btn"
+                  onClick={handleStartEditName}
+                  title="Edit Full Name"
+                >
+                  <Pencil size={13} />
+                </button>
+              )}
             </div>
 
             {/* Email Address */}

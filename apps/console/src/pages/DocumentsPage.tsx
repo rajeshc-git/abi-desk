@@ -3359,10 +3359,106 @@ export const DocumentsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', width: '100%', padding: '24px 32px' }} className="custom-scrollbar">
+    <div style={{ flex: 1, overflowY: 'auto', width: '100%', padding: '24px 32px' }} className="custom-scrollbar doc-page-container">
+      <style>{`
+        @media (max-width: 768px) {
+          .doc-page-container {
+            padding: 12px 14px !important;
+          }
+          .doc-action-text,
+          .doc-action-chevron {
+            display: none !important;
+          }
+          .doc-action-btn {
+            width: 34px !important;
+            min-width: 34px !important;
+            max-width: 34px !important;
+            height: 34px !important;
+            padding: 0 !important;
+            justify-content: center !important;
+            flex-shrink: 0 !important;
+          }
+          .doc-center-actions {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-wrap: nowrap !important;
+          }
+          .doc-center-card {
+            padding: 14px 16px !important;
+            gap: 12px !important;
+          }
+          .doc-step-card {
+            padding: 14px !important;
+            gap: 14px !important;
+            border-radius: 10px !important;
+          }
+          .doc-step1-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 4px !important;
+          }
+          .doc-step1-subtitle {
+            font-size: 11px !important;
+          }
+          .doc-presets-grid {
+            grid-template-columns: 1fr !important;
+            gap: 8px !important;
+          }
+          .doc-step-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 10px !important;
+            padding-bottom: 12px !important;
+          }
+          .doc-filter-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+          .doc-channel-sla-row {
+            flex-direction: column !important;
+            gap: 6px !important;
+          }
+          .doc-quick-presets-toolbar {
+            gap: 8px !important;
+          }
+          .doc-quick-presets-toolbar > * {
+            flex: 1 1 100% !important;
+          }
+          .doc-step3-header-actions {
+            width: 100% !important;
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .doc-step3-header-actions > * {
+            width: 100% !important;
+          }
+          .doc-step3-header-actions button {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+          .doc-viewer-toolbar {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+            padding: 10px 12px !important;
+          }
+          .doc-viewer-actions {
+            width: 100% !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 6px !important;
+          }
+          .doc-viewer-actions button {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+        }
+      `}</style>
       <div style={{ maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {/* Top Hero Banner */}
         <div
+          className="doc-center-card"
           style={{
             backgroundColor: 'var(--bg-surface, #ffffff)',
             border: '1px solid var(--border-subtle, #e2e8f0)',
@@ -3406,13 +3502,13 @@ export const DocumentsPage: React.FC = () => {
           </div>
 
           {/* Global Action Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
+          <div className="doc-center-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
             {/* Saved Presets / Templates Dropdown */}
             <div style={{ position: 'relative' }} ref={presetsDropdownRef}>
               <button
                 type="button"
                 onClick={() => setShowPresetsDropdown(!showPresetsDropdown)}
-                className="btn btn-secondary"
+                className="btn btn-secondary doc-action-btn"
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -3431,12 +3527,12 @@ export const DocumentsPage: React.FC = () => {
                 title="Choose a saved filter preset / template"
               >
                 <Bookmark size={13} style={{ color: '#059669' }} />
-                <span>
+                <span className="doc-action-text">
                   {activePresetId
                     ? savedPresets.find((p) => p.id === activePresetId)?.name || 'Custom Preset'
                     : `Saved Presets (${savedPresets.length})`}
                 </span>
-                <ChevronDown size={13} style={{ opacity: 0.7 }} />
+                <ChevronDown size={13} className="doc-action-chevron" style={{ opacity: 0.7 }} />
               </button>
 
               {/* Popover list of saved presets */}
@@ -3622,6 +3718,7 @@ export const DocumentsPage: React.FC = () => {
                 setNewPresetName('');
                 setIsSavePresetModalOpen(true);
               }}
+              className="doc-action-btn"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -3642,14 +3739,14 @@ export const DocumentsPage: React.FC = () => {
               title="Save current Step 2 filters as a reusable template"
             >
               <BookmarkPlus size={14} />
-              <span>Save Preset</span>
+              <span className="doc-action-text">Save Preset</span>
             </button>
 
             <button
               type="button"
               disabled={isRefreshing}
               onClick={handleRefreshAll}
-              className="btn btn-secondary"
+              className="btn btn-secondary doc-action-btn"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -3671,13 +3768,13 @@ export const DocumentsPage: React.FC = () => {
                   animation: isRefreshing ? 'spin 0.8s linear infinite' : 'none',
                 }}
               />
-              <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+              <span className="doc-action-text">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
             </button>
 
             <button
               type="button"
               onClick={resetAllFilters}
-              className="btn btn-secondary"
+              className="btn btn-secondary doc-action-btn"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -3689,15 +3786,17 @@ export const DocumentsPage: React.FC = () => {
                 fontWeight: 600,
                 whiteSpace: 'nowrap',
               }}
+              title="Reset Filters"
             >
-              <RotateCw size={13} /> Reset Filters
+              <RotateCw size={13} />
+              <span className="doc-action-text">Reset Filters</span>
             </button>
 
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => setIsReportModalOpen(true)}
-                className="btn btn-primary"
+                className="btn btn-primary doc-action-btn"
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -3713,7 +3812,7 @@ export const DocumentsPage: React.FC = () => {
                 title="Open Detailed Team & Agent Performance Reports"
               >
                 <BarChart3 size={14} />
-                Performance Reports
+                <span className="doc-action-text">Performance Reports</span>
               </button>
             )}
           </div>
@@ -3721,7 +3820,7 @@ export const DocumentsPage: React.FC = () => {
 
         {/* Step 1: 1-Click Quick Reports with Real-time Count Badges */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div className="doc-step1-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <div>
               <span style={{ fontSize: '11px', fontWeight: 750, color: 'var(--primary, #2563eb)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 STEP 1 OF 3
@@ -3730,12 +3829,12 @@ export const DocumentsPage: React.FC = () => {
                 ⚡ Quick 1-Click Preset Reports
               </h3>
             </div>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            <span className="doc-step1-subtitle" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               Instantly download operational summaries with real-time available counts
             </span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '14px' }}>
+          <div className="doc-presets-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '14px' }}>
             {/* Preset 1: Today's Tickets */}
             <div
               onClick={() => handleQuickExport('today_tickets')}
@@ -4023,9 +4122,9 @@ export const DocumentsPage: React.FC = () => {
         </div>
 
         {/* Step 2: Custom Multi-Criteria Filter Palette */}
-        <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="card doc-step-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Header with Live Counter Badge */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
+          <div className="doc-step-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
             <div>
               <span style={{ fontSize: '11px', fontWeight: 750, color: 'var(--primary, #2563eb)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 STEP 2 OF 3
@@ -4131,7 +4230,7 @@ export const DocumentsPage: React.FC = () => {
           )}
 
           {/* Filter Inputs 4-Column Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
+          <div className="doc-filter-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '18px' }}>
             {/* Card A: Time & Date Window Customized Filter */}
             <CustomDateFilterPicker
               label="1. Time & Date Window"
@@ -4240,7 +4339,7 @@ export const DocumentsPage: React.FC = () => {
                 <Shield size={14} style={{ color: 'var(--primary, #2563eb)' }} />
                 8. Channel & SLA Target
               </label>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div className="doc-channel-sla-row" style={{ display: 'flex', gap: '8px' }}>
                 <select
                   value={filters.channels.length === 1 ? filters.channels[0] : ''}
                   onChange={(e) => setFilters((p) => ({ ...p, channels: e.target.value ? [e.target.value] : [] }))}
@@ -4270,6 +4369,7 @@ export const DocumentsPage: React.FC = () => {
 
           {/* Status, Priority & Support Tier Compact Popover Filter Toolbar */}
           <div
+            className="doc-quick-presets-toolbar"
             style={{
               paddingTop: '16px',
               borderTop: '1px solid var(--border-subtle)',
@@ -4322,8 +4422,8 @@ export const DocumentsPage: React.FC = () => {
         </div>
 
         {/* Step 3: Column Selector & CSV Beautifier / Viewer */}
-        <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
+        <div className="card doc-step-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="doc-step-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
             <div>
               <span style={{ fontSize: '11px', fontWeight: 750, color: 'var(--primary, #2563eb)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 STEP 3 OF 3
@@ -4337,7 +4437,7 @@ export const DocumentsPage: React.FC = () => {
               </p>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="doc-step3-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               {/* Columns Customizer Dropdown Popover with Product Theme Brand Color */}
               <div style={{ position: 'relative' }} ref={columnCustomizerRef}>
                 <button
@@ -4393,6 +4493,7 @@ export const DocumentsPage: React.FC = () => {
                       top: 'calc(100% + 8px)',
                       right: 0,
                       width: '340px',
+                      maxWidth: 'calc(100vw - 32px)',
                       backgroundColor: 'var(--bg-surface, #ffffff)',
                       borderRadius: '12px',
                       border: '1px solid var(--border-subtle, #e2e8f0)',
@@ -4665,6 +4766,7 @@ export const DocumentsPage: React.FC = () => {
           >
             {/* Action Toolbar for CSV Beautifier */}
             <div
+              className="doc-viewer-toolbar"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -4693,7 +4795,7 @@ export const DocumentsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div className="doc-viewer-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <input
                   type="file"
                   ref={fileInputRef}
