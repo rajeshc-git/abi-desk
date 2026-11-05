@@ -74,7 +74,8 @@ export function escapeHtml(value: string): string {
  */
 export function formatRichTextForEmail(raw: string | null | undefined): string {
   if (!raw) return '';
-  const trimmed = raw.trim();
+  const normalized = raw.replace(/&nbsp;/gi, ' ').replace(/\u00a0/g, ' ');
+  const trimmed = normalized.trim();
   if (!trimmed) return '';
 
   // Check if string contains any HTML tag (e.g. <b>, <strong>, <i>, <u>, <p>, <div>, <h1-6>, <br>, <table>, <a>, etc.)

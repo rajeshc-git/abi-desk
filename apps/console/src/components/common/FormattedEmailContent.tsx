@@ -38,6 +38,9 @@ const CTA_KEYWORDS =
 function cleanClipboardFragments(text: string | null | undefined): string {
   if (!text) return '';
   return text
+    // 0. Normalize HTML non-breaking space entities and unicode non-breaking spaces
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\u00a0/g, ' ')
     // 1. CF_HTML header metadata (Version:1.0, StartHTML:..., EndHTML:..., StartFragment:..., EndFragment:..., SourceURL:...)
     .replace(/^(?:Version:\d+\.\d+|StartHTML:\d+|EndHTML:\d+|StartFragment:\d+|EndFragment:\d+|SourceURL:[^\r\n]*)\s*[\r\n]*/gim, '')
     // 2. Outlook / Word fragment and element comments

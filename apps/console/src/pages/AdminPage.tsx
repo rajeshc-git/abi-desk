@@ -10880,16 +10880,19 @@ City Care Health,HIS,citycare.org,https://citycare.org,Admin,admin@citycare.org,
                               if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
                             }}
                           >
-                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-                              <span style={{ fontWeight: isSelected ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {org.name}
-                              </span>
-                              {org.domains && (
-                                <span style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {org.domains}
-                                </span>
-                              )}
-                            </div>
+                            <span
+                              style={{
+                                fontWeight: isSelected ? 600 : 400,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0,
+                                flex: 1,
+                              }}
+                              title={org.name}
+                            >
+                              {org.name}
+                            </span>
                             {isSelected && <Check size={14} style={{ color: '#38bdf8', flexShrink: 0 }} />}
                           </button>
                         );

@@ -1172,6 +1172,29 @@
   max-width: 240px;
 }
 
+.ticket-bottom-assignee-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Channel Badge in Bottom Metadata Bar */
+.channel-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.channel-mobile-dock {
+  display: none;
+}
+
 /* Responsive Unified Workspace Tabs */
 .workspace-tabs-bar {
   display: flex;
@@ -1300,6 +1323,7 @@
   .ticket-conversation-split-layout {
     flex-direction: column !important;
   }
+
   .ticket-conversation-stream-pane,
   .ticket-conversation-stream-pane.is-split,
   .ticket-conversation-stream-pane.is-full {
@@ -1310,12 +1334,14 @@
     flex: 1 1 auto;
     min-height: 180px;
   }
+
   .ticket-conversation-composer-pane {
     width: 100% !important;
     max-width: 100% !important;
     padding: 8px 10px !important;
     flex: none;
   }
+
   .ticket-conversation-composer-pane .reply-composer-card {
     height: auto;
   }
@@ -1325,9 +1351,11 @@
 .reply-btn-label-desktop {
   display: inline;
 }
+
 .reply-btn-label-mobile {
   display: none;
 }
+
 .reply-hint-desktop {
   display: inline;
 }
@@ -1336,11 +1364,47 @@
   .reply-btn-label-desktop {
     display: none !important;
   }
+
   .reply-btn-label-mobile {
     display: inline !important;
   }
+
   .reply-hint-desktop {
     display: none !important;
+  }
+
+  /* Responsive Channel Badge: Show only icon on mobile, hide text */
+  .responsive-icon-only .channel-badge-label,
+  .ticket-card .channel-badge-pill .channel-badge-label {
+    display: none !important;
+  }
+
+  .responsive-icon-only,
+  .ticket-card .channel-badge-pill {
+    padding: 2px 4px !important;
+    gap: 0 !important;
+  }
+
+  /* Mobile Ticket Card: Clean uncluttered metadata row */
+  /* Hide Category and arbitrary Tags on mobile to prevent wrapping & card bloat */
+  .ticket-card .ticket-card-category-pill,
+  .ticket-card .ticket-card-tag-pill {
+    display: none !important;
+  }
+
+  /* Disable click-to-filter on mobile so touching anywhere on the card opens the ticket smoothly without activating search */
+  .ticket-card .ticket-card-pill {
+    pointer-events: none !important;
+    cursor: default !important;
+  }
+
+  /* Compact single-row Organization & Product badge width with ellipsis */
+  .ticket-card .ticket-card-org-pill,
+  .ticket-card .ticket-card-product-pill {
+    max-width: 140px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
@@ -1391,6 +1455,7 @@
   border-radius: var(--radius-md, 6px);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   flex-shrink: 0;
   white-space: nowrap;
@@ -1398,6 +1463,40 @@
 
 .ticket-workspace-btn-text {
   display: inline;
+}
+
+/* Dynamic & Compact Icon-Only mode when header overflows or pane width is tight */
+.ticket-workspace-btn.icon-only-btn,
+.header-compact-workspace .ticket-workspace-btn {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+}
+
+.ticket-workspace-btn.icon-only-btn .ticket-workspace-btn-text,
+.header-compact-workspace .ticket-workspace-btn-text {
+  display: none !important;
+}
+
+/* Container query: Automatically switch to icon-only button when workspace pane is <= 950px */
+.inbox-detail-content-wrap {
+  container-type: inline-size;
+  container-name: ticket-detail-wrap;
+}
+
+@container ticket-detail-wrap (max-width: 950px) {
+  .ticket-workspace-btn-text {
+    display: none !important;
+  }
+  .ticket-workspace-btn {
+    width: 28px !important;
+    min-width: 28px !important;
+    height: 28px !important;
+    padding: 0 !important;
+    justify-content: center !important;
+  }
 }
 
 .initial-badge-full {
@@ -1413,6 +1512,30 @@
 }
 
 .reply-badge-short {
+  display: none;
+}
+
+.note-badge-full {
+  display: inline;
+}
+
+.note-badge-short {
+  display: none;
+}
+
+.thread-author-name-desktop {
+  display: inline;
+}
+
+.thread-author-name-mobile {
+  display: none;
+}
+
+.internal-badge-text-full {
+  display: inline;
+}
+
+.internal-badge-text-short {
   display: none;
 }
 
@@ -1615,7 +1738,8 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    max-height: 80vh;
+    height: 75vh;
+    max-height: 85vh;
     overflow-y: auto;
     transform: translateY(100%);
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1941,6 +2065,36 @@
     display: inline !important;
   }
 
+  .note-badge-full {
+    display: none !important;
+  }
+
+  .note-badge-short {
+    display: inline !important;
+  }
+
+  .thread-author-name-desktop {
+    display: none !important;
+  }
+
+  .thread-author-name-mobile {
+    display: inline-block !important;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  .thread-author-name {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 140px;
+    overflow: hidden;
+    flex-shrink: 1 !important;
+  }
+
   .preview-action-text-full {
     display: none !important;
   }
@@ -1993,19 +2147,129 @@
     gap: 0 !important;
     min-height: 38px !important;
     border-bottom: 1px solid var(--border-subtle) !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+  }
+
+  .workspace-tabs-bar::-webkit-scrollbar {
+    display: none !important;
   }
 
   .workspace-tab-item {
     padding: 8px 10px !important;
     font-size: 12px !important;
     gap: 4px !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .timeline-item {
+    gap: 8px !important;
+  }
+
+  .timeline-item .user-avatar {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 10px !important;
+  }
+
+  .timeline-card {
+    padding: 10px 12px !important;
+  }
+
+  .timeline-header .author-name {
+    max-width: 120px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .timeline-header .timestamp {
+    font-size: 10.5px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+
+  .internal-badge-text-full {
+    display: none !important;
+  }
+
+  .internal-badge-text-short {
+    display: inline !important;
+  }
+
+  .timeline-card.internal-note .internal-badge {
+    font-size: 9.5px !important;
+    margin-bottom: 4px !important;
+  }
+
+  /* Force standard, readable font sizing on mobile for email bodies & timeline comments,
+     overriding any giant inline styles (e.g. 24pt, 28px) sent by Outlook or external email clients */
+  .email-body-content,
+  .email-body-content *,
+  .timeline-body,
+  .timeline-body * {
+    max-width: 100% !important;
+    word-break: break-word !important;
+  }
+
+  .email-body-content,
+  .email-body-content p,
+  .email-body-content span,
+  .email-body-content div,
+  .email-body-content font,
+  .email-body-content td,
+  .email-body-content th,
+  .timeline-body,
+  .timeline-body p,
+  .timeline-body span,
+  .timeline-body div,
+  .timeline-body font {
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+  }
+
+  .email-body-content small,
+  .timeline-body small {
+    font-size: 11px !important;
+  }
+
+  .email-body-content h1,
+  .timeline-body h1 {
+    font-size: 15px !important;
+  }
+
+  .email-body-content h2,
+  .timeline-body h2 {
+    font-size: 14px !important;
+  }
+
+  .email-body-content h3,
+  .timeline-body h3 {
+    font-size: 13.5px !important;
+  }
+
+  .email-body-content table,
+  .timeline-body table {
+    display: block !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+  }
+
+  .email-body-content img,
+  .timeline-body img {
+    max-width: 100% !important;
+    height: auto !important;
   }
 
   .status-popover-dropdown,
   .tag-picker-popover,
-  .category-picker-popover {
-    right: 0 !important;
-    left: auto !important;
+  .category-picker-popover,
+  .priority-popover-dropdown,
+  .tier-popover-dropdown {
     max-width: calc(100vw - 20px) !important;
   }
 
@@ -2197,20 +2461,38 @@
     gap: 6px;
   }
 
-  /* Single-row horizontally scrollable Pill Dock on Mobile */
+  /* Remove outer padding & gap in Inbox detail on mobile so header is flat and edge-to-edge */
+  .inbox-detail-content-wrap {
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+
+  /* Restore minimal mobile start/end padding for the conversation thread in Inbox */
+  .inbox-conversation-thread-area {
+    padding: 10px 10px 0 10px !important;
+  }
+
+  .inbox-conversation-accordion-stream {
+    padding-bottom: 12px !important;
+  }
+
+  /* Mobile Ticket Header Toolbar: flat edge-to-edge dock identical to TicketDetailPage header */
   .ticket-header-toolbar {
     display: flex !important;
     flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding: 6px 10px !important;
-    height: 44px !important;
+    overflow: visible !important;
+    padding: 8px 10px !important;
+    height: auto !important;
     min-height: 44px !important;
     align-items: center !important;
     gap: 6px !important;
-    justify-content: flex-start !important;
+    justify-content: space-between !important;
+    border-radius: 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+    background-color: var(--bg-surface, #ffffff) !important;
+    margin: 0 !important;
   }
 
   .ticket-header-toolbar::-webkit-scrollbar {
@@ -2221,14 +2503,9 @@
     flex-shrink: 0 !important;
   }
 
-  .ticket-header-back-btn {
-    order: -2 !important;
-  }
-
   .ticket-workspace-btn {
-    order: -1 !important;
     margin-left: 0 !important;
-    margin-right: 2px !important;
+    margin-right: 0 !important;
     height: 26px !important;
     width: 26px !important;
     min-width: 26px !important;
@@ -2284,16 +2561,50 @@
   }
 
   .ticket-bottom-metadata-bar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 8px 12px;
-    font-size: 11px;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px !important;
+    padding: 6px 10px 6px !important;
+    font-size: 11px !important;
+    height: auto !important;
   }
 
   .ticket-bottom-metadata-item {
-    width: 100%;
-    flex-wrap: wrap;
+    width: 100% !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .ticket-bottom-assignee-item {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+  }
+
+  .ticket-bottom-assignee-text {
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    min-width: 0 !important;
+    flex: 1 !important;
+    overflow: hidden !important;
+  }
+
+  .ticket-bottom-assignee-text .metadata-value {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .channel-mobile-dock {
+    display: flex !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+    margin-left: 8px !important;
+  }
+
+  .channel-desktop-item {
+    display: none !important;
   }
 
   .ticket-bottom-metadata-item .ticket-email-text {
@@ -2597,6 +2908,7 @@
 }
 
 @media (max-width: 1023px) {
+
   .analytics-page-wrapper,
   .admin-page-wrapper,
   .roster-page-wrapper {
@@ -2651,6 +2963,7 @@
     opacity: 0;
     transform: translate(-50%, -10px) scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: translate(-50%, 0) scale(1);
@@ -3078,9 +3391,11 @@
   0% {
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
   }
+
   70% {
     box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
   }
+
   100% {
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
   }

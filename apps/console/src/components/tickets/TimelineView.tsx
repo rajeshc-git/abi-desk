@@ -833,6 +833,15 @@ const getInitials = (name?: string) => {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
+const formatAuthorNameMobile = (name?: string): string => {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length > 2) {
+    return `${parts[0]} ${parts[1]}...`;
+  }
+  return name;
+};
+
 export const TimelineView: React.FC<TimelineViewProps> = ({
   comments,
   activities = [],
@@ -1064,15 +1073,20 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               {isInternal && (
                 <div className="internal-badge">
                   <Lock size={12} />
-                  <span>PRIVATE INTERNAL NOTE (VISIBLE TO STAFF ONLY)</span>
+                  <span className="internal-badge-text-full">PRIVATE INTERNAL NOTE (VISIBLE TO STAFF ONLY)</span>
+                  <span className="internal-badge-text-short">INTERNAL NOTE (STAFF ONLY)</span>
                 </div>
               )}
 
-              <div className="timeline-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="author-name">{authorName}</span>
+              <div className="timeline-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                  <span className="author-name" title={authorName}>
+                    <span className="thread-author-name-desktop">{authorName}</span>
+                    <span className="thread-author-name-mobile">{formatAuthorNameMobile(authorName)}</span>
+                  </span>
                   {isInternal ? (
                     <span
+                      className="thread-reply-badge internal"
                       style={{
                         fontSize: '10px',
                         color: '#b45309',
@@ -1084,12 +1098,17 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
                       }}
                     >
-                      <Lock size={10} /> Internal Note
+                      <Lock size={10} />
+                      <span className="note-badge-full">Internal Note</span>
+                      <span className="note-badge-short">Note</span>
                     </span>
                   ) : isStaff ? (
                     <span
+                      className="thread-reply-badge"
                       style={{
                         fontSize: '10px',
                         color: '#15803d',
@@ -1101,12 +1120,17 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
                       }}
                     >
-                      <Globe size={10} /> Public Reply
+                      <Globe size={10} />
+                      <span className="reply-badge-full">Public Reply</span>
+                      <span className="reply-badge-short">Reply</span>
                     </span>
                   ) : (
                     <span
+                      className="thread-reply-badge"
                       style={{
                         fontSize: '10px',
                         color: '#0369a1',
@@ -1118,14 +1142,17 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
                       }}
                     >
-                      Customer Reply
+                      <span className="reply-badge-full">Customer Reply</span>
+                      <span className="reply-badge-short">Reply</span>
                     </span>
                   )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="timestamp">{formattedDate}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                  <span className="timestamp" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{formattedDate}</span>
                   {onSplitComment && (
                     <CommentActionMenu
                       comment={comment}
@@ -1224,12 +1251,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </div>
 
           <div className="timeline-card" style={{ borderLeft: '3px solid var(--primary, #2563eb)' }}>
-            <div className="timeline-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="author-name">
-                  {initialTicket.requester?.fullName || 'Requester'}
+            <div className="timeline-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                <span className="author-name" title={initialTicket.requester?.fullName || 'Requester'}>
+                  <span className="thread-author-name-desktop">{initialTicket.requester?.fullName || 'Requester'}</span>
+                  <span className="thread-author-name-mobile">{formatAuthorNameMobile(initialTicket.requester?.fullName || 'Requester')}</span>
                 </span>
                 <span
+                  className="thread-initial-badge"
                   style={{
                     fontSize: '10px',
                     color: 'var(--text-muted, #64748b)',
@@ -1238,22 +1267,27 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     padding: '1px 6px',
                     borderRadius: '4px',
                     fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
                   }}
                 >
-                  Initial Request
+                  <span className="initial-badge-full">Initial Request</span>
+                  <span className="initial-badge-short">Initial</span>
                 </span>
               </div>
-              <span className="timestamp">
-                {initialTicket.createdAt
-                  ? new Date(initialTicket.createdAt).toLocaleString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit',
-                      hour12: true,
-                    })
-                  : ''}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                <span className="timestamp" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  {initialTicket.createdAt
+                    ? new Date(initialTicket.createdAt).toLocaleString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true,
+                      })
+                    : ''}
+                </span>
+              </div>
             </div>
 
             {(() => {

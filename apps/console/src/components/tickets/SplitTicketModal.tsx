@@ -939,41 +939,22 @@ export const SplitTicketModal: React.FC<SplitTicketModalProps> = ({
                                   gap: '6px',
                                 }}
                               >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    minWidth: 0,
-                                    flex: 1,
-                                  }}
-                                >
                                   <span
                                     style={{
                                       fontWeight: isSelected ? 600 : 400,
                                       overflow: 'hidden',
                                       textOverflow: 'ellipsis',
                                       whiteSpace: 'nowrap',
+                                      minWidth: 0,
+                                      flex: 1,
                                     }}
+                                    title={org.name}
                                   >
                                     {org.name}
                                   </span>
-                                  {org.domains && (
-                                    <span
-                                      style={{
-                                        fontSize: '10px',
-                                        color: 'var(--text-muted)',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                      }}
-                                    >
-                                      {org.domains}
-                                    </span>
+                                  {isSelected && (
+                                    <Check size={13} style={{ color: '#0284c7', flexShrink: 0 }} />
                                   )}
-                                </div>
-                                {isSelected && (
-                                  <Check size={13} style={{ color: '#0284c7', flexShrink: 0 }} />
-                                )}
                               </button>
                             );
                           })

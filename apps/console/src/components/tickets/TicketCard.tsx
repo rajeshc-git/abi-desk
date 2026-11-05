@@ -1,6 +1,6 @@
 import React from 'react';
 import { Folder } from 'lucide-react';
-import { PriorityPill, StatusBadge, TierBadge } from '../common/Badge';
+import { PriorityPill, StatusBadge, TierBadge, ChannelBadge } from '../common/Badge';
 import { useSearch } from '../../context/SearchContext';
 
 export interface TicketSummary {
@@ -125,42 +125,7 @@ const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, is
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-          {ticket.channel && (
-            <span
-              style={{
-                fontSize: '9.5px',
-                fontWeight: 600,
-                backgroundColor:
-                  ticket.channel === 'WIDGET'
-                    ? 'rgba(16, 185, 129, 0.12)'
-                    : ticket.channel === 'EMAIL'
-                    ? 'rgba(59, 130, 246, 0.12)'
-                    : 'rgba(100, 116, 139, 0.12)',
-                color:
-                  ticket.channel === 'WIDGET'
-                    ? '#059669'
-                    : ticket.channel === 'EMAIL'
-                    ? '#2563eb'
-                    : '#475569',
-                border: `1px solid ${
-                  ticket.channel === 'WIDGET'
-                    ? 'rgba(16, 185, 129, 0.3)'
-                    : ticket.channel === 'EMAIL'
-                    ? 'rgba(59, 130, 246, 0.3)'
-                    : 'rgba(100, 116, 139, 0.3)'
-                }`,
-                borderRadius: '3px',
-                padding: '1px 5px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                textTransform: 'capitalize',
-              }}
-              title={`Inbound Channel: ${ticket.channel}`}
-            >
-              {ticket.channel === 'WIDGET' ? '🌐 Widget' : ticket.channel === 'EMAIL' ? '✉️ Email' : `📡 ${ticket.channel}`}
-            </span>
-          )}
+          {ticket.channel && <ChannelBadge channel={ticket.channel} size="sm" responsiveIconOnly />}
           <StatusBadge status={ticket.status} />
         </div>
       </div>
@@ -187,11 +152,12 @@ const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, is
         ((ticket as any).customFields?.product || (ticket as any).product) ||
         ticket.category ||
         (ticket.tags && ticket.tags.length > 0)) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+        <div className="ticket-card-pills-row" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
 
           {/* Organization Badge */}
           {((ticket as any).customFields?.organization || (ticket as any).organization) && (
             <span
+              className="ticket-card-pill ticket-card-org-pill"
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedOrganization((ticket as any).customFields?.organization || (ticket as any).organization);
@@ -225,6 +191,7 @@ const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, is
           {/* Product Badge */}
           {((ticket as any).customFields?.product || (ticket as any).product) && (
             <span
+              className="ticket-card-pill ticket-card-product-pill"
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedProduct((ticket as any).customFields?.product || (ticket as any).product);
@@ -258,6 +225,7 @@ const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, is
           {/* Category Pill */}
           {ticket.category && (
             <span
+              className="ticket-card-pill ticket-card-category-pill"
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedCategory({ name: ticket.category!, slug: ticket.category!.toLowerCase().replace(/\s+/g, '-') });
@@ -290,6 +258,7 @@ const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, is
             return (
               <span
                 key={idx}
+                className="ticket-card-pill ticket-card-tag-pill"
                 onClick={(e) => {
                   e.stopPropagation();
                   setSelectedTag({ name: tag.name, slug: tag.slug, color: tag.color });

@@ -2182,6 +2182,15 @@ export class TicketService {
    * Permanently deletes a single ticket and safely cleans up all relations/foreign keys.
    */
   async deleteTicket(principal: AuthenticatedPrincipal, ticketId: string) {
+    const isAdmin =
+      principal.isPlatformAdmin ||
+      principal.roles.some((r) =>
+        ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r.toUpperCase()),
+      );
+    if (!isAdmin) {
+      throw AppException.permissionDenied('Delete is allowed to admin role only');
+    }
+
     const tenantId = this.requireTenant(principal);
     const ticket = await this.findByIdOrThrow(principal, ticketId);
 
@@ -2246,6 +2255,15 @@ export class TicketService {
    * Permanently deletes multiple tickets in bulk and safely cleans up all relations/foreign keys.
    */
   async bulkDelete(principal: AuthenticatedPrincipal, ticketIds: string[]) {
+    const isAdmin =
+      principal.isPlatformAdmin ||
+      principal.roles.some((r) =>
+        ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r.toUpperCase()),
+      );
+    if (!isAdmin) {
+      throw AppException.permissionDenied('Delete is allowed to admin role only');
+    }
+
     const tenantId = this.requireTenant(principal);
     const uniqueIds = Array.from(new Set(ticketIds));
     if (uniqueIds.length === 0) {
@@ -4360,11 +4378,12 @@ export class TicketService {
 
   private stripHtmlToPlainText(raw: string): string {
     if (!raw) return '';
-    if (!/<[a-z][\s\S]*>/i.test(raw)) {
-      return raw.trim();
+    const clean = raw.replace(/&nbsp;/gi, ' ').replace(/\u00a0/g, ' ');
+    if (!/<[a-z][\s\S]*>/i.test(clean)) {
+      return clean.trim();
     }
 
-    return raw
+    return clean
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<br\s*\/?>/gi, '\n')
@@ -4424,11 +4443,12 @@ export function recordOutboundMessageId(
 
 export function stripHtmlToPlainText(raw: string): string {
   if (!raw) return '';
-  if (!/<[a-z][\s\S]*>/i.test(raw)) {
-    return raw.trim();
+  const clean = raw.replace(/&nbsp;/gi, ' ').replace(/\u00a0/g, ' ');
+  if (!/<[a-z][\s\S]*>/i.test(clean)) {
+    return clean.trim();
   }
 
-  return raw
+  return clean
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -4666,6 +4686,9 @@ export function buildTicketSubject(ticketNumber: string, originalSubject: string
 export function cleanClipboardFragments(text: string | null | undefined): string {
   if (!text) return '';
   return text
+    // 0. Normalize HTML non-breaking space entities and unicode non-breaking spaces
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\u00a0/g, ' ')
     // 1. CF_HTML header metadata (Version:1.0, StartHTML:..., EndHTML:..., StartFragment:..., EndFragment:..., SourceURL:...)
     .replace(/^(?:Version:\d+\.\d+|StartHTML:\d+|EndHTML:\d+|StartFragment:\d+|EndFragment:\d+|SourceURL:[^\r\n]*)\s*[\r\n]*/gim, '')
     // 2. Outlook / Word fragment and element comments

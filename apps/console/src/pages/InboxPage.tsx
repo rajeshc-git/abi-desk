@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useLayoutEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Filter,
@@ -25,10 +25,15 @@ import {
   GitMerge,
   Globe,
   Loader2,
+  Grid,
+  Zap,
+  Mail,
+  MessageSquare,
+  Phone,
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { TicketsApi } from '../api/tickets';
-import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge';
+import { StatusBadge, PriorityPill, TierBadge, ChannelBadge, getChannelBadge } from '../components/common/Badge';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { TicketCard, TicketSummary } from '../components/tickets/TicketCard';
 import { CreateTicketModal } from '../components/tickets/CreateTicketModal';
@@ -40,6 +45,7 @@ import { TransferTierModal } from '../components/tickets/TransferTierModal';
 import { StatusTransitionModal } from '../components/tickets/StatusTransitionModal';
 import { TicketTagManager } from '../components/tickets/TicketTagManager';
 import { TicketCategoryManager } from '../components/tickets/TicketCategoryManager';
+import { AssignmentPopover } from '../components/tickets/AssignmentPopover';
 import { MediaPlayer, MediaAssetItem, getMediaType } from '../components/media/MediaPlayer';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -364,9 +370,11 @@ export const InboxPage: React.FC = () => {
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  const canDeleteTickets =
-    user?.roles?.some((r: string) => ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r)) ||
-    user?.permissions?.includes('ticket:delete');
+  const isAdmin = Boolean(
+    user?.roles?.some((r: string) =>
+      ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r.toUpperCase()),
+    ),
+  );
   const [expandedCommentIds, setExpandedCommentIds] = useState<Set<string>>(new Set());
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState<boolean>(true);
   const [expandedMergedTicketIds, setExpandedMergedTicketIds] = useState<Set<string>>(new Set());
@@ -377,6 +385,49 @@ export const InboxPage: React.FC = () => {
     requiresComment?: boolean;
   } | null>(null);
   const [pendingTier, setPendingTier] = useState<string | null>(null);
+  const [isMobileQuickActionsOpen, setIsMobileQuickActionsOpen] = useState(false);
+  const headerToolbarRef = useRef<HTMLDivElement>(null);
+  const [isHeaderOverflowing, setIsHeaderOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = headerToolbarRef.current;
+    if (!el) return;
+
+    const evaluateOverflow = () => {
+      // If scrollWidth exceeds clientWidth by more than 2px, it's overflowing
+      if (el.scrollWidth > el.clientWidth + 2) {
+        setIsHeaderOverflowing(true);
+      } else {
+        const leftEl = el.firstElementChild as HTMLElement;
+        const rightEl = el.lastElementChild as HTMLElement;
+        if (leftEl && rightEl) {
+          // Check if there is enough room to restore the full text button (~140px clearance)
+          const currentTotal = leftEl.scrollWidth + rightEl.scrollWidth + 140;
+          if (currentTotal < el.clientWidth) {
+            setIsHeaderOverflowing(false);
+          }
+        }
+      }
+    };
+
+    evaluateOverflow();
+    const ro = new ResizeObserver(evaluateOverflow);
+    ro.observe(el);
+    window.addEventListener('resize', evaluateOverflow);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', evaluateOverflow);
+    };
+  }, [
+    selectedTicket?.id,
+    selectedTicket?.priority,
+    selectedTicket?.category,
+    selectedTicket?.tags,
+    (selectedTicket as any)?.organization,
+    (selectedTicket as any)?.product,
+    (selectedTicket as any)?.customFields?.organization,
+    (selectedTicket as any)?.customFields?.product,
+  ]);
   const [unreadTicketIds, setUnreadTicketIds] = useState<Set<string>>(() => {
     try {
       const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
@@ -553,6 +604,15 @@ export const InboxPage: React.FC = () => {
     const parts = name.trim().split(/\s+/);
     if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
+
+  const formatAuthorNameMobile = (name?: string): string => {
+    if (!name) return '';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length > 2) {
+      return `${parts[0]} ${parts[1]}...`;
+    }
+    return name;
   };
 
   const getCleanSnippet = (text?: string) => {
@@ -946,6 +1006,11 @@ export const InboxPage: React.FC = () => {
 
   const handleBulkDeleteTickets = async () => {
     if (selectedIds.size === 0) return;
+    if (!isAdmin) {
+      toast.error('Delete is allowed to admin role only');
+      setIsBulkDeleteOpen(false);
+      return;
+    }
     setIsBulkDeleting(true);
     try {
       const ticketIdsArray = Array.from(selectedIds);
@@ -1005,10 +1070,29 @@ export const InboxPage: React.FC = () => {
     setPendingTier(newTier);
   };
 
-  const handleConfirmTierTransfer = async (reason: string) => {
+  const reloadTicketThread = (ticketId: string) => {
+    ApiClient.get<any>(`/tickets/${ticketId}/comments?pageSize=100`)
+      .then((res: any) => {
+        const list = res?.comments || res?.items || (Array.isArray(res) ? res : []);
+        setSelectedComments(filterConversationComments(list));
+      })
+      .catch(() => {});
+
+    ApiClient.get<MediaAssetItem[]>(`/tickets/${ticketId}/media`)
+      .then((media) => {
+        if (Array.isArray(media)) setSelectedMedia(media);
+      })
+      .catch(() => {});
+  };
+
+  const handleConfirmTierTransfer = async (reason: string, attachmentIds?: string[]) => {
     if (!selectedTicket || !pendingTier) return;
     try {
-      await ApiClient.post(`/tickets/${selectedTicket.id}/escalate`, { toTier: pendingTier, reason });
+      await ApiClient.post(`/tickets/${selectedTicket.id}/escalate`, {
+        toTier: pendingTier,
+        reason,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachments: attachmentIds } : {}),
+      });
       setSelectedTicket((prev: any) => ({ ...prev, tier: pendingTier }));
       setTickets((prev) =>
         prev.map((t) => (t.id === selectedTicket.id ? { ...t, tier: pendingTier } : t))
@@ -1016,13 +1100,14 @@ export const InboxPage: React.FC = () => {
       toast.success(`Ticket #${selectedTicket.number} successfully moved to tier ${pendingTier}!`);
       setPendingTier(null);
       loadTickets();
+      reloadTicketThread(selectedTicket.id);
     } catch (err: any) {
       toast.error(`Tier transfer failed: ${err.message}`);
       throw err;
     }
   };
 
-  const executeStatusTransition = async (newStatus: string, comment?: string) => {
+  const executeStatusTransition = async (newStatus: string, comment?: string, attachmentIds?: string[]) => {
     if (!selectedTicket) return;
 
     if (['RESOLVED', 'CLOSED'].includes(newStatus)) {
@@ -1045,7 +1130,11 @@ export const InboxPage: React.FC = () => {
       }
     }
     try {
-      const res: any = await ApiClient.post(`/tickets/${selectedTicket.id}/transitions`, { toStatus: newStatus, comment });
+      const res: any = await ApiClient.post(`/tickets/${selectedTicket.id}/transitions`, {
+        toStatus: newStatus,
+        comment,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachments: attachmentIds } : {}),
+      });
       const displayStatus = newStatus === 'OPEN' ? 'Open' : (newStatus === 'IN_PROGRESS' ? 'In Progress' : newStatus.replace(/_/g, ' '));
       if (res?.kind === 'pending_approval') {
         toast.info(`Transition to ${displayStatus} requires sign-off. Approval request submitted.`);
@@ -1057,6 +1146,7 @@ export const InboxPage: React.FC = () => {
         toast.success(`Ticket #${selectedTicket.number} status updated to ${displayStatus}`);
       }
       loadTickets();
+      reloadTicketThread(selectedTicket.id);
     } catch (err: any) {
       toast.error(`Failed to update status: ${err.message}`);
       throw err;
@@ -1081,6 +1171,33 @@ export const InboxPage: React.FC = () => {
       toast.success(`Ticket priority updated to ${newPriority}!`);
     } catch (err: any) {
       toast.error(`Failed to update priority: ${err.message}`);
+    }
+  };
+
+  const handleAssignToMe = async () => {
+    if (!selectedTicket?.id || !user) return;
+    try {
+      const res: any = await ApiClient.post(`/tickets/${selectedTicket.id}/assign`, { assigneeId: user.id });
+      const newAssignee = { id: user.id, fullName: user.fullName || user.email, email: user.email };
+      setSelectedTicket((prev: any) => ({
+        ...prev,
+        status: res?.status || (prev?.status === 'NEW' ? 'OPEN' : prev?.status),
+        assignee: newAssignee,
+      }));
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === selectedTicket.id
+            ? {
+                ...t,
+                status: res?.status || (t.status === 'NEW' ? 'OPEN' : t.status),
+                assignee: newAssignee,
+              }
+            : t,
+        ),
+      );
+      toast.success('Ticket successfully assigned to you!');
+    } catch (err: any) {
+      toast.error(`Assignment failed: ${err.message}`);
     }
   };
 
@@ -1163,29 +1280,33 @@ export const InboxPage: React.FC = () => {
           >
             <span>{selectedIds.size} selected</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {canDeleteTickets && (
-                <button
-                  type="button"
-                  onClick={() => setIsBulkDeleteOpen(true)}
-                  className="btn btn-danger btn-sm"
-                  style={{
-                    padding: '3px 10px',
-                    fontSize: '11px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontWeight: 600,
-                    backgroundColor: '#ef4444',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                  }}
-                  title="Permanently delete selected tickets"
-                >
-                  <Trash2 size={12} /> Delete ({selectedIds.size})
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isAdmin) {
+                    toast.error('Delete is allowed to admin role only');
+                    return;
+                  }
+                  setIsBulkDeleteOpen(true);
+                }}
+                className="btn btn-danger btn-sm"
+                style={{
+                  padding: '3px 10px',
+                  fontSize: '11px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontWeight: 600,
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                }}
+                title="Permanently delete selected tickets"
+              >
+                <Trash2 size={12} /> Delete ({selectedIds.size})
+              </button>
               {selectedIds.size >= 2 && (
                 <button
                   type="button"
@@ -1369,6 +1490,7 @@ export const InboxPage: React.FC = () => {
           >
             {/* Top Workspace Content (Toolbar + Message Stream) */}
             <div
+              className="inbox-detail-content-wrap"
               style={{
                 flex: 1,
                 minHeight: 0,
@@ -1382,15 +1504,17 @@ export const InboxPage: React.FC = () => {
             >
               {/* Top Toolbar (Single Sleek Row Dock) */}
             <div
-              className="ticket-header-toolbar card"
+              ref={headerToolbarRef}
+              className={`ticket-header-toolbar card ${isHeaderOverflowing ? 'header-compact-workspace' : ''}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'space-between',
                 padding: '6px 10px',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '8px',
                 backgroundColor: 'var(--bg-surface)',
-                gap: '5px',
+                gap: '8px',
                 flexShrink: 0,
                 margin: 0,
                 flexWrap: 'nowrap',
@@ -1398,104 +1522,285 @@ export const InboxPage: React.FC = () => {
                 zIndex: 40,
               }}
             >
-              <button
-                onClick={() => {
-                  setSelectedTicket(null);
-                  try {
-                    sessionStorage.removeItem('last_selected_ticket_id');
-                  } catch {}
-                  setSearchParams(
-                    (prev) => {
-                      const next = new URLSearchParams(prev);
-                      next.delete('ticketId');
-                      return next;
-                    },
-                    { replace: true }
-                  );
-                }}
-                className="ticket-header-back-btn mobile-only-back-btn"
-                title="Back to Ticket List"
-              >
-                <ArrowLeft size={16} />
-              </button>
-              <span className="ticket-id-badge">
-                #{selectedTicket.number}
-              </span>
-              <TierPopover
-                tier={selectedTicket.tier}
-                onTierSelect={handleTierEscalate}
-                align="left"
-              />
-              <StatusPopover
-                status={selectedTicket.status}
-                onStatusChange={handleQuickStatusChange}
-                align="left"
-              />
-              <PriorityPopover
-                priority={selectedTicket.priority}
-                onPriorityChange={handlePriorityChange}
-                disabled={!canChangePriority}
-                align="left"
-              />
-              <TicketCategoryManager
-                ticketId={selectedTicket.id}
-                category={selectedTicket.category}
-                onCategoryChange={(newCategory) => {
-                  setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
-                  setTickets((prev) =>
-                    prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
-                  );
-                }}
-              />
-              <TicketTagManager
-                ticketId={selectedTicket.id}
-                tags={selectedTicket.tags}
-                maxVisible={2}
-                onTagsChange={(newTags) => {
-                  setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
-                  setTickets((prev) =>
-                    prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
-                  );
-                }}
-              />
-              {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
-                <span
-                  className="pill-badge"
-                  style={{
-                    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                    color: '#0284c7',
-                    border: '1px solid rgba(56, 189, 248, 0.25)',
-                    whiteSpace: 'nowrap',
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                <button
+                  onClick={() => {
+                    setSelectedTicket(null);
+                    try {
+                      sessionStorage.removeItem('last_selected_ticket_id');
+                    } catch {}
+                    setSearchParams(
+                      (prev) => {
+                        const next = new URLSearchParams(prev);
+                        next.delete('ticketId');
+                        return next;
+                      },
+                      { replace: true }
+                    );
                   }}
-                  title="Organization"
+                  className="ticket-header-back-btn mobile-only-back-btn"
+                  title="Back to Ticket List"
                 >
-                  🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
+                  <ArrowLeft size={16} />
+                </button>
+                <span className="ticket-id-badge">
+                  #{selectedTicket.number}
                 </span>
-              )}
-              {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
-                <span
-                  className="pill-badge"
-                  style={{
-                    backgroundColor: 'rgba(168, 85, 247, 0.12)',
-                    color: '#9333ea',
-                    border: '1px solid rgba(168, 85, 247, 0.25)',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title="Product"
-                >
-                  📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
-                </span>
-              )}
 
-              <button
-                type="button"
-                onClick={() => navigate(`/tickets/${selectedTicket.id}`)}
-                className="btn btn-primary ticket-workspace-btn"
-                title="Open Full Workspace"
-              >
-                <ExternalLink size={13} />
-                <span className="ticket-workspace-btn-text">Open Full Workspace</span>
-              </button>
+                <div className="desktop-only-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <PriorityPopover
+                    priority={selectedTicket.priority}
+                    onPriorityChange={handlePriorityChange}
+                    disabled={!canChangePriority}
+                    align="left"
+                  />
+                  <TicketCategoryManager
+                    ticketId={selectedTicket.id}
+                    category={selectedTicket.category}
+                    onCategoryChange={(newCategory) => {
+                      setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
+                      setTickets((prev) =>
+                        prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
+                      );
+                    }}
+                  />
+                  <TicketTagManager
+                    ticketId={selectedTicket.id}
+                    tags={selectedTicket.tags}
+                    maxVisible={2}
+                    onTagsChange={(newTags) => {
+                      setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
+                      setTickets((prev) =>
+                        prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
+                      );
+                    }}
+                  />
+                  {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
+                    <span
+                      className="pill-badge"
+                      style={{
+                        backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                        color: '#0284c7',
+                        border: '1px solid rgba(56, 189, 248, 0.25)',
+                        whiteSpace: 'nowrap',
+                        maxWidth: '130px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={`Organization: ${(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}`}
+                    >
+                      🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
+                    </span>
+                  )}
+                  {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
+                    <span
+                      className="pill-badge"
+                      style={{
+                        backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                        color: '#9333ea',
+                        border: '1px solid rgba(168, 85, 247, 0.25)',
+                        whiteSpace: 'nowrap',
+                        maxWidth: '110px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={`Product: ${(selectedTicket as any).customFields?.product || (selectedTicket as any).product}`}
+                    >
+                      📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: 'auto' }}>
+                <StatusPopover
+                  status={selectedTicket.status}
+                  onStatusChange={handleQuickStatusChange}
+                  align="right"
+                />
+
+                {/* 9-Dots Grid Quick Actions Button (Mobile & Tablet) */}
+                <button
+                  type="button"
+                  className="mobile-quick-actions-btn"
+                  onClick={() => setIsMobileQuickActionsOpen(true)}
+                  title="Ticket Quick Actions"
+                >
+                  <Grid size={16} />
+                </button>
+
+                <div className="desktop-only-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <TierPopover
+                    tier={selectedTicket.tier}
+                    onTierSelect={handleTierEscalate}
+                    align="right"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => navigate(`/tickets/${selectedTicket.id}`)}
+                  className={`btn btn-primary ticket-workspace-btn ${isHeaderOverflowing ? 'icon-only-btn' : ''}`}
+                  title="Open Full Workspace"
+                >
+                  <ExternalLink size={13} />
+                  <span className="ticket-workspace-btn-text">Open Full Workspace</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mobile Quick Action Bottom Sheet for Inbox Screen */}
+            <div className={`mobile-action-sheet ${isMobileQuickActionsOpen ? 'open' : ''}`}>
+              <div className="mobile-action-backdrop" onClick={() => setIsMobileQuickActionsOpen(false)} />
+              <div className="mobile-action-drawer">
+                <div className="mobile-action-drawer-header">
+                  <div className="mobile-action-drawer-title">
+                    <Zap size={18} color="var(--primary, #2563eb)" />
+                    <span>Ticket Quick Actions</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="mobile-action-drawer-close"
+                    onClick={() => setIsMobileQuickActionsOpen(false)}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {/* Priority & Tier Section */}
+                <div className="mobile-action-section">
+                  <span className="mobile-action-section-title">Priority & Tier</span>
+                  <div className="mobile-action-pills-row">
+                    <PriorityPopover
+                      priority={selectedTicket.priority}
+                      onPriorityChange={handlePriorityChange}
+                      disabled={!canChangePriority}
+                      align="left"
+                    />
+                    <TierPopover
+                      tier={selectedTicket.tier}
+                      onTierSelect={handleTierEscalate}
+                      align="left"
+                    />
+                  </div>
+                </div>
+
+                {/* Category & Tags Section */}
+                <div className="mobile-action-section">
+                  <span className="mobile-action-section-title">Category & Tags</span>
+                  <div className="mobile-action-pills-row">
+                    <TicketCategoryManager
+                      ticketId={selectedTicket.id}
+                      category={selectedTicket.category}
+                      onCategoryChange={(newCategory) => {
+                        setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
+                        setTickets((prev) =>
+                          prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
+                        );
+                      }}
+                    />
+                    <TicketTagManager
+                      ticketId={selectedTicket.id}
+                      tags={selectedTicket.tags}
+                      maxVisible={3}
+                      onTagsChange={(newTags) => {
+                        setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
+                        setTickets((prev) =>
+                          prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
+                        );
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Assignment Section */}
+                <div className="mobile-action-section">
+                  <span className="mobile-action-section-title">Assignment</span>
+                  <div className="mobile-action-pills-row">
+                    <AssignmentPopover
+                      ticketId={selectedTicket.id}
+                      currentAssignee={
+                        (selectedTicket as any).assignee
+                          ? {
+                              id: (selectedTicket as any).assignee.id || (selectedTicket as any).assigneeId || '',
+                              fullName: (selectedTicket as any).assignee.fullName,
+                              email: (selectedTicket as any).assignee.email || '',
+                            }
+                          : null
+                      }
+                      currentTeam={(selectedTicket as any).team || null}
+                      currentTier={selectedTicket.tier}
+                      ticketProduct={(selectedTicket as any).customFields?.product || (selectedTicket as any).product || null}
+                      align="left"
+                      onAssigned={(res) => {
+                        setSelectedTicket((prev: any) => ({
+                          ...prev,
+                          ...(res.assignee !== undefined ? { assignee: res.assignee } : {}),
+                          ...(res.team !== undefined ? { team: res.team } : {}),
+                          ...(res.status ? { status: res.status } : {}),
+                        }));
+                        setTickets((prev) =>
+                          prev.map((t) =>
+                            t.id === selectedTicket.id
+                              ? {
+                                  ...t,
+                                  ...(res.assignee !== undefined ? { assignee: res.assignee } : {}),
+                                  ...(res.team !== undefined ? { team: res.team } : {}),
+                                  ...(res.status ? { status: res.status } : {}),
+                                }
+                              : t,
+                          ),
+                        );
+                      }}
+                    />
+                    {!isAdmin && (!selectedTicket.assignee || (selectedTicket.assignee as any).id !== user?.id) && (
+                      <button
+                        onClick={handleAssignToMe}
+                        className="ticket-action-pill"
+                        title="Assign to Myself"
+                      >
+                        <UserCheck size={14} /> Assign to Me
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Organization & Product Section */}
+                {(((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) ||
+                  ((selectedTicket as any).customFields?.product || (selectedTicket as any).product)) && (
+                  <div className="mobile-action-section">
+                    <span className="mobile-action-section-title">Client & Product</span>
+                    <div className="mobile-action-pills-row">
+                      {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
+                        <span
+                          className="pill-badge"
+                          style={{
+                            backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                            color: '#0284c7',
+                            border: '1px solid rgba(56, 189, 248, 0.25)',
+                          }}
+                          title="Organization"
+                        >
+                          🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
+                        </span>
+                      )}
+                      {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
+                        <span
+                          className="pill-badge"
+                          style={{
+                            backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                            color: '#9333ea',
+                            border: '1px solid rgba(168, 85, 247, 0.25)',
+                          }}
+                          title="Product"
+                        >
+                          📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Ticket Subject Title Banner */}
@@ -2000,6 +2305,7 @@ export const InboxPage: React.FC = () => {
 
             {/* Middle Content Area: Conversation Thread with Thread Accordion */}
             <div
+              className="inbox-conversation-thread-area"
               style={{
                 flex: 1,
                 minHeight: 0,
@@ -2080,6 +2386,7 @@ export const InboxPage: React.FC = () => {
 
               {/* Scrollable Accordion Stream */}
               <div
+                className="inbox-conversation-accordion-stream"
                 style={{
                   flex: 1,
                   minHeight: 0,
@@ -2173,12 +2480,18 @@ export const InboxPage: React.FC = () => {
                                 {getInitials(authorName)}
                               </div>
 
-                              <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-primary)', flexShrink: 0 }}>
-                                {authorName}
+                              <span
+                                className="thread-author-name"
+                                title={authorName}
+                                style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-primary)' }}
+                              >
+                                <span className="thread-author-name-desktop">{authorName}</span>
+                                <span className="thread-author-name-mobile">{formatAuthorNameMobile(authorName)}</span>
                               </span>
 
                               {isInternal ? (
                                 <span
+                                  className="thread-reply-badge internal"
                                   style={{
                                     fontSize: '10px',
                                     color: '#b45309',
@@ -2190,7 +2503,8 @@ export const InboxPage: React.FC = () => {
                                     flexShrink: 0,
                                   }}
                                 >
-                                  Internal Note
+                                  <span className="note-badge-full">Internal Note</span>
+                                  <span className="note-badge-short">Note</span>
                                 </span>
                               ) : isStaff ? (
                                 <span
@@ -2418,8 +2732,13 @@ export const InboxPage: React.FC = () => {
                               {getInitials(authorName)}
                             </div>
 
-                            <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-primary)', flexShrink: 0 }}>
-                              {authorName}
+                            <span
+                              className="thread-author-name"
+                              title={authorName}
+                              style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-primary)' }}
+                            >
+                              <span className="thread-author-name-desktop">{authorName}</span>
+                              <span className="thread-author-name-mobile">{formatAuthorNameMobile(authorName)}</span>
                             </span>
 
                             <span
@@ -2575,14 +2894,22 @@ export const InboxPage: React.FC = () => {
                 )}
               </div>
 
-              <div className="ticket-bottom-metadata-item">
-                <span className="metadata-label">Assignee:</span>
-                <strong className="metadata-value">{selectedTicket.assignee?.fullName || 'Unassigned (Queue)'}</strong>
+              <div className="ticket-bottom-metadata-item ticket-bottom-assignee-item">
+                <div className="ticket-bottom-assignee-text" style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                  <span className="metadata-label">Assignee:</span>
+                  <strong className="metadata-value">{selectedTicket.assignee?.fullName || 'Unassigned (Queue)'}</strong>
+                </div>
+
+                {/* Mobile: Channel colorful symbol aligned to the right on the same line */}
+                <div className="channel-mobile-dock">
+                  <ChannelBadge channel={selectedTicket.channel} iconOnly />
+                </div>
               </div>
 
-              <div className="ticket-bottom-metadata-item">
+              {/* Desktop: Standard separate channel column */}
+              <div className="ticket-bottom-metadata-item channel-desktop-item">
                 <span className="metadata-label">Channel:</span>
-                <span className="metadata-value metadata-channel">{selectedTicket.channel}</span>
+                <ChannelBadge channel={selectedTicket.channel} />
               </div>
             </div>
           </div>
@@ -2738,7 +3065,9 @@ export const InboxPage: React.FC = () => {
           toStatus={pendingStatusTransition?.toStatus || ''}
           requiresComment={pendingStatusTransition?.requiresComment}
           onClose={() => setPendingStatusTransition(null)}
-          onConfirm={(comment) => executeStatusTransition(pendingStatusTransition!.toStatus, comment)}
+          onConfirm={(comment, attachmentIds) =>
+            executeStatusTransition(pendingStatusTransition!.toStatus, comment, attachmentIds)
+          }
         />
       )}
 
@@ -2750,7 +3079,7 @@ export const InboxPage: React.FC = () => {
           fromTier={selectedTicket.tier}
           toTier={pendingTier || ''}
           onClose={() => setPendingTier(null)}
-          onConfirm={handleConfirmTierTransfer}
+          onConfirm={(reason, attachmentIds) => handleConfirmTierTransfer(reason, attachmentIds)}
         />
       )}
 

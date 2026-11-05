@@ -768,8 +768,10 @@ export const ReplyComposer: React.FC<ReplyComposerProps> = ({
       return;
     }
     const currentHtml = editorRef.current?.innerHTML || body;
-    const cleanBody = cleanClipboardFragments(currentHtml);
-    const textOnly = cleanBody.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    const cleanBody = cleanClipboardFragments(currentHtml)
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\u00a0/g, ' ');
+    const textOnly = cleanBody.replace(/<[^>]*>/g, '').trim();
     const readyFileIds = uploadedFiles.filter((f) => !f.isUploading && !f.id.startsWith('temp-')).map((f) => f.id);
     const effectiveBody = textOnly || cleanBody.includes('<table') || cleanBody.includes('<img')
       ? cleanBody

@@ -10,7 +10,7 @@ export interface StatusOption {
 }
 
 export const ALL_STATUSES: StatusOption[] = [
-  { value: 'NEW', label: 'New', color: '#94a3b8', category: 'open' },
+  { value: 'NEW', label: 'New', color: '#0d9488', category: 'open' },
   { value: 'OPEN', label: 'Open', color: '#0284c7', category: 'open' },
   { value: 'IN_PROGRESS', label: 'In Progress', color: '#f59e0b', category: 'open' },
   { value: 'TRIAGE', label: 'Triage', color: '#64748b', category: 'open' },

@@ -410,15 +410,18 @@ export const OrganizationProductManager: React.FC<OrganizationProductManagerProp
                         if (!isSelected) e.currentTarget.style.backgroundColor = 'none';
                       }}
                     >
-                      <div style={{ minWidth: 0, paddingRight: '8px' }}>
-                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {org.name}
-                        </div>
-                        {org.domains && (
-                          <div style={{ fontSize: '10px', color: 'var(--text-muted, #94a3b8)' }}>
-                            {org.domains}
-                          </div>
-                        )}
+                      <div
+                        style={{
+                          minWidth: 0,
+                          flex: 1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          paddingRight: '8px',
+                        }}
+                        title={org.name}
+                      >
+                        {org.name}
                       </div>
                       {isSelected && <Check size={12} style={{ flexShrink: 0 }} />}
                     </button>

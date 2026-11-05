@@ -25,6 +25,7 @@ import {
   recordOutboundMessageId,
 } from '../tickets/ticket.service';
 import { MailService } from '../../infra/mail/mail.service';
+import { StorageService } from '../../infra/storage/storage.service';
 import { escapeHtml, renderTicketNotificationEmail } from '../../infra/mail/mail.templates';
 import { type ConfirmResolutionDto, type EscalateDto, type TransitionDto } from './workflow.dto';
 
@@ -112,6 +113,7 @@ export class WorkflowService {
     private readonly audit: AuditService,
     private readonly sla: SlaService,
     private readonly mailService: MailService,
+    private readonly storage: StorageService,
     @Inject(PINO_LOGGER) rootLogger: Logger,
   ) {
     this.logger = rootLogger.child({ context: 'WorkflowService' });
@@ -281,6 +283,7 @@ export class WorkflowService {
           ticket,
           transition,
           comment: dto.comment,
+          attachments: dto.attachments,
           assigneeId: dto.assigneeId,
           queueId: dto.queueId,
           approvalRequestId: approval.id,
@@ -293,6 +296,7 @@ export class WorkflowService {
         ticket,
         transition,
         comment: dto.comment,
+        attachments: dto.attachments,
         assigneeId: dto.assigneeId,
         queueId: dto.queueId,
       });
@@ -313,7 +317,7 @@ export class WorkflowService {
     });
 
     if (result.kind !== 'pending_approval') {
-      this.sendStatusNotificationEmail(tenantId, ticketId, dto.toStatus, dto.comment);
+      this.sendStatusNotificationEmail(tenantId, ticketId, dto.toStatus, dto.comment, dto.attachments);
     }
 
     return result;
@@ -410,11 +414,12 @@ export class WorkflowService {
         ticket,
         transition: syntheticTransition,
         comment: dto.reason,
+        attachments: dto.attachments,
       });
     });
 
     if (result.kind !== 'pending_approval') {
-      this.sendStatusNotificationEmail(tenantId, ticketId, targetStatus, dto.reason);
+      this.sendStatusNotificationEmail(tenantId, ticketId, targetStatus, dto.reason, dto.attachments);
     }
 
     return result;
@@ -668,6 +673,7 @@ export class WorkflowService {
       ticket: { id: string; number: string; status: TicketStatus; tier: SupportTier };
       transition: WorkflowTransition;
       comment?: string;
+      attachments?: string[];
       assigneeId?: string | null;
       queueId?: string | null;
       approvalRequestId?: string;
@@ -705,7 +711,7 @@ export class WorkflowService {
       await this.sla.recordResolution(tx, input.tenantId, ticket.id, now);
     }
 
-    if (input.comment) {
+    if (input.comment || (input.attachments && input.attachments.length > 0)) {
       // Escalation and tier hand-off notes are internal team rationale and must be saved
       // as INTERNAL notes so they remain private to support staff and never leak to the customer.
       const isInternalNote =
@@ -716,15 +722,30 @@ export class WorkflowService {
         transition.toStatus === 'OPEN' ||
         transition.toStatus === 'IN_PROGRESS';
 
-      await tx.ticketComment.create({
+      const commentBody = input.comment?.trim() || `Status updated to ${transition.toStatus.replace(/_/g, ' ')}`;
+
+      const createdComment = await tx.ticketComment.create({
         data: {
           tenantId: input.tenantId,
           ticketId: ticket.id,
           authorId: principal.userId,
           visibility: isInternalNote ? 'INTERNAL' : 'PUBLIC',
-          body: input.comment,
+          body: commentBody,
         },
       });
+
+      if (input.attachments && input.attachments.length > 0) {
+        await tx.mediaAsset.updateMany({
+          where: {
+            id: { in: input.attachments },
+            tenantId: input.tenantId,
+          },
+          data: {
+            commentId: createdComment.id,
+            ticketId: ticket.id,
+          },
+        });
+      }
 
       await tx.ticket.update({
         where: { id: ticket.id },
@@ -785,6 +806,7 @@ export class WorkflowService {
     ticketId: string,
     toStatus: TicketStatus,
     comment?: string,
+    attachmentIds?: string[],
   ) {
     // Send email ONLY for customer-facing status changes (Resolved, Closed, Awaiting Customer, Reopened)
     // Internal workflow escalations (ESCALATED_L2, ESCALATED_L3, IN_DEVELOPMENT, IN_QA, ON_HOLD) NEVER send customer emails
@@ -802,6 +824,31 @@ export class WorkflowService {
       });
 
       if (!ticket?.requester?.email) return;
+
+      // Load outgoing attachments if any were provided
+      let outboundAttachments: Array<{ filename: string; content: Buffer; contentType?: string }> | undefined;
+      if (attachmentIds && attachmentIds.length > 0) {
+        const assetsToLoad = await this.prisma.client.mediaAsset.findMany({
+          where: { id: { in: attachmentIds }, tenantId },
+          select: { originalFilename: true, mimeType: true, storageKey: true },
+        });
+        const loaded = await Promise.all(
+          assetsToLoad.map(async (a) => {
+            try {
+              const buffer = await this.storage.getObjectBuffer(a.storageKey);
+              return {
+                filename: a.originalFilename || 'attachment',
+                content: buffer,
+                contentType: a.mimeType,
+              };
+            } catch (err) {
+              this.logger.error({ err, storageKey: a.storageKey }, 'Failed to load attachment buffer for status notification email');
+              return null;
+            }
+          }),
+        );
+        outboundAttachments = loaded.filter((a): a is NonNullable<typeof a> => a !== null);
+      }
 
       const brandName = ticket.brand?.name || 'Support Team';
       const formattedStatus = toStatus.replace(/_/g, ' ');
@@ -853,11 +900,13 @@ export class WorkflowService {
         ? 'If you still need help or your issue returns, simply reply to this email to reopen it.'
         : 'You can reply directly to this email at any time to communicate with our team.';
 
+      const cleanComment = comment ? comment.replace(/&nbsp;/gi, ' ').replace(/\u00a0/g, ' ').trim() : undefined;
+
       const html = renderTicketNotificationEmail({
         title,
         recipientName: ticket.requester.fullName,
         message,
-        noteFromTeam: comment,
+        noteFromTeam: cleanComment,
         ticketNumber: ticket.number,
         ticketSubject: ticket.subject,
         statusLabel: toStatus,
@@ -871,11 +920,12 @@ export class WorkflowService {
         to: { email: ticket.requester.email, name: ticket.requester.fullName },
         ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
         subject,
-        text: `${title}\n\nHello ${ticket.requester.fullName},\n\n${message.replace(/<[^>]+>/g, '')}\n\n${comment ? `Note: ${comment}\n\n` : ''}Ticket: #${ticket.number} - ${ticket.subject}\nStatus: ${toStatus} (${updateTimestamp})\n\nYou can reply directly to this email at any time to communicate with our team.\n\nBest regards,\n${brandName}`,
+        text: `${title}\n\nHello ${ticket.requester.fullName},\n\n${message.replace(/<[^>]+>/g, '')}\n\n${cleanComment ? `Note: ${cleanComment}\n\n` : ''}Ticket: #${ticket.number} - ${ticket.subject}\nStatus: ${toStatus} (${updateTimestamp})\n\nYou can reply directly to this email at any time to communicate with our team.\n\nBest regards,\n${brandName}`,
         html,
         tag: `ticket.status_${toStatus.toLowerCase()}`,
         ...(inReplyTo ? { inReplyTo } : {}),
         ...(references && references.length > 0 ? { references } : {}),
+        ...(outboundAttachments && outboundAttachments.length > 0 ? { attachments: outboundAttachments } : {}),
       }, ticket.channel)
       .then(async (sendRes) => {
         if (sendRes?.messageId) {

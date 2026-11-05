@@ -19,6 +19,8 @@ export const transitionSchema = z.object({
   /** Optional reassignment applied atomically with the move. */
   assigneeId: uuid.nullable().optional(),
   queueId: uuid.nullable().optional(),
+  /** Optional media asset attachment IDs to associate with the transition note */
+  attachments: z.array(uuid).optional(),
 });
 
 export class TransitionDto extends createZodDto(transitionSchema) {}
@@ -27,6 +29,8 @@ export const escalateSchema = z.object({
   /** Defaults to the next tier in the ladder when omitted. */
   toTier: z.enum(supportTierValues).optional(),
   reason: z.string().trim().min(1, 'is required').max(10_000),
+  /** Optional media asset attachment IDs to associate with the escalation note */
+  attachments: z.array(uuid).optional(),
 });
 
 export class EscalateDto extends createZodDto(escalateSchema) {}

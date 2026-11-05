@@ -344,7 +344,7 @@ export const AnalyticsPage: React.FC = () => {
 
   // Canonical ticket flow order (all 18 statuses in lifecycle progression)
   const TICKET_STATUS_FLOW = [
-    { status: 'NEW', label: 'New', shortLabel: 'New', color: '#94a3b8' },
+    { status: 'NEW', label: 'New', shortLabel: 'New', color: '#0d9488' },
     { status: 'TRIAGE', label: 'Triage', shortLabel: 'Triage', color: '#64748b' },
     { status: 'OPEN', label: 'Open', shortLabel: 'Open', color: '#0284c7' },
     { status: 'IN_PROGRESS', label: 'In Progress', shortLabel: 'In Progress', color: '#f59e0b' },

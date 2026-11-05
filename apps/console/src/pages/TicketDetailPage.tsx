@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { ApiClient } from '../api/client';
 import { TicketsApi } from '../api/tickets';
-import { StatusBadge, PriorityPill, TierBadge } from '../components/common/Badge';
+import { StatusBadge, PriorityPill, TierBadge, ChannelBadge } from '../components/common/Badge';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { DiagnosticsView, DiagnosticsData } from '../components/tickets/DiagnosticsView';
 import { MediaPlayer, MediaAssetItem } from '../components/media/MediaPlayer';
@@ -333,7 +333,7 @@ export const TicketDetailPage: React.FC = () => {
     await executeStatusTransition(newStatus);
   };
 
-  const executeStatusTransition = async (newStatus: string, comment?: string) => {
+  const executeStatusTransition = async (newStatus: string, comment?: string, attachmentIds?: string[]) => {
     if (!id) return;
 
     if (['RESOLVED', 'CLOSED'].includes(newStatus)) {
@@ -363,7 +363,11 @@ export const TicketDetailPage: React.FC = () => {
     }
 
     try {
-      const res: any = await ApiClient.post(`/tickets/${id}/transitions`, { toStatus: newStatus, comment });
+      const res: any = await ApiClient.post(`/tickets/${id}/transitions`, {
+        toStatus: newStatus,
+        comment,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachments: attachmentIds } : {}),
+      });
       const displayStatus = newStatus === 'OPEN' ? 'Open' : (newStatus === 'IN_PROGRESS' ? 'In Progress' : newStatus.replace(/_/g, ' '));
       if (res?.kind === 'pending_approval') {
         toast.info(`Transition to ${displayStatus} requires sign-off. Approval request #${res.approvalRequestId || ''} submitted.`);
@@ -383,10 +387,14 @@ export const TicketDetailPage: React.FC = () => {
     setPendingTier(newTier);
   };
 
-  const handleConfirmTierTransfer = async (reason: string) => {
+  const handleConfirmTierTransfer = async (reason: string, attachmentIds?: string[]) => {
     if (!id || !pendingTier) return;
     try {
-      await ApiClient.post(`/tickets/${id}/escalate`, { toTier: pendingTier, reason });
+      await ApiClient.post(`/tickets/${id}/escalate`, {
+        toTier: pendingTier,
+        reason,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachments: attachmentIds } : {}),
+      });
       loadTicketDetails(id);
       toast.success(`Ticket successfully moved to tier ${pendingTier}!`);
       setPendingTier(null);
@@ -543,8 +551,8 @@ export const TicketDetailPage: React.FC = () => {
           <div style={{ wordBreak: 'break-all' }}>
             <strong>Email:</strong> {ticket.requester?.email || 'N/A'}
           </div>
-          <div>
-            <strong>Channel:</strong> {ticket.channel}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <strong>Channel:</strong> <ChannelBadge channel={ticket.channel} size="sm" />
           </div>
         </div>
       </div>
@@ -643,7 +651,6 @@ export const TicketDetailPage: React.FC = () => {
           <span className="ticket-id-badge">
             #{ticket.number}
           </span>
-          <TierBadge tier={ticket.tier} />
 
           <div className="desktop-only-pill" style={{ gap: '6px' }}>
             <PriorityPopover
@@ -1181,7 +1188,7 @@ export const TicketDetailPage: React.FC = () => {
         fromTier={ticket.tier}
         toTier={pendingTier || ''}
         onClose={() => setPendingTier(null)}
-        onConfirm={handleConfirmTierTransfer}
+        onConfirm={(reason, attachmentIds) => handleConfirmTierTransfer(reason, attachmentIds)}
       />
 
       {/* Status Transition Note Modal */}
@@ -1192,7 +1199,9 @@ export const TicketDetailPage: React.FC = () => {
         toStatus={pendingStatusTransition?.toStatus || ''}
         requiresComment={pendingStatusTransition?.requiresComment}
         onClose={() => setPendingStatusTransition(null)}
-        onConfirm={(comment) => executeStatusTransition(pendingStatusTransition!.toStatus, comment)}
+        onConfirm={(comment, attachmentIds) =>
+          executeStatusTransition(pendingStatusTransition!.toStatus, comment, attachmentIds)
+        }
       />
 
       {/* Mobile Quick Action Bottom Sheet */}
@@ -1227,6 +1236,23 @@ export const TicketDetailPage: React.FC = () => {
                 tier={ticket.tier}
                 onTierSelect={handleTierEscalate}
                 align="left"
+              />
+            </div>
+          </div>
+
+          {/* Category & Tags Section */}
+          <div className="mobile-action-section">
+            <span className="mobile-action-section-title">Category & Tags</span>
+            <div className="mobile-action-pills-row">
+              <TicketCategoryManager
+                ticketId={ticket.id}
+                category={ticket.category}
+                onCategoryChange={(newCategory) => setTicket((prev: any) => ({ ...prev, category: newCategory }))}
+              />
+              <TicketTagManager
+                ticketId={ticket.id}
+                tags={ticket.tags}
+                onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
               />
             </div>
           </div>
@@ -1272,23 +1298,6 @@ export const TicketDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Category & Tags Section */}
-          <div className="mobile-action-section">
-            <span className="mobile-action-section-title">Category & Tags</span>
-            <div className="mobile-action-pills-row">
-              <TicketCategoryManager
-                ticketId={ticket.id}
-                category={ticket.category}
-                onCategoryChange={(newCategory) => setTicket((prev: any) => ({ ...prev, category: newCategory }))}
-              />
-              <TicketTagManager
-                ticketId={ticket.id}
-                tags={ticket.tags}
-                onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
-              />
-            </div>
-          </div>
-
           {/* Organization & Product Section */}
           {((ticket.customFields?.organization || ticket.organization) || (ticket.customFields?.product || ticket.product)) && (
             <div className="mobile-action-section">
@@ -1302,6 +1311,7 @@ export const TicketDetailPage: React.FC = () => {
                       color: '#0284c7',
                       border: '1px solid rgba(56, 189, 248, 0.25)',
                     }}
+                    title="Client Organization / Account"
                   >
                     🏢 {ticket.customFields?.organization || ticket.organization}
                   </span>
@@ -1314,6 +1324,7 @@ export const TicketDetailPage: React.FC = () => {
                       color: '#9333ea',
                       border: '1px solid rgba(168, 85, 247, 0.25)',
                     }}
+                    title="Product"
                   >
                     📦 {ticket.customFields?.product || ticket.product}
                   </span>

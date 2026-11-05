@@ -3,7 +3,7 @@ import { Bold, Type, ListOrdered, ChevronDown, RemoveFormatting } from 'lucide-r
 
 export function parseAndSanitizeNoteHtml(raw: string | null | undefined): string {
   if (!raw || typeof raw !== 'string') return '';
-  let content = raw.trim();
+  let content = raw.replace(/&nbsp;/gi, ' ').replace(/\u00a0/g, ' ').trim();
   if (!content) return '';
 
   // Check if string contains encoded HTML entity tags (e.g. &lt;h3, &lt;b, &lt;div, &lt;p, &lt;br, &lt;ol, &lt;li, &lt;strong)
@@ -234,7 +234,10 @@ export const ActionNoteBox: React.FC<ActionNoteBoxProps> = ({
     const html = editorRef.current.innerHTML;
 
     const isEmpty = text.trim() === '' && !html.includes('<img');
-    const finalVal = isEmpty ? '' : html;
+    const cleanHtml = html
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\u00a0/g, ' ');
+    const finalVal = isEmpty ? '' : cleanHtml;
     onChange(finalVal);
     updateStats();
   };
