@@ -326,12 +326,12 @@ export class MediaService {
       });
     }
 
-    // Attached to a ticket: the ticket's visibility governs the file's. Unattached: only
-    // the uploader may fetch it, which is the widget re-reading its own upload before
-    // the ticket exists.
+    // Attached to a ticket: the ticket's visibility governs the file's. Unattached: allowed
+    // for the uploader (e.g. widget re-reading its own upload before the ticket exists)
+    // or any staff member in the same tenant (e.g. broadcast announcements, staff shared assets).
     if (asset.ticketId) {
       await this.loadTicketInScope(principal, asset.ticketId);
-    } else if (asset.uploadedById !== principal.userId) {
+    } else if (asset.uploadedById !== principal.userId && principal.kind !== 'STAFF') {
       throw AppException.notFound('Media asset', mediaId);
     }
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -15,11 +15,18 @@ import {
   RotateCw,
   Eye,
   FileText,
+  FileSpreadsheet,
+  File,
   Check,
+  Paperclip,
+  Upload,
+  Loader2,
+  Download,
 } from 'lucide-react';
 import { useSocket } from '../../context/SocketContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { TicketsApi } from '../../api/tickets';
 
 interface AgentItem {
   agentId: string;
@@ -45,6 +52,38 @@ interface TemplatePreset {
   text: string;
   description: string;
 }
+
+interface UploadedAttachment {
+  id: string;
+  name: string;
+  sizeBytes?: number;
+  mimeType?: string;
+  previewUrl?: string;
+  isUploading?: boolean;
+  error?: string;
+}
+
+const formatFileSize = (bytes?: number) => {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const getFileType = (name: string, mime?: string) => {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const m = (mime || '').toLowerCase();
+  if (m.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) {
+    return 'image';
+  }
+  if (m.includes('pdf') || ext === 'pdf') {
+    return 'pdf';
+  }
+  if (m.includes('csv') || m.includes('spreadsheet') || m.includes('excel') || ['csv', 'xlsx', 'xls', 'tsv'].includes(ext)) {
+    return 'csv';
+  }
+  return 'file';
+};
 
 const BROADCAST_TEMPLATES: TemplatePreset[] = [
   {
@@ -101,7 +140,10 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('refresh');
   const [title, setTitle] = useState(BROADCAST_TEMPLATES[0].title);
   const [message, setMessage] = useState(BROADCAST_TEMPLATES[0].text);
+  const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Synchronize selection and reset state whenever modal opens or agent list updates
   useEffect(() => {
@@ -110,6 +152,8 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
     setSearchQuery('');
     setFilterType('all');
     setSelectedAgentIds(new Set(agents.map((a) => a.agentId)));
+    setAttachments([]);
+    setIsDragOver(false);
     setIsSending(false);
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -118,6 +162,83 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, agents, onClose]);
+
+  // Upload handler for attaching files
+  const uploadSingleFile = async (file: File) => {
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const isImg = file.type.startsWith('image/');
+    const previewUrl = isImg ? URL.createObjectURL(file) : undefined;
+
+    setAttachments((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        name: file.name,
+        sizeBytes: file.size,
+        mimeType: file.type,
+        previewUrl,
+        isUploading: true,
+      },
+    ]);
+
+    try {
+      const result = await TicketsApi.uploadFile(file);
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.id === tempId
+            ? {
+                ...a,
+                id: result.id,
+                name: result.originalFilename || file.name,
+                isUploading: false,
+              }
+            : a,
+        ),
+      );
+    } catch (err: any) {
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.id === tempId
+            ? {
+                ...a,
+                isUploading: false,
+                error: err?.message || 'Upload failed',
+              }
+            : a,
+        ),
+      );
+      toast.error(`Failed to upload ${file.name}`);
+    }
+  };
+
+  const handleFilesUpload = (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((f) => uploadSingleFile(f));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemoveAttachment = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (currentStep !== 'compose') return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const filesToUpload: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) filesToUpload.push(file);
+      }
+    }
+    if (filesToUpload.length > 0) {
+      handleFilesUpload(filesToUpload);
+    }
+  };
 
   // Filter agents by search query & filter tab
   const filteredAgents = useMemo(() => {
@@ -168,8 +289,12 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
   };
 
   const handleSendBroadcast = () => {
-    if (!message.trim()) {
-      toast.error('Please enter a message to broadcast.');
+    if (!message.trim() && attachments.length === 0) {
+      toast.error('Please enter a message or attach a file to broadcast.');
+      return;
+    }
+    if (attachments.some((a) => a.isUploading)) {
+      toast.error('Please wait for files to finish uploading before sending.');
       return;
     }
     if (selectedAgentIds.size === 0) {
@@ -182,10 +307,16 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
       const targetIds = isAllSelected ? [] : Array.from(selectedAgentIds);
       if (socket) {
         socket.emit('broadcast_announcement', {
-          title: title.trim() || 'Team Announcement',
+          title: title.trim() || (attachments[0] ? `📎 ${attachments[0].name}` : 'Team Announcement'),
           message: message.trim(),
           adminName: user?.fullName || 'Administrator',
           targetAgentIds: targetIds,
+          attachments: attachments.map((a) => ({
+            id: a.id,
+            name: a.name,
+            sizeBytes: a.sizeBytes,
+            mimeType: a.mimeType,
+          })),
         });
       }
 
@@ -765,7 +896,10 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
 
           {/* STEP 2: COMPOSE */}
           {currentStep === 'compose' && (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '16px' }}>
+            <div
+              onPaste={handlePaste}
+              style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '14px' }}
+            >
               {/* Quick Template Cards */}
               <div>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -847,10 +981,10 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                   />
                 </div>
 
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      Announcement Details
+                      Announcement Details <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(Optional if file attached)</span>
                     </label>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                       {message.length} characters
@@ -859,23 +993,242 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Type announcement details here..."
+                    placeholder="Type announcement details here (or attach a file below)..."
                     style={{
-                      flex: 1,
-                      minHeight: '110px',
+                      minHeight: '85px',
                       width: '100%',
-                      padding: '12px',
+                      padding: '10px 12px',
                       borderRadius: '8px',
                       border: '1px solid var(--border-medium, #cbd5e1)',
                       backgroundColor: 'var(--bg-surface, #ffffff)',
                       color: 'var(--text-primary)',
                       fontSize: '13px',
-                      lineHeight: 1.55,
+                      lineHeight: 1.5,
                       outline: 'none',
                       resize: 'none',
                       boxSizing: 'border-box',
                     }}
                   />
+                </div>
+
+                {/* Attachments Section */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <Paperclip size={13} style={{ color: 'var(--primary, #2563eb)' }} />
+                      Attach Files <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(Images, PDF, CSV, Excel, Docs)</span>
+                    </label>
+                    {attachments.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{
+                          border: 'none',
+                          background: 'none',
+                          color: 'var(--primary, #2563eb)',
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        + Add More
+                      </button>
+                    )}
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      if (e.target.files) handleFilesUpload(e.target.files);
+                    }}
+                  />
+
+                  {/* Drag and Drop Zone if empty */}
+                  {attachments.length === 0 ? (
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDragOver(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDragOver(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDragOver(false);
+                        if (e.dataTransfer?.files?.length) handleFilesUpload(e.dataTransfer.files);
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                      style={{
+                        border: isDragOver ? '2px dashed var(--primary, #2563eb)' : '1.5px dashed var(--border-medium, #cbd5e1)',
+                        backgroundColor: isDragOver ? 'var(--primary-surface, #eff6ff)' : 'var(--bg-app, #f8fafc)',
+                        borderRadius: '8px',
+                        padding: '14px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '10px',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          backgroundColor: 'var(--bg-surface, #ffffff)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'var(--primary, #2563eb)',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Upload size={16} />
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        <span style={{ color: 'var(--primary, #2563eb)', fontWeight: 700 }}>Click to browse</span> or drag and drop any file (Image, PDF, CSV, Excel, Doc)
+                        <span style={{ display: 'block', fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          Paste from clipboard (Ctrl+V / Cmd+V) supported
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Uploaded Attachments List */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {attachments.map((att) => {
+                        const fileType = getFileType(att.name, att.mimeType);
+                        const isPdf = fileType === 'pdf';
+                        const isCsv = fileType === 'csv';
+                        const isImage = fileType === 'image';
+
+                        const iconBg = isPdf ? '#fee2e2' : isCsv ? '#dcfce7' : isImage ? '#e0e7ff' : '#f1f5f9';
+                        const iconColor = isPdf ? '#dc2626' : isCsv ? '#16a34a' : isImage ? '#4f46e5' : '#475569';
+
+                        return (
+                          <div
+                            key={att.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              border: att.error ? '1px solid #fca5a5' : '1px solid var(--border-subtle, #e2e8f0)',
+                              backgroundColor: att.error ? '#fef2f2' : 'var(--bg-app, #f8fafc)',
+                              gap: '10px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                              {isImage && att.previewUrl ? (
+                                <img
+                                  src={att.previewUrl}
+                                  alt={att.name}
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '6px',
+                                    objectFit: 'cover',
+                                    flexShrink: 0,
+                                    border: '1px solid var(--border-subtle, #cbd5e1)',
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '6px',
+                                    backgroundColor: iconBg,
+                                    color: iconColor,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {isPdf ? (
+                                    <FileText size={16} />
+                                  ) : isCsv ? (
+                                    <FileSpreadsheet size={16} />
+                                  ) : (
+                                    <File size={16} />
+                                  )}
+                                </div>
+                              )}
+
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div
+                                  style={{
+                                    fontSize: '12px',
+                                    fontWeight: 700,
+                                    color: 'var(--text-primary)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                  title={att.name}
+                                >
+                                  {att.name}
+                                </div>
+                                <div style={{ fontSize: '10.5px', color: att.error ? '#dc2626' : 'var(--text-muted)' }}>
+                                  {att.isUploading ? (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--primary, #2563eb)' }}>
+                                      <Loader2 size={11} className="animate-spin" /> Uploading to storage...
+                                    </span>
+                                  ) : att.error ? (
+                                    att.error
+                                  ) : (
+                                    `${isImage ? 'Image' : isPdf ? 'PDF Document' : isCsv ? 'Spreadsheet' : 'File'} • ${formatFileSize(att.sizeBytes)}`
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => handleRemoveAttachment(att.id, e)}
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--text-muted)',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.12s ease',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = '#ef4444';
+                                e.currentTarget.style.backgroundColor = '#fee2e2';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = 'var(--text-muted)';
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                              }}
+                              title="Remove attachment"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -952,24 +1305,158 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                   </div>
                 </div>
 
-                {/* Mock Message Content */}
+                {/* Mock Message Content & Attachments */}
                 <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div
-                    style={{
-                      fontSize: '12.5px',
-                      lineHeight: 1.55,
-                      color: 'var(--text-primary)',
-                      backgroundColor: 'var(--bg-app, #f8fafc)',
-                      border: '1px solid var(--border-subtle, #e2e8f0)',
-                      borderRadius: '8px',
-                      padding: '12px',
-                      whiteSpace: 'pre-wrap',
-                      maxHeight: '180px',
-                      overflowY: 'auto',
-                    }}
-                  >
-                    {message || 'No message entered.'}
-                  </div>
+                  {message.trim() && (
+                    <div
+                      style={{
+                        fontSize: '12.5px',
+                        lineHeight: 1.55,
+                        color: 'var(--text-primary)',
+                        backgroundColor: 'var(--bg-app, #f8fafc)',
+                        border: '1px solid var(--border-subtle, #e2e8f0)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: '140px',
+                        overflowY: 'auto',
+                      }}
+                    >
+                      {message}
+                    </div>
+                  )}
+
+                  {/* Mock Attachments Preview inside card */}
+                  {attachments.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {attachments.map((att) => {
+                        const fileType = getFileType(att.name, att.mimeType);
+                        const isPdf = fileType === 'pdf';
+                        const isCsv = fileType === 'csv';
+                        const isImage = fileType === 'image';
+
+                        if (isImage && att.previewUrl) {
+                          return (
+                            <div
+                              key={att.id}
+                              style={{
+                                borderRadius: '8px',
+                                border: '1px solid var(--border-subtle, #e2e8f0)',
+                                overflow: 'hidden',
+                                backgroundColor: 'var(--bg-app, #f8fafc)',
+                              }}
+                            >
+                              <img
+                                src={att.previewUrl}
+                                alt={att.name}
+                                style={{
+                                  width: '100%',
+                                  maxHeight: '140px',
+                                  objectFit: 'contain',
+                                  backgroundColor: '#0f172a',
+                                  display: 'block',
+                                }}
+                              />
+                              <div
+                                style={{
+                                  padding: '6px 10px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  backgroundColor: 'var(--bg-surface, #ffffff)',
+                                  borderTop: '1px solid var(--border-subtle, #e2e8f0)',
+                                }}
+                              >
+                                <span style={{ fontSize: '11px', fontWeight: 650, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '240px' }}>
+                                  {att.name}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '10.5px',
+                                    fontWeight: 700,
+                                    color: 'var(--primary, #2563eb)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                  }}
+                                >
+                                  <Download size={11} /> Download
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        const badgeBg = isPdf ? '#fee2e2' : isCsv ? '#dcfce7' : '#e0e7ff';
+                        const badgeColor = isPdf ? '#b91c1c' : isCsv ? '#15803d' : '#3730a3';
+                        const typeLabel = isPdf ? 'PDF' : isCsv ? 'CSV' : 'File';
+
+                        return (
+                          <div
+                            key={att.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px 10px',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border-subtle, #e2e8f0)',
+                              backgroundColor: 'var(--bg-app, #f8fafc)',
+                              gap: '8px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                              <div
+                                style={{
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '6px',
+                                  backgroundColor: badgeBg,
+                                  color: badgeColor,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {isPdf ? <FileText size={15} /> : isCsv ? <FileSpreadsheet size={15} /> : <File size={15} />}
+                              </div>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {att.name}
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                  {formatFileSize(att.sizeBytes)}
+                                </div>
+                              </div>
+                            </div>
+
+                            <span
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '5px',
+                                fontSize: '10.5px',
+                                fontWeight: 700,
+                                backgroundColor: 'var(--primary, #2563eb)',
+                                color: '#ffffff',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                              }}
+                            >
+                              <Download size={10} /> Download {typeLabel}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {!message.trim() && attachments.length === 0 && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
+                      No message or attachments entered.
+                    </div>
+                  )}
 
                   {/* Mock Action Buttons */}
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -1101,7 +1588,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
           {currentStep === 'compose' && (
             <button
               type="button"
-              disabled={!message.trim()}
+              disabled={(!message.trim() && attachments.length === 0) || attachments.some((a) => a.isUploading)}
               onClick={() => setCurrentStep('preview')}
               style={{
                 padding: '8px 18px',
@@ -1111,8 +1598,8 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                 backgroundColor: 'var(--primary, #2563eb)',
                 color: '#ffffff',
                 border: 'none',
-                cursor: !message.trim() ? 'not-allowed' : 'pointer',
-                opacity: !message.trim() ? 0.5 : 1,
+                cursor: (!message.trim() && attachments.length === 0) || attachments.some((a) => a.isUploading) ? 'not-allowed' : 'pointer',
+                opacity: (!message.trim() && attachments.length === 0) || attachments.some((a) => a.isUploading) ? 0.5 : 1,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
@@ -1128,7 +1615,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
           {currentStep === 'preview' && (
             <button
               type="button"
-              disabled={isSending || selectedAgentIds.size === 0 || !message.trim()}
+              disabled={isSending || selectedAgentIds.size === 0 || (!message.trim() && attachments.length === 0) || attachments.some((a) => a.isUploading)}
               onClick={handleSendBroadcast}
               style={{
                 padding: '9px 22px',
@@ -1138,8 +1625,8 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                 backgroundColor: 'var(--primary, #2563eb)',
                 color: '#ffffff',
                 border: 'none',
-                cursor: isSending || selectedAgentIds.size === 0 || !message.trim() ? 'not-allowed' : 'pointer',
-                opacity: isSending || selectedAgentIds.size === 0 || !message.trim() ? 0.6 : 1,
+                cursor: isSending || selectedAgentIds.size === 0 || (!message.trim() && attachments.length === 0) || attachments.some((a) => a.isUploading) ? 'not-allowed' : 'pointer',
+                opacity: isSending || selectedAgentIds.size === 0 || (!message.trim() && attachments.length === 0) || attachments.some((a) => a.isUploading) ? 0.6 : 1,
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '8px',

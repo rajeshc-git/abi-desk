@@ -279,9 +279,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     socket: AuthenticatedSocket,
     data: {
       title?: string;
-      message: string;
+      message?: string;
       adminName: string;
       targetAgentIds?: string[];
+      attachments?: Array<{
+        id: string;
+        name: string;
+        sizeBytes?: number;
+        mimeType?: string;
+      }>;
     },
   ) {
     const tenantId = socket.data?.tenantId;
@@ -316,6 +322,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           }
 
           if (targetIds && targetIds.length > 0) {
+            const attachmentLink =
+              data.attachments && data.attachments.length > 0
+                ? JSON.stringify(
+                    data.attachments.map((a) => ({
+                      id: a.id,
+                      name: a.name,
+                      sizeBytes: a.sizeBytes,
+                      mimeType: a.mimeType,
+                    })),
+                  )
+                : '/dashboard';
+
+            const primaryResourceId = data.attachments?.[0]?.id || null;
+            const fallbackBody =
+              data.attachments && data.attachments.length > 0
+                ? `📎 ${data.attachments.map((a) => a.name).join(', ')}`
+                : '';
+
             const records = targetIds.map((uId) => ({
               tenantId,
               userId: uId,
@@ -323,9 +347,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               status: 'PENDING' as const,
               eventType: 'broadcast.announcement',
               title: (data.title?.trim() || '📢 Team Announcement').slice(0, 200),
-              body: (data.message?.trim() || '').slice(0, 2000),
+              body: (data.message?.trim() || fallbackBody).slice(0, 2000),
               resourceType: (data.adminName || socket.data.fullName || 'Administrator').slice(0, 60),
-              linkUrl: '/dashboard',
+              resourceId: primaryResourceId,
+              linkUrl: attachmentLink,
             }));
 
             await this.db.client.notification.createMany({

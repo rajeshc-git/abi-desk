@@ -101,12 +101,19 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
           let bData: BroadcastData | undefined;
           if (nType === 'BROADCAST') {
+            let parsedAttachments: any[] | undefined;
+            if (dbN.linkUrl && typeof dbN.linkUrl === 'string' && dbN.linkUrl.startsWith('[')) {
+              try {
+                parsedAttachments = JSON.parse(dbN.linkUrl);
+              } catch {}
+            }
             bData = {
               id: dbN.id,
               title: dbN.title,
-              message: dbN.body,
+              message: dbN.body?.startsWith('📎 ') && parsedAttachments?.length ? '' : dbN.body,
               adminName: dbN.resourceType || 'Administrator',
               broadcastAt: dbN.createdAt,
+              attachments: parsedAttachments,
             };
           }
 
@@ -451,7 +458,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
 
     const handleAgentBroadcast = (data: any) => {
-      if (!data?.message) return;
+      if (!data?.message && (!data?.attachments || data.attachments.length === 0)) return;
 
       const isTarget =
         !data.targetAgentIds ||
@@ -462,11 +469,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       const adminName = data.adminName || 'The Administrator';
       const title = data.title || `📢 Announcement from ${adminName}`;
+      const notifMessage =
+        data.message ||
+        (data.attachments?.[0]?.name ? `📎 ${data.attachments[0].name}` : 'Attachment');
 
       addNotification({
         type: 'BROADCAST',
         title,
-        message: data.message,
+        message: notifMessage,
         ticketId: '',
         linkUrl: '',
         authorName: adminName,
@@ -516,17 +526,22 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           if (broadcastModalData?.id) {
             markAsRead(broadcastModalData.id);
           }
-          if (broadcastModalData?.message) {
+          const msgToMark =
+            broadcastModalData?.message ||
+            (broadcastModalData?.attachments?.[0]?.name
+              ? `📎 ${broadcastModalData.attachments[0].name}`
+              : '');
+          if (msgToMark) {
             // 1. Mark in local state by message so any copy is marked read immediately
             setNotifications((prev) =>
               prev.map((n) =>
-                n.type === 'BROADCAST' && n.message === broadcastModalData.message
+                n.type === 'BROADCAST' && n.message === msgToMark
                   ? { ...n, isRead: true }
                   : n,
               ),
             );
             // 2. Mark in database by broadcast message so PostgreSQL status becomes READ permanently!
-            ApiClient.post('/notifications/read-broadcast', { message: broadcastModalData.message }).catch(() => {});
+            ApiClient.post('/notifications/read-broadcast', { message: msgToMark }).catch(() => {});
           }
           setBroadcastModalData(null);
         }}
