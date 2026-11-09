@@ -347,7 +347,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
                             width: '100%',
                             maxHeight: '220px',
                             minHeight: '120px',
-                            backgroundColor: '#0f172a',
+                            backgroundColor: 'var(--bg-surface, #ffffff)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',

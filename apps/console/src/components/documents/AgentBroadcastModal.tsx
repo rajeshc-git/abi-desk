@@ -1353,7 +1353,7 @@ export const AgentBroadcastModal: React.FC<AgentBroadcastModalProps> = ({
                                   width: '100%',
                                   maxHeight: '140px',
                                   objectFit: 'contain',
-                                  backgroundColor: '#0f172a',
+                                  backgroundColor: 'var(--bg-surface, #ffffff)',
                                   display: 'block',
                                 }}
                               />
