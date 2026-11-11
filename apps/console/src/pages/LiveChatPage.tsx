@@ -141,10 +141,11 @@ export const LiveChatPage: React.FC = () => {
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  const canDeleteChats =
-    user?.roles?.some((r: string) => ['TENANT_ADMIN', 'ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r)) ||
-    user?.permissions?.includes('ticket:delete') ||
-    user?.kind === 'STAFF';
+  const isAdmin = Boolean(
+    user?.roles?.some((r: string) =>
+      ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r.toUpperCase()),
+    ),
+  );
 
   const filteredConversations = useMemo(() => {
     let list = conversations;
@@ -351,6 +352,11 @@ export const LiveChatPage: React.FC = () => {
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
+    if (!isAdmin) {
+      toast.error('Delete is allowed to admin role only');
+      setIsBulkDeleteOpen(false);
+      return;
+    }
     setIsBulkDeleting(true);
     try {
       const ids = Array.from(selectedIds);
@@ -521,30 +527,34 @@ export const LiveChatPage: React.FC = () => {
               >
                 <Lock size={12} /> Close
               </button>
-              {canDeleteChats && (
-                <button
-                  type="button"
-                  onClick={() => setIsBulkDeleteOpen(true)}
-                  className="btn btn-danger btn-sm"
-                  style={{
-                    padding: '3px 10px',
-                    fontSize: '11px',
-                    height: '26px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontWeight: 600,
-                    backgroundColor: '#ef4444',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                  }}
-                  title="Permanently delete selected chats"
-                >
-                  <Trash2 size={12} /> Delete ({selectedIds.size})
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isAdmin) {
+                    toast.error('Delete is allowed to admin role only');
+                    return;
+                  }
+                  setIsBulkDeleteOpen(true);
+                }}
+                className="btn btn-danger btn-sm"
+                style={{
+                  padding: '3px 10px',
+                  fontSize: '11px',
+                  height: '26px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontWeight: 600,
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                }}
+                title="Permanently delete selected chats"
+              >
+                <Trash2 size={12} /> Delete ({selectedIds.size})
+              </button>
               <button
                 type="button"
                 onClick={() => setSelectedIds(new Set())}

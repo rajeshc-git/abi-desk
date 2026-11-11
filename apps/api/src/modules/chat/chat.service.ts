@@ -300,6 +300,15 @@ export class ChatService {
   }
 
   async deleteConversation(principal: AuthenticatedPrincipal, conversationId: string) {
+    const isAdmin =
+      principal.isPlatformAdmin ||
+      principal.roles.some((r) =>
+        ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r.toUpperCase()),
+      );
+    if (!isAdmin) {
+      throw AppException.permissionDenied('Delete is allowed to admin role only');
+    }
+
     const tenantId = this.tenantContext.requireTenantId();
 
     const conv = await this.db.client.chatConversation.findFirst({
@@ -319,6 +328,15 @@ export class ChatService {
   }
 
   async bulkDeleteConversations(principal: AuthenticatedPrincipal, conversationIds: string[]) {
+    const isAdmin =
+      principal.isPlatformAdmin ||
+      principal.roles.some((r) =>
+        ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(r.toUpperCase()),
+      );
+    if (!isAdmin) {
+      throw AppException.permissionDenied('Delete is allowed to admin role only');
+    }
+
     const tenantId = this.tenantContext.requireTenantId();
 
     const result = await this.db.client.chatConversation.deleteMany({
