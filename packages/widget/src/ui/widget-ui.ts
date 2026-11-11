@@ -38,6 +38,12 @@ export interface WidgetConfig {
   organizations?: string[];
 }
 
+export interface CaseRefContext {
+  caseRefNumber: string;
+  moduleType: 'PreAuth' | 'Claim';
+  sourceCookie: string;
+}
+
 export class WidgetUI {
   private config: WidgetConfig;
   private rootEl: HTMLElement;
@@ -69,6 +75,10 @@ export class WidgetUI {
     description: '',
     priority: 'NORMAL',
   };
+
+  // Case Reference (PreAuth / Claims) Real-time Watcher State
+  private caseRefWatcherTimer: ReturnType<typeof setInterval> | null = null;
+  private lastSyncedCaseKey: string | null = null;
 
 
   // Widget OTP Verification properties
@@ -113,6 +123,7 @@ export class WidgetUI {
 
   private async mount() {
     document.body.appendChild(this.rootEl);
+    this.setupHostNavigationListeners();
     await this.loadRemoteConfig();
 
     if (this.config.widgetEnabled === false && !this.config.isAdminConsole) {
@@ -164,6 +175,166 @@ export class WidgetUI {
       };
     } catch (err) {
       console.warn('⚠️ Could not load remote widget settings, using fallback.', err);
+    }
+  }
+
+  /**
+   * Resolves whether the host page is on a PreAuth or Claims screen,
+   * extracts the corresponding cookie (PreAuthClaimID or claimRefId),
+   * and unifies it as the common caseRefNumber.
+   */
+  private resolveCaseRefNumber(): CaseRefContext | null {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+
+    const hash = (window.location.hash || '').toLowerCase();
+
+    const getCookie = (name: string): string | null => {
+      const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+      return match && match[1] ? decodeURIComponent(match[1].trim()) : null;
+    };
+
+    const preAuthId = getCookie('PreAuthClaimID');
+    const claimId = getCookie('claimRefId');
+
+    // 1. Priority Route Check: PreAuth pages
+    if (hash.includes('/case_edit') || hash.includes('/case_details')) {
+      if (preAuthId) {
+        return {
+          caseRefNumber: preAuthId,
+          moduleType: 'PreAuth',
+          sourceCookie: 'PreAuthClaimID',
+        };
+      }
+    }
+
+    // 2. Priority Route Check: Claims pages
+    if (hash.includes('/editclaim') || hash.includes('/viewclaim')) {
+      if (claimId) {
+        return {
+          caseRefNumber: claimId,
+          moduleType: 'Claim',
+          sourceCookie: 'claimRefId',
+        };
+      }
+    }
+
+    // 3. Fallback: If on another route or subpage, pick whichever cookie is present
+    if (preAuthId && !claimId) {
+      return {
+        caseRefNumber: preAuthId,
+        moduleType: 'PreAuth',
+        sourceCookie: 'PreAuthClaimID',
+      };
+    }
+    if (claimId && !preAuthId) {
+      return {
+        caseRefNumber: claimId,
+        moduleType: 'Claim',
+        sourceCookie: 'claimRefId',
+      };
+    }
+
+    // 4. If both exist on an unmapped page, prefer PreAuth if present, else Claim
+    if (preAuthId) {
+      return {
+        caseRefNumber: preAuthId,
+        moduleType: 'PreAuth',
+        sourceCookie: 'PreAuthClaimID',
+      };
+    }
+    if (claimId) {
+      return {
+        caseRefNumber: claimId,
+        moduleType: 'Claim',
+        sourceCookie: 'claimRefId',
+      };
+    }
+
+    return null;
+  }
+
+  private setupHostNavigationListeners() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    window.addEventListener('hashchange', () => this.syncCaseRefContext());
+    window.addEventListener('popstate', () => this.syncCaseRefContext());
+    window.addEventListener('focus', () => this.syncCaseRefContext());
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.syncCaseRefContext();
+    });
+
+    // Detect user clicks on the host page (like selecting claims from a list)
+    document.addEventListener(
+      'click',
+      () => {
+        setTimeout(() => this.syncCaseRefContext(), 250);
+      },
+      true,
+    );
+  }
+
+  private startCaseRefWatcher() {
+    this.stopCaseRefWatcher();
+    this.syncCaseRefContext();
+    // Actively check every 400ms while widget is open on ticket tab (negligible sub-millisecond cost)
+    this.caseRefWatcherTimer = setInterval(() => {
+      if (this.isOpen && this.activeTab === 'ticket') {
+        this.syncCaseRefContext();
+      }
+    }, 400);
+  }
+
+  private stopCaseRefWatcher() {
+    if (this.caseRefWatcherTimer) {
+      clearInterval(this.caseRefWatcherTimer);
+      this.caseRefWatcherTimer = null;
+    }
+  }
+
+  /**
+   * Dynamically synchronizes case reference badges, inputs, and placeholders in real time
+   * without needing the user to minimize and maximize the widget.
+   */
+  private syncCaseRefContext() {
+    if (!this.shadow) return;
+    const caseContext = this.resolveCaseRefNumber();
+    const currentKey = caseContext ? `${caseContext.moduleType}:${caseContext.caseRefNumber}` : '';
+
+    if (currentKey === this.lastSyncedCaseKey) return;
+    this.lastSyncedCaseKey = currentKey;
+
+    const subjectBadge = this.shadow.querySelector('#abi-subject-case-badge') as HTMLElement | null;
+    const subjectText = this.shadow.querySelector('#abi-subject-case-text') as HTMLElement | null;
+    const descBadge = this.shadow.querySelector('#abi-desc-case-badge') as HTMLElement | null;
+    const subjectInput = this.shadow.querySelector('#abi-ticket-subject') as HTMLInputElement | null;
+
+    const caseTagRegex = /^\[(PreAuth|Claim|Case\s*Ref)[^\]]*\]\s*/i;
+
+    if (caseContext) {
+      if (subjectBadge && subjectText) {
+        subjectText.textContent = `Case Ref: #${caseContext.caseRefNumber}`;
+        subjectBadge.title = `${caseContext.sourceCookie}: ${caseContext.caseRefNumber}`;
+        subjectBadge.style.display = 'inline-flex';
+      }
+
+      if (descBadge) {
+        descBadge.textContent = `Auto-attaching Case Ref #${caseContext.caseRefNumber}`;
+        descBadge.style.display = 'inline-block';
+      }
+
+      // Keep user input clean (remove any auto-inserted bracket tags so subject is not duplicated)
+      if (subjectInput && caseTagRegex.test(subjectInput.value)) {
+        subjectInput.value = subjectInput.value.replace(caseTagRegex, '');
+        this.ticketDraft.subject = subjectInput.value;
+      }
+    } else {
+      if (subjectBadge) subjectBadge.style.display = 'none';
+      if (descBadge) descBadge.style.display = 'none';
+      if (subjectInput && caseTagRegex.test(subjectInput.value)) {
+        subjectInput.value = subjectInput.value.replace(caseTagRegex, '');
+        this.ticketDraft.subject = subjectInput.value;
+      }
     }
   }
 
@@ -365,6 +536,13 @@ export class WidgetUI {
     const selectedOrg = this.ticketDraft.organization || this.config.defaultOrganization || '';
     const selectedProd = this.ticketDraft.product || this.config.defaultProduct || '';
 
+    const caseContext = this.resolveCaseRefNumber();
+    this.lastSyncedCaseKey = caseContext ? `${caseContext.moduleType}:${caseContext.caseRefNumber}` : '';
+    // Strip any auto-inserted bracket tags so the subject text box remains clean
+    this.ticketDraft.subject = this.ticketDraft.subject
+      .replace(/^\[(PreAuth|Claim|Case\s*Ref)[^\]]*\]\s*/i, '')
+      .trim();
+
     return `
       <form id="abi-ticket-form">
         <div id="abi-ticket-form-error" class="abi-form-error-banner" style="display: none;"></div>
@@ -383,8 +561,25 @@ export class WidgetUI {
         }
 
         <div class="abi-form-group">
-          <label class="abi-label">Subject</label>
-          <input type="text" class="abi-input" id="abi-ticket-subject" placeholder="What can we help you with? (min 3 chars)" value="${this.escapeHtml(this.ticketDraft.subject)}" required />
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <label class="abi-label" style="margin: 0;">Subject</label>
+            <span
+              id="abi-subject-case-badge"
+              style="display: ${caseContext ? 'inline-flex' : 'none'}; font-size: 11px; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 7px; border-radius: 4px; align-items: center; gap: 4px;"
+              title="${caseContext ? `${caseContext.sourceCookie}: ${caseContext.caseRefNumber}` : ''}"
+            >
+              <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2563eb;"></span>
+              <span id="abi-subject-case-text">${caseContext ? `Case Ref: #${this.escapeHtml(caseContext.caseRefNumber)}` : ''}</span>
+            </span>
+          </div>
+          <input
+            type="text"
+            class="abi-input"
+            id="abi-ticket-subject"
+            placeholder="What can we help you with? (min 3 chars)"
+            value="${this.escapeHtml(this.ticketDraft.subject)}"
+            required
+          />
           <div class="abi-field-error" id="abi-subject-error" style="display: none;"></div>
         </div>
 
@@ -393,8 +588,23 @@ export class WidgetUI {
         <input type="hidden" id="abi-ticket-product" value="${this.escapeHtml(selectedProd)}" />
 
         <div class="abi-form-group">
-          <label class="abi-label">Description</label>
-          <textarea class="abi-textarea" id="abi-ticket-desc" rows="4" placeholder="Please describe the issue in detail... (min 5 chars)" required>${this.escapeHtml(this.ticketDraft.description)}</textarea>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <label class="abi-label" style="margin: 0;">Description</label>
+            <span
+              id="abi-desc-case-badge"
+              style="display: ${caseContext ? 'inline-block' : 'none'}; font-size: 11px; font-weight: 600; color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 2px 7px; border-radius: 4px;"
+              title="This caseRefNumber will automatically attach to your ticket"
+            >
+              ${caseContext ? `Auto-attaching Case Ref #${this.escapeHtml(caseContext.caseRefNumber)}` : ''}
+            </span>
+          </div>
+          <textarea
+            class="abi-textarea"
+            id="abi-ticket-desc"
+            rows="4"
+            placeholder="Please describe the issue in detail... (min 5 chars)"
+            required
+          >${this.escapeHtml(this.ticketDraft.description)}</textarea>
           <div class="abi-field-error" id="abi-desc-error" style="display: none;"></div>
         </div>
 
@@ -2240,6 +2450,11 @@ export class WidgetUI {
         this.currentViewingTicketId = null;
         this.activeTab = target;
         this.render();
+        if (this.isOpen && this.activeTab === 'ticket') {
+          this.startCaseRefWatcher();
+        } else {
+          this.stopCaseRefWatcher();
+        }
       });
     });
 
@@ -2447,16 +2662,23 @@ export class WidgetUI {
   toggle() {
     this.isOpen = !this.isOpen;
     this.render();
+    if (this.isOpen) {
+      this.startCaseRefWatcher();
+    } else {
+      this.stopCaseRefWatcher();
+    }
   }
 
   open() {
     this.isOpen = true;
     this.render();
+    this.startCaseRefWatcher();
   }
 
   close() {
     this.stopChatPolling();
     this.stopTicketPolling();
+    this.stopCaseRefWatcher();
     this.isOpen = false;
     this.render();
   }
@@ -2873,16 +3095,49 @@ export class WidgetUI {
     const networkLogs = NetworkCapturer.getEntries();
     const errors = ErrorCapturer.getEntries();
 
+    // Resolve PreAuth or Claim case reference from host cookies and URL fragment
+    const caseContext = this.resolveCaseRefNumber();
+
+    // Strip any bracket tags if user had any, ensuring clean subject
+    const cleanUserSubject = subjectValue
+      .replace(/^\[(PreAuth|Claim|Case\s*Ref)[^\]]*\]\s*/i, '')
+      .trim();
+
+    const finalSubject = caseContext
+      ? `[Case Ref: #${caseContext.caseRefNumber}] ${cleanUserSubject}`
+      : cleanUserSubject;
+
+    let finalDesc = descValue.trim();
+    if (caseContext && !finalDesc.includes(`Case Ref Number: ${caseContext.caseRefNumber}`)) {
+      finalDesc = `${finalDesc}\n\n---\n📌 Case Ref Number: ${caseContext.caseRefNumber}`;
+    }
+
     const payload = {
-      subject: subjectValue,
-      description: descValue,
+      subject: finalSubject,
+      description: finalDesc,
       priority: priorityValue,
       ...(productValue ? { product: productValue } : {}),
       ...(orgValue.trim() ? { organization: orgValue.trim() } : {}),
+      customFields: {
+        ...(caseContext
+          ? {
+              caseRefNumber: caseContext.caseRefNumber,
+              moduleType: caseContext.moduleType,
+              sourceCookie: caseContext.sourceCookie,
+            }
+          : {}),
+      },
       channel: 'WIDGET',
       type: 'INCIDENT',
       diagnostics: {
         ...diagnostics,
+        ...(caseContext
+          ? {
+              caseRefNumber: caseContext.caseRefNumber,
+              moduleType: caseContext.moduleType,
+              sourceCookie: caseContext.sourceCookie,
+            }
+          : {}),
         consoleLogs,
         networkLogs,
         errors,
@@ -3063,13 +3318,35 @@ export class WidgetUI {
       ...this.getHeaders(),
     };
 
+    const caseContext = this.resolveCaseRefNumber();
+    const chatSubject = caseContext
+      ? `Live Chat [Case Ref: #${caseContext.caseRefNumber}]`
+      : 'Live Chat Support';
+
+    // Concatenate Case Ref Number only in front of the very first message of a new live chat
+    let formattedInitialMessage = initialMessage.trim();
+    if (caseContext) {
+      const cleanMsg = formattedInitialMessage.replace(
+        /^\[(PreAuth|Claim|Case\s*Ref)[^\]]*\]\s*/i,
+        '',
+      );
+      formattedInitialMessage = `[Case Ref: #${caseContext.caseRefNumber}] ${cleanMsg}`;
+    }
+
     const res = await fetch(`${this.config.apiUrl}/api/v1/chat/conversations`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        subject: 'Live Chat Support',
-        initialMessage,
+        subject: chatSubject,
+        initialMessage: formattedInitialMessage,
         pageUrl: window.location.href,
+        customFields: caseContext
+          ? {
+              caseRefNumber: caseContext.caseRefNumber,
+              moduleType: caseContext.moduleType,
+              sourceCookie: caseContext.sourceCookie,
+            }
+          : undefined,
       }),
     });
 
@@ -3335,6 +3612,7 @@ export class WidgetUI {
   }
 
   destroy() {
+    this.stopCaseRefWatcher();
     if (this.chatPollTimer) {
       clearInterval(this.chatPollTimer);
       this.chatPollTimer = null;

@@ -274,24 +274,24 @@ export const LiveChatPage: React.FC = () => {
 
       const counts: Record<string, number> = {};
       list.forEach((c) => {
-        if (c.id === activeConv?.id) {
+        if (c.id === activeConv?.id || c.status === 'CLOSED') {
           counts[c.id] = 0;
           return;
         }
 
         const localViewed = localStorage.getItem(getChatViewedKey(c.id));
-        if (localViewed && c.lastMessageAt) {
-          const hasNew = new Date(c.lastMessageAt).getTime() > new Date(localViewed).getTime();
-          counts[c.id] = hasNew ? 1 : 0;
-          return;
-        }
-
         const me = c.participants.find((p) => p.userId === user?.id);
-        if (c.status === 'QUEUED') {
-          counts[c.id] = 1;
-        } else if (c.lastMessageAt && me?.lastReadAt) {
-          const hasNew = new Date(c.lastMessageAt).getTime() > new Date(me.lastReadAt).getTime();
+        const lastReadTime = localViewed
+          ? new Date(localViewed).getTime()
+          : me?.lastReadAt
+          ? new Date(me.lastReadAt).getTime()
+          : null;
+
+        if (lastReadTime && c.lastMessageAt) {
+          const hasNew = new Date(c.lastMessageAt).getTime() > lastReadTime;
           counts[c.id] = hasNew ? 1 : 0;
+        } else if (c.status === 'QUEUED') {
+          counts[c.id] = 1;
         } else {
           counts[c.id] = 0;
         }
@@ -393,10 +393,12 @@ export const LiveChatPage: React.FC = () => {
     try {
       await ApiClient.post(`/chat/conversations/${activeConv.id}/close`);
       toast.success('Conversation marked as closed.');
+      setUnreadCounts((prev) => ({ ...prev, [activeConv.id]: 0 }));
       setActiveConv((prev) => (prev ? { ...prev, status: 'CLOSED' } : null));
       setConversations((prev) =>
         prev.map((c) => (c.id === activeConv.id ? { ...c, status: 'CLOSED' } : c)),
       );
+      window.dispatchEvent(new Event('unread_chats_updated'));
     } catch (err: any) {
       toast.error(`Failed to close chat: ${err.message || 'Unknown error'}`);
     }

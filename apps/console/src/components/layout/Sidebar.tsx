@@ -90,14 +90,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
       const list = res?.conversations || [];
       let count = 0;
       list.forEach((c: any) => {
+        // Closed chats are never unread
+        if (c.status === 'CLOSED') return;
+
         const localViewed = localStorage.getItem(getChatViewedKey(c.id));
-        if (localViewed && c.lastMessageAt) {
-          if (new Date(c.lastMessageAt).getTime() > new Date(localViewed).getTime()) {
+        const me = c.participants?.find((p: any) => p.userId === user?.id);
+        const lastReadTime = localViewed
+          ? new Date(localViewed).getTime()
+          : me?.lastReadAt
+          ? new Date(me.lastReadAt).getTime()
+          : null;
+
+        if (lastReadTime && c.lastMessageAt) {
+          if (new Date(c.lastMessageAt).getTime() > lastReadTime) {
             count++;
           }
         } else if (c.status === 'QUEUED') {
-          count++;
-        } else if (c.lastMessageAt) {
           count++;
         }
       });
@@ -105,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
     } catch {
       // non-blocking
     }
-  }, [getChatViewedKey]);
+  }, [getChatViewedKey, user?.id]);
 
   useEffect(() => {
     updateTicketCount();
