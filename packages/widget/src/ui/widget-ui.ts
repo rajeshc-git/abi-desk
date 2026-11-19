@@ -193,11 +193,9 @@ export class WidgetUI {
       return match && match[1] ? decodeURIComponent(match[1].trim()) : null;
     };
 
-    const preAuthId = getCookie('PreAuthClaimID');
-    const claimId = getCookie('claimRefId');
-
-    // 1. Priority Route Check: PreAuth pages
+    // 1. Strict Route Check: PreAuth pages only
     if (hash.includes('/case_edit') || hash.includes('/case_details')) {
+      const preAuthId = getCookie('PreAuthClaimID');
       if (preAuthId) {
         return {
           caseRefNumber: preAuthId,
@@ -207,8 +205,9 @@ export class WidgetUI {
       }
     }
 
-    // 2. Priority Route Check: Claims pages
+    // 2. Strict Route Check: Claims pages only
     if (hash.includes('/editclaim') || hash.includes('/viewclaim')) {
+      const claimId = getCookie('claimRefId');
       if (claimId) {
         return {
           caseRefNumber: claimId,
@@ -218,38 +217,7 @@ export class WidgetUI {
       }
     }
 
-    // 3. Fallback: If on another route or subpage, pick whichever cookie is present
-    if (preAuthId && !claimId) {
-      return {
-        caseRefNumber: preAuthId,
-        moduleType: 'PreAuth',
-        sourceCookie: 'PreAuthClaimID',
-      };
-    }
-    if (claimId && !preAuthId) {
-      return {
-        caseRefNumber: claimId,
-        moduleType: 'Claim',
-        sourceCookie: 'claimRefId',
-      };
-    }
-
-    // 4. If both exist on an unmapped page, prefer PreAuth if present, else Claim
-    if (preAuthId) {
-      return {
-        caseRefNumber: preAuthId,
-        moduleType: 'PreAuth',
-        sourceCookie: 'PreAuthClaimID',
-      };
-    }
-    if (claimId) {
-      return {
-        caseRefNumber: claimId,
-        moduleType: 'Claim',
-        sourceCookie: 'claimRefId',
-      };
-    }
-
+    // Any other URL / route: Strictly DO NOT auto-fetch from cookies
     return null;
   }
 
