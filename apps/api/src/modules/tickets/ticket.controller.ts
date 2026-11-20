@@ -284,7 +284,7 @@ export class TicketController {
     if (clientOrgHeader && !query.organization) {
       query.organization = clientOrgHeader;
     }
-    return this.tickets.list(principal, query);
+    return this.tickets.list(principal, query, clientOrgHeader);
   }
 
   @Get(':id')
@@ -294,7 +294,7 @@ export class TicketController {
     @Param() params: TicketIdParamDto,
     @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
-    const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+    const ticket = await this.tickets.findByIdOrThrow(principal, params.id, clientOrgHeader);
     if (clientOrgHeader) {
       const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
       if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
@@ -313,13 +313,13 @@ export class TicketController {
     @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
     if (clientOrgHeader) {
-      const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+      const ticket = await this.tickets.findByIdOrThrow(principal, params.id, clientOrgHeader);
       const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
       if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
         throw AppException.notFound('Ticket not found');
       }
     }
-    return this.tickets.timeline(principal, params.id);
+    return this.tickets.timeline(principal, params.id, clientOrgHeader);
   }
 
   /** Zoho Desk style Ticket History audit log endpoint. */
@@ -331,13 +331,13 @@ export class TicketController {
     @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
     if (clientOrgHeader) {
-      const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+      const ticket = await this.tickets.findByIdOrThrow(principal, params.id, clientOrgHeader);
       const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
       if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
         throw AppException.notFound('Ticket not found');
       }
     }
-    return this.tickets.timeline(principal, params.id);
+    return this.tickets.timeline(principal, params.id, clientOrgHeader);
   }
 
   /**
@@ -373,7 +373,7 @@ export class TicketController {
     @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
     if (clientOrgHeader) {
-      const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+      const ticket = await this.tickets.findByIdOrThrow(principal, params.id, clientOrgHeader);
       const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
       if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
         throw AppException.notFound('Ticket not found');

@@ -2424,11 +2424,28 @@ export class AuthService {
             })
           : null;
 
-        const defaultTenant = await this.prisma.client.tenant.findFirst({
-          select: { id: true },
-        });
-
-        const tenantId = orgRecord?.tenantId || defaultTenant?.id;
+        let tenantId = orgRecord?.tenantId;
+        if (!tenantId) {
+          const abiTenant = await this.prisma.client.tenant.findFirst({
+            where: {
+              status: 'ACTIVE',
+              OR: [
+                { slug: { contains: 'abi-health', mode: 'insensitive' } },
+                { name: { contains: 'abi', mode: 'insensitive' } },
+              ],
+            },
+            select: { id: true },
+          });
+          tenantId = abiTenant?.id;
+        }
+        if (!tenantId) {
+          const defaultTenant = await this.prisma.client.tenant.findFirst({
+            where: { status: 'ACTIVE' },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true },
+          });
+          tenantId = defaultTenant?.id;
+        }
         if (!tenantId) {
           throw AppException.badRequest('Unable to find tenant workspace for organization.');
         }
@@ -2690,11 +2707,28 @@ export class AuthService {
             })
           : null;
 
-        const defaultTenant = await this.prisma.client.tenant.findFirst({
-          select: { id: true },
-        });
-
-        const tenantId = orgRecord?.tenantId || defaultTenant?.id;
+        let tenantId = orgRecord?.tenantId;
+        if (!tenantId) {
+          const abiTenant = await this.prisma.client.tenant.findFirst({
+            where: {
+              status: 'ACTIVE',
+              OR: [
+                { slug: { contains: 'abi-health', mode: 'insensitive' } },
+                { name: { contains: 'abi', mode: 'insensitive' } },
+              ],
+            },
+            select: { id: true },
+          });
+          tenantId = abiTenant?.id;
+        }
+        if (!tenantId) {
+          const defaultTenant = await this.prisma.client.tenant.findFirst({
+            where: { status: 'ACTIVE' },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true },
+          });
+          tenantId = defaultTenant?.id;
+        }
         if (!tenantId) {
           throw AppException.badRequest('Unable to find tenant workspace for organization.');
         }

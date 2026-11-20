@@ -56,7 +56,32 @@ export function toPolicySubject(principal: AuthenticatedPrincipal): PolicySubjec
 }
 
 /** Convenience: principal straight to a Prisma filter. */
-export function ticketFilterFor(principal: AuthenticatedPrincipal): Prisma.TicketWhereInput | null {
+export function ticketFilterFor(
+  principal: AuthenticatedPrincipal,
+  clientOrganization?: string,
+): Prisma.TicketWhereInput | null {
+  // If clientOrganization is specified (e.g. from client portal / x-client-organization header),
+  // allow customer/client users to see tickets belonging to their organization OR where they are the requester.
+  const isStaff =
+    principal.kind === 'STAFF' ||
+    principal.roles?.some((r) =>
+      ['TENANT_ADMIN', 'PLATFORM_ADMIN', 'AGENT_L1', 'AGENT_L2', 'AGENT_L3', 'SUPPORT_AGENT'].includes(r),
+    );
+
+  if (clientOrganization && !isStaff) {
+    const orgTrimmed = clientOrganization.trim();
+    if (orgTrimmed) {
+      return {
+        ...(principal.tenantId ? { tenantId: principal.tenantId } : {}),
+        OR: [
+          { requesterId: principal.userId },
+          { customFields: { path: ['organization'], string_contains: orgTrimmed } },
+          { customFields: { path: ['organization'], equals: orgTrimmed } },
+        ],
+      };
+    }
+  }
+
   const baseFilter = ticketScopeFilter(resolveTicketScope(toPolicySubject(principal)));
   if (!baseFilter) return null;
 

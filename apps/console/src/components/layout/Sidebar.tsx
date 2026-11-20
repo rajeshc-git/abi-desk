@@ -75,6 +75,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
   const [unreadChatCount, setUnreadChatCount] = useState<number>(0);
 
   const updateTicketCount = useCallback(() => {
+    if (user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF')) {
+      setUnreadTicketCount(0);
+      return;
+    }
     try {
       const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
       const stored = JSON.parse(localStorage.getItem(key) || '[]');
@@ -82,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
     } catch {
       setUnreadTicketCount(0);
     }
-  }, [user?.id]);
+  }, [user?.id, user?.kind, user?.clientOrganization]);
 
   const updateChatCount = useCallback(async () => {
     try {
@@ -137,6 +141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
     if (!socket) return;
 
     const handleTicketCreated = (data: any) => {
+      if (user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF')) return;
       const incoming = data?.ticket;
       if (!incoming?.id) return;
       if (!isUserScopedToTicket(incoming, user)) return;
@@ -151,6 +156,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
     };
 
     const handleTicketCommented = (data: any) => {
+      if (user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF')) return;
       if (!data?.ticketId) return;
       try {
         const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
@@ -394,8 +400,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
 
             const isActive = location.pathname.startsWith(item.path);
             const Icon = item.icon;
-            const badgeCount =
-              item.path === '/inbox'
+            const isClientUser = user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF');
+            const badgeCount = isClientUser
+              ? 0
+              : item.path === '/inbox'
                 ? unreadTicketCount
                 : item.path === '/chat'
                   ? unreadChatCount
@@ -419,7 +427,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
                     {item.title}
                   </span>
                 </div>
-                {badgeCount > 0 && (
+                {!isClientUser && badgeCount > 0 && (
                   <span
                     style={{
                       backgroundColor: '#ef4444',

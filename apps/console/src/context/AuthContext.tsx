@@ -75,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const parsed = JSON.parse(saved);
       const clientOrg = localStorage.getItem('abidesk_client_org');
-      if (clientOrg) {
+      if (clientOrg && parsed.kind === 'CUSTOMER') {
         parsed.clientOrganization = clientOrg;
       }
       return parsed;

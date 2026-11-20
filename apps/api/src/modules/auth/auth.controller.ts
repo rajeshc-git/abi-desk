@@ -550,6 +550,10 @@ export class AuthController {
     const delivered = await this.deliver(result, dto.sessionMode || 'token', reply);
     return {
       ...(delivered as any),
+      tenantName:
+        (delivered as any).tenantName && !(delivered as any).tenantName.toLowerCase().includes('acme')
+          ? (delivered as any).tenantName
+          : 'abi-health',
       organization: org.name,
     };
   }

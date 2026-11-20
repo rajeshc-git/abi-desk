@@ -15,6 +15,25 @@
 export const isUserScopedToTicket = (ticket: any, user: any): boolean => {
   if (!user) return false;
 
+  // 0. Dedicated Client Portal / Customer scoping
+  const isClient = Boolean(user.clientOrganization || user.kind === 'CUSTOMER');
+  if (isClient) {
+    if (!ticket) return false;
+    const ticketOrg = ticket.customFields?.organization || ticket.organization;
+    const clientOrg = user.clientOrganization;
+    if (clientOrg && ticketOrg && String(ticketOrg).toLowerCase().includes(clientOrg.toLowerCase())) {
+      return true;
+    }
+    const requesterEmail = ticket.requester?.email || ticket.requesterEmail;
+    if (requesterEmail && user.email && requesterEmail.toLowerCase() === user.email.toLowerCase()) {
+      return true;
+    }
+    if (ticket.requesterId && ticket.requesterId === user.id) {
+      return true;
+    }
+    return false;
+  }
+
   // 1. Check Admin Roles (supports string arrays and relation object arrays)
   const isTenantAdmin =
     user.isPlatformAdmin ||
