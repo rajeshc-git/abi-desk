@@ -98,8 +98,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         const lastReadTime = localViewed
           ? new Date(localViewed).getTime()
           : me?.lastReadAt
-          ? new Date(me.lastReadAt).getTime()
-          : null;
+            ? new Date(me.lastReadAt).getTime()
+            : null;
 
         if (lastReadTime && c.lastMessageAt) {
           if (new Date(c.lastMessageAt).getTime() > lastReadTime) {
@@ -147,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         localStorage.setItem(key, JSON.stringify(updated));
         setUnreadTicketCount(updated.length);
         window.dispatchEvent(new Event('unread_tickets_updated'));
-      } catch {}
+      } catch { }
     };
 
     const handleTicketCommented = (data: any) => {
@@ -159,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         localStorage.setItem(key, JSON.stringify(updated));
         setUnreadTicketCount(updated.length);
         window.dispatchEvent(new Event('unread_tickets_updated'));
-      } catch {}
+      } catch { }
     };
 
     const handleChatUpdated = () => {
@@ -355,167 +355,190 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
 
   const userRoles = user?.roles || [];
   const primaryRole = userRoles[0] || 'USER';
+  const isClient = Boolean(user?.clientOrganization || user?.kind === 'CUSTOMER');
 
   return (
     <>
       <aside className={`app-sidebar${isOpen ? ' sidebar-open' : ''}`}>
         <div className="sidebar-header">
-        <ZohoDeskLogo size={32} showText={true} />
-        {onClose && (
-          <button className="sidebar-close-btn" onClick={onClose} title="Close sidebar">
-            <X size={18} />
-          </button>
-        )}
-      </div>
-
-      <nav className="sidebar-nav">
-        <div className="nav-section-title">Support Operations</div>
-        {navItems.map((item) => {
-          const isTenantAdmin =
-            userRoles.includes('TENANT_ADMIN') ||
-            userRoles.includes('ADMIN') ||
-            userRoles.includes('PLATFORM_ADMIN');
-
-          let isAllowed = false;
-          if (isTenantAdmin) {
-            isAllowed = true;
-          } else if (item.permissions && user?.permissions && user.permissions.length > 0) {
-            isAllowed =
-              item.permissions.some((p) => user.permissions!.includes(p)) ||
-              item.roles.some((r) => userRoles.includes(r));
-          } else {
-            isAllowed = item.roles.some((r) => userRoles.includes(r));
-          }
-          if (!isAllowed) return null;
-
-          const isActive = location.pathname.startsWith(item.path);
-          const Icon = item.icon;
-          const badgeCount =
-            item.path === '/inbox'
-              ? unreadTicketCount
-              : item.path === '/chat'
-              ? unreadChatCount
-              : 0;
-
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`nav-item ${isActive ? 'active' : ''}`}
-              onClick={onClose}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                <Icon size={18} style={{ flexShrink: 0 }} />
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {item.title}
-                </span>
-              </div>
-              {badgeCount > 0 && (
-                <span
-                  style={{
-                    backgroundColor: '#ef4444',
-                    color: '#ffffff',
-                    fontSize: '10px',
-                    fontWeight: 800,
-                    height: '18px',
-                    minWidth: '18px',
-                    padding: '0 5px',
-                    borderRadius: '10px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    lineHeight: 1,
-                    boxShadow: '0 1px 3px rgba(239, 68, 68, 0.45)',
-                    flexShrink: 0,
-                  }}
-                >
-                  {badgeCount > 999 ? '999+' : badgeCount}
-                </span>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="sidebar-footer">
-        <div
-          className="user-avatar"
-          onClick={() => setIsProfileOpen(true)}
-          style={{ cursor: 'pointer' }}
-          title="View Profile"
-        >
-          {user?.avatarUrl ? (
-            <img
-              src={user.avatarUrl}
-              alt={user.fullName || 'User'}
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
-          ) : null}
-          {!user?.avatarUrl && (
-            user?.fullName ? user.fullName.slice(0, 2).toUpperCase() : 'AD'
+          <ZohoDeskLogo size={32} showText={true} />
+          {onClose && (
+            <button className="sidebar-close-btn" onClick={onClose} title="Close sidebar">
+              <X size={18} />
+            </button>
           )}
         </div>
-        <div
-          className="user-info"
-          onClick={() => setIsProfileOpen(true)}
-          style={{ cursor: 'pointer' }}
-          title="View Profile"
-        >
-          <div className="user-name">{user?.fullName || 'Support Agent'}</div>
-          <div className="user-role-badge">{primaryRole.replace(/_/g, ' ')}</div>
-        </div>
-        <div style={{ display: 'flex', gap: '4px' }}>
-          <button
-            onClick={() => {
-              if (!isAdmin) setActiveSettingsTab('theme');
-              setIsSettingsOpen(true);
-            }}
-            title="Console Settings"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              padding: '6px',
-              display: 'flex',
-              alignItems: 'center',
-              borderRadius: 'var(--radius-sm)',
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+
+
+        <nav className="sidebar-nav">
+          <div className="nav-section-title">{isClient ? 'Client Desk' : 'Support Operations'}</div>
+          {navItems.map((item) => {
+            if (isClient && item.path !== '/inbox') return null;
+
+            const isTenantAdmin =
+              userRoles.includes('TENANT_ADMIN') ||
+              userRoles.includes('ADMIN') ||
+              userRoles.includes('PLATFORM_ADMIN');
+
+            let isAllowed = false;
+            if (isTenantAdmin) {
+              isAllowed = true;
+            } else if (item.permissions && user?.permissions && user.permissions.length > 0) {
+              isAllowed =
+                item.permissions.some((p) => user.permissions!.includes(p)) ||
+                item.roles.some((r) => userRoles.includes(r));
+            } else {
+              isAllowed = item.roles.some((r) => userRoles.includes(r));
+            }
+            if (!isAllowed) return null;
+
+            const isActive = location.pathname.startsWith(item.path);
+            const Icon = item.icon;
+            const badgeCount =
+              item.path === '/inbox'
+                ? unreadTicketCount
+                : item.path === '/chat'
+                  ? unreadChatCount
+                  : 0;
+
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`nav-item ${isActive ? 'active' : ''}`}
+                onClick={onClose}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <Icon size={18} style={{ flexShrink: 0 }} />
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {item.title}
+                  </span>
+                </div>
+                {badgeCount > 0 && (
+                  <span
+                    style={{
+                      backgroundColor: '#ef4444',
+                      color: '#ffffff',
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      height: '18px',
+                      minWidth: '18px',
+                      padding: '0 5px',
+                      borderRadius: '10px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      lineHeight: 1,
+                      boxShadow: '0 1px 3px rgba(239, 68, 68, 0.45)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {badgeCount > 999 ? '999+' : badgeCount}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="sidebar-footer">
+          <div
+            className="user-avatar"
+            onClick={() => setIsProfileOpen(true)}
+            style={{ cursor: 'pointer' }}
+            title="View Profile"
           >
-            <Settings size={16} />
-          </button>
-          <button
-            onClick={() => setIsLogoutModalOpen(true)}
-            title="Sign out"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              padding: '6px',
-              display: 'flex',
-              alignItems: 'center',
-              borderRadius: 'var(--radius-sm)',
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            {user?.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt={user.fullName || 'User'}
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : null}
+            {!user?.avatarUrl && (
+              user?.fullName ? user.fullName.slice(0, 2).toUpperCase() : 'AD'
+            )}
+          </div>
+          <div
+            className="user-info"
+            onClick={() => setIsProfileOpen(true)}
+            style={{ cursor: 'pointer' }}
+            title="View Profile"
           >
-            <LogOut size={16} />
-          </button>
+            <div className="user-name">{user?.fullName || (isClient ? 'Client User' : 'Support Agent')}</div>
+            <div
+              className="user-role-badge"
+              style={
+                isClient
+                  ? {
+                    maxWidth: '150px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    color: '#0284c7',
+                    fontWeight: 600,
+                  }
+                  : undefined
+              }
+              title={isClient ? user?.clientOrganization || 'Client Organization' : primaryRole.replace(/_/g, ' ')}
+            >
+              {isClient ? (user?.clientOrganization || 'Client Organization') : primaryRole.replace(/_/g, ' ')}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {!isClient && (
+              <button
+                onClick={() => {
+                  if (!isAdmin) setActiveSettingsTab('theme');
+                  setIsSettingsOpen(true);
+                }}
+                title="Console Settings"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  borderRadius: 'var(--radius-sm)',
+                  transition: 'color 0.15s',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              >
+                <Settings size={16} />
+              </button>
+            )}
+            <button
+              onClick={() => setIsLogoutModalOpen(true)}
+              title="Sign out"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                borderRadius: 'var(--radius-sm)',
+                transition: 'color 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
         </div>
-      </div>
-    </aside>
+      </aside>
 
       <Modal
         isOpen={isSettingsOpen}
@@ -539,10 +562,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
               { id: 'theme' as const, label: 'Console Theme', icon: Palette },
               ...(isAdmin
                 ? [
-                    { id: 'api-keys' as const, label: 'API Keys', icon: Key },
-                    { id: 'webhooks' as const, label: 'Webhooks', icon: Webhook },
-                    { id: 'compliance' as const, label: 'GDPR Compliance', icon: Shield },
-                  ]
+                  { id: 'api-keys' as const, label: 'API Keys', icon: Key },
+                  { id: 'webhooks' as const, label: 'Webhooks', icon: Webhook },
+                  { id: 'compliance' as const, label: 'GDPR Compliance', icon: Shield },
+                ]
                 : []),
             ].map((tab) => {
               const Icon = tab.icon;

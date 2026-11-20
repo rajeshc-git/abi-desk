@@ -329,6 +329,7 @@ export const InboxPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, activeBrandId } = useAuth();
   const toast = useToast();
+  const isClient = Boolean(user?.clientOrganization || user?.kind === 'CUSTOMER');
 
   const handleDownloadMedia = async (mediaId: string, filename: string, e?: React.MouseEvent) => {
     if (e) {
@@ -444,7 +445,7 @@ export const InboxPage: React.FC = () => {
       const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
       const stored = new Set<string>(JSON.parse(localStorage.getItem(key) || '[]'));
       setUnreadTicketIds(stored);
-    } catch {}
+    } catch { }
   }, [user?.id]);
 
   useEffect(() => {
@@ -452,11 +453,11 @@ export const InboxPage: React.FC = () => {
       const key = user?.id ? `unread_ticket_ids_${user.id}` : 'unread_ticket_ids';
       localStorage.setItem(key, JSON.stringify(Array.from(unreadTicketIds)));
       window.dispatchEvent(new Event('unread_tickets_updated'));
-    } catch {}
+    } catch { }
   }, [unreadTicketIds, user?.id]);
 
   // Filters
-  const [statusFilter, setStatusFilter] = useState<string>('ALL_OPEN');
+  const [statusFilter, setStatusFilter] = useState<string>(isClient ? 'ALL' : 'ALL_OPEN');
   const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [tierFilter, setTierFilter] = useState<string>('');
   const {
@@ -470,6 +471,12 @@ export const InboxPage: React.FC = () => {
     selectedProduct,
     setSelectedProduct,
   } = useSearch();
+
+  useEffect(() => {
+    if (user?.clientOrganization && selectedOrganization !== user.clientOrganization) {
+      setSelectedOrganization(user.clientOrganization);
+    }
+  }, [user?.clientOrganization, selectedOrganization, setSelectedOrganization]);
 
   useEffect(() => {
     loadTickets();
@@ -555,13 +562,14 @@ export const InboxPage: React.FC = () => {
   }, [selectedTicket?.id]);
 
   // Sort comments descending (newest first)
-  const sortedComments = React.useMemo(
-    () =>
-      [...selectedComments].sort(
-        (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      ),
-    [selectedComments],
-  );
+  const sortedComments = React.useMemo(() => {
+    const list = isClient
+      ? selectedComments.filter((c: any) => c.visibility !== 'INTERNAL')
+      : selectedComments;
+    return [...list].sort(
+      (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [selectedComments, isClient]);
 
   // Synchronize initial expanded states: when replies exist, collapse description and expand latest reply
   useEffect(() => {
@@ -737,7 +745,7 @@ export const InboxPage: React.FC = () => {
             const list = res?.comments || res?.items || (Array.isArray(res) ? res : []);
             setSelectedComments(filterConversationComments(list));
           })
-          .catch(() => {});
+          .catch(() => { });
       } else {
         setTickets((currentTickets) => {
           if (currentTickets.some((t) => t.id === data.ticketId)) {
@@ -785,7 +793,9 @@ export const InboxPage: React.FC = () => {
             : undefined,
       };
 
-      if (statusFilter === 'ALL_OPEN') {
+      if (statusFilter === 'ALL') {
+        // All tickets belonging to client or tenant without status restriction
+      } else if (statusFilter === 'ALL_OPEN') {
         params.openOnly = 'true';
       } else if (statusFilter === 'UNASSIGNED') {
         params.unassigned = 'true';
@@ -866,7 +876,9 @@ export const InboxPage: React.FC = () => {
             : undefined,
       };
 
-      if (statusFilter === 'ALL_OPEN') {
+      if (statusFilter === 'ALL') {
+        // All tickets belonging to client or tenant without status restriction
+      } else if (statusFilter === 'ALL_OPEN') {
         params.openOnly = 'true';
       } else if (statusFilter === 'UNASSIGNED') {
         params.unassigned = 'true';
@@ -919,7 +931,7 @@ export const InboxPage: React.FC = () => {
       setSelectedTicket((prev) => (prev?.id === t.id ? prev : t));
       try {
         sessionStorage.setItem('last_selected_ticket_id', t.id);
-      } catch {}
+      } catch { }
       setSearchParams(
         (prev) => {
           if (prev.get('ticketId') === t.id) return prev;
@@ -960,7 +972,7 @@ export const InboxPage: React.FC = () => {
             .then((t) => {
               if (t) setSelectedTicket(t);
             })
-            .catch(() => {});
+            .catch(() => { });
         }
       }
     }
@@ -1076,13 +1088,13 @@ export const InboxPage: React.FC = () => {
         const list = res?.comments || res?.items || (Array.isArray(res) ? res : []);
         setSelectedComments(filterConversationComments(list));
       })
-      .catch(() => {});
+      .catch(() => { });
 
     ApiClient.get<MediaAssetItem[]>(`/tickets/${ticketId}/media`)
       .then((media) => {
         if (Array.isArray(media)) setSelectedMedia(media);
       })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   const handleConfirmTierTransfer = async (reason: string, attachmentIds?: string[]) => {
@@ -1153,6 +1165,7 @@ export const InboxPage: React.FC = () => {
     }
   };
   const canChangePriority =
+    !isClient &&
     !!user &&
     Boolean(
       user.roles?.some((r: string) =>
@@ -1188,10 +1201,10 @@ export const InboxPage: React.FC = () => {
         prev.map((t) =>
           t.id === selectedTicket.id
             ? {
-                ...t,
-                status: res?.status || (t.status === 'NEW' ? 'OPEN' : t.status),
-                assignee: newAssignee,
-              }
+              ...t,
+              status: res?.status || (t.status === 'NEW' ? 'OPEN' : t.status),
+              assignee: newAssignee,
+            }
             : t,
         ),
       );
@@ -1230,9 +1243,11 @@ export const InboxPage: React.FC = () => {
               )}
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={() => setIsCreateOpen(true)} className="btn btn-primary btn-sm">
-                <Plus size={14} /> New Ticket
-              </button>
+              {!isClient && (
+                <button onClick={() => setIsCreateOpen(true)} className="btn btn-primary btn-sm">
+                  <Plus size={14} /> New Ticket
+                </button>
+              )}
               <button
                 onClick={() => loadTickets(true)}
                 className="btn btn-secondary btn-sm"
@@ -1246,13 +1261,20 @@ export const InboxPage: React.FC = () => {
 
           {/* Status Tabs Segmented Control */}
           <div className="inbox-status-tabs-container">
-            {[
-              { id: 'ALL_OPEN', label: 'All Open' },
-              { id: 'UNASSIGNED', label: 'Unassigned' },
-              { id: 'MY_TICKETS', label: 'My Tickets' },
-              { id: 'ESCALATED', label: 'Escalated' },
-              { id: 'RESOLVED', label: 'Resolved' },
-            ].map((tab) => (
+            {(isClient
+              ? [
+                { id: 'ALL', label: 'All Tickets' },
+                { id: 'ALL_OPEN', label: 'Open' },
+                { id: 'RESOLVED', label: 'Resolved' },
+              ]
+              : [
+                { id: 'ALL_OPEN', label: 'All Open' },
+                { id: 'UNASSIGNED', label: 'Unassigned' },
+                { id: 'MY_TICKETS', label: 'My Tickets' },
+                { id: 'ESCALATED', label: 'Escalated' },
+                { id: 'RESOLVED', label: 'Resolved' },
+              ]
+            ).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setStatusFilter(tab.id)}
@@ -1265,7 +1287,7 @@ export const InboxPage: React.FC = () => {
         </div>
 
         {/* Bulk Action Toolbar */}
-        {selectedIds.size > 0 && (
+        {!isClient && selectedIds.size > 0 && (
           <div
             style={{
               padding: '8px 16px',
@@ -1365,19 +1387,21 @@ export const InboxPage: React.FC = () => {
                     width: '100%',
                   }}
                 >
-                  <button
-                    onClick={(e) => toggleSelectTicket(t.id, e)}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      padding: '0 8px 0 12px',
-                      color: selectedIds.has(t.id) ? 'var(--primary)' : 'var(--text-muted)',
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {selectedIds.has(t.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                  </button>
+                  {!isClient && (
+                    <button
+                      onClick={(e) => toggleSelectTicket(t.id, e)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '0 8px 0 12px',
+                        color: selectedIds.has(t.id) ? 'var(--primary)' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {selectedIds.has(t.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                    </button>
+                  )}
                   <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <TicketCard
                       ticket={t}
@@ -1503,900 +1527,937 @@ export const InboxPage: React.FC = () => {
               }}
             >
               {/* Top Toolbar (Single Sleek Row Dock) */}
-            <div
-              ref={headerToolbarRef}
-              className={`ticket-header-toolbar card ${isHeaderOverflowing ? 'header-compact-workspace' : ''}`}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '6px 10px',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '8px',
-                backgroundColor: 'var(--bg-surface)',
-                gap: '8px',
-                flexShrink: 0,
-                margin: 0,
-                flexWrap: 'nowrap',
-                position: 'relative',
-                zIndex: 40,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                <button
-                  onClick={() => {
-                    setSelectedTicket(null);
-                    try {
-                      sessionStorage.removeItem('last_selected_ticket_id');
-                    } catch {}
-                    setSearchParams(
-                      (prev) => {
-                        const next = new URLSearchParams(prev);
-                        next.delete('ticketId');
-                        return next;
-                      },
-                      { replace: true }
-                    );
-                  }}
-                  className="ticket-header-back-btn mobile-only-back-btn"
-                  title="Back to Ticket List"
-                >
-                  <ArrowLeft size={16} />
-                </button>
-                <span className="ticket-id-badge">
-                  #{selectedTicket.number}
-                </span>
-
-                <div className="desktop-only-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <PriorityPopover
-                    priority={selectedTicket.priority}
-                    onPriorityChange={handlePriorityChange}
-                    disabled={!canChangePriority}
-                    align="left"
-                  />
-                  <TicketCategoryManager
-                    ticketId={selectedTicket.id}
-                    category={selectedTicket.category}
-                    onCategoryChange={(newCategory) => {
-                      setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
-                      setTickets((prev) =>
-                        prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
-                      );
-                    }}
-                  />
-                  <TicketTagManager
-                    ticketId={selectedTicket.id}
-                    tags={selectedTicket.tags}
-                    maxVisible={2}
-                    onTagsChange={(newTags) => {
-                      setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
-                      setTickets((prev) =>
-                        prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
-                      );
-                    }}
-                  />
-                  {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
-                    <span
-                      className="pill-badge"
-                      style={{
-                        backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                        color: '#0284c7',
-                        border: '1px solid rgba(56, 189, 248, 0.25)',
-                        whiteSpace: 'nowrap',
-                        maxWidth: '130px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                      title={`Organization: ${(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}`}
-                    >
-                      🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
-                    </span>
-                  )}
-                  {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
-                    <span
-                      className="pill-badge"
-                      style={{
-                        backgroundColor: 'rgba(168, 85, 247, 0.12)',
-                        color: '#9333ea',
-                        border: '1px solid rgba(168, 85, 247, 0.25)',
-                        whiteSpace: 'nowrap',
-                        maxWidth: '110px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                      title={`Product: ${(selectedTicket as any).customFields?.product || (selectedTicket as any).product}`}
-                    >
-                      📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: 'auto' }}>
-                <StatusPopover
-                  status={selectedTicket.status}
-                  onStatusChange={handleQuickStatusChange}
-                  align="right"
-                />
-
-                {/* 9-Dots Grid Quick Actions Button (Mobile & Tablet) */}
-                <button
-                  type="button"
-                  className="mobile-quick-actions-btn"
-                  onClick={() => setIsMobileQuickActionsOpen(true)}
-                  title="Ticket Quick Actions"
-                >
-                  <Grid size={16} />
-                </button>
-
-                <div className="desktop-only-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <TierPopover
-                    tier={selectedTicket.tier}
-                    onTierSelect={handleTierEscalate}
-                    align="right"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => navigate(`/tickets/${selectedTicket.id}`)}
-                  className={`btn btn-primary ticket-workspace-btn ${isHeaderOverflowing ? 'icon-only-btn' : ''}`}
-                  title="Open Full Workspace"
-                >
-                  <ExternalLink size={13} />
-                  <span className="ticket-workspace-btn-text">Open Full Workspace</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Mobile Quick Action Bottom Sheet for Inbox Screen */}
-            <div className={`mobile-action-sheet ${isMobileQuickActionsOpen ? 'open' : ''}`}>
-              <div className="mobile-action-backdrop" onClick={() => setIsMobileQuickActionsOpen(false)} />
-              <div className="mobile-action-drawer">
-                <div className="mobile-action-drawer-header">
-                  <div className="mobile-action-drawer-title">
-                    <Zap size={18} color="var(--primary, #2563eb)" />
-                    <span>Ticket Quick Actions</span>
-                  </div>
+              <div
+                ref={headerToolbarRef}
+                className={`ticket-header-toolbar card ${isHeaderOverflowing ? 'header-compact-workspace' : ''}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 10px',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--bg-surface)',
+                  gap: '8px',
+                  flexShrink: 0,
+                  margin: 0,
+                  flexWrap: 'nowrap',
+                  position: 'relative',
+                  zIndex: 40,
+                  overflow: 'visible',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'visible' }}>
                   <button
-                    type="button"
-                    className="mobile-action-drawer-close"
-                    onClick={() => setIsMobileQuickActionsOpen(false)}
+                    onClick={() => {
+                      setSelectedTicket(null);
+                      try {
+                        sessionStorage.removeItem('last_selected_ticket_id');
+                      } catch { }
+                      setSearchParams(
+                        (prev) => {
+                          const next = new URLSearchParams(prev);
+                          next.delete('ticketId');
+                          return next;
+                        },
+                        { replace: true }
+                      );
+                    }}
+                    className="ticket-header-back-btn mobile-only-back-btn"
+                    title="Back to Ticket List"
                   >
-                    <X size={16} />
+                    <ArrowLeft size={16} />
                   </button>
-                </div>
+                  <span className="ticket-id-badge">
+                    #{selectedTicket.number}
+                  </span>
 
-                {/* Priority & Tier Section */}
-                <div className="mobile-action-section">
-                  <span className="mobile-action-section-title">Priority & Tier</span>
-                  <div className="mobile-action-pills-row">
-                    <PriorityPopover
-                      priority={selectedTicket.priority}
-                      onPriorityChange={handlePriorityChange}
-                      disabled={!canChangePriority}
-                      align="left"
-                    />
-                    <TierPopover
-                      tier={selectedTicket.tier}
-                      onTierSelect={handleTierEscalate}
-                      align="left"
-                    />
+                  <div className="desktop-only-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    {isClient ? (
+                      <PriorityPill priority={selectedTicket.priority} />
+                    ) : (
+                      <PriorityPopover
+                        priority={selectedTicket.priority}
+                        onPriorityChange={handlePriorityChange}
+                        disabled={!canChangePriority}
+                        align="left"
+                      />
+                    )}
+                    {isClient ? (
+                      selectedTicket.category ? (
+                        <span className="pill-badge" style={{ backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
+                          📂 {selectedTicket.category}
+                        </span>
+                      ) : null
+                    ) : (
+                      <TicketCategoryManager
+                        ticketId={selectedTicket.id}
+                        category={selectedTicket.category}
+                        onCategoryChange={(newCategory) => {
+                          setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
+                          setTickets((prev) =>
+                            prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
+                          );
+                        }}
+                      />
+                    )}
+                    {isClient ? (
+                      (selectedTicket.tags || []).map((t: any) => (
+                        <span
+                          key={t.id || t.slug}
+                          className="pill-badge"
+                          style={{ backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' }}
+                        >
+                          🏷️ {t.name}
+                        </span>
+                      ))
+                    ) : (
+                      <TicketTagManager
+                        ticketId={selectedTicket.id}
+                        tags={selectedTicket.tags}
+                        maxVisible={2}
+                        onTagsChange={(newTags) => {
+                          setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
+                          setTickets((prev) =>
+                            prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
+                          );
+                        }}
+                      />
+                    )}
+                    {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
+                      <span
+                        className="pill-badge"
+                        style={{
+                          backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                          color: '#0284c7',
+                          border: '1px solid rgba(56, 189, 248, 0.25)',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '130px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={`Organization: ${(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}`}
+                      >
+                        🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
+                      </span>
+                    )}
+                    {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
+                      <span
+                        className="pill-badge"
+                        style={{
+                          backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                          color: '#9333ea',
+                          border: '1px solid rgba(168, 85, 247, 0.25)',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '110px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={`Product: ${(selectedTicket as any).customFields?.product || (selectedTicket as any).product}`}
+                      >
+                        📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                {/* Category & Tags Section */}
-                <div className="mobile-action-section">
-                  <span className="mobile-action-section-title">Category & Tags</span>
-                  <div className="mobile-action-pills-row">
-                    <TicketCategoryManager
-                      ticketId={selectedTicket.id}
-                      category={selectedTicket.category}
-                      onCategoryChange={(newCategory) => {
-                        setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
-                        setTickets((prev) =>
-                          prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
-                        );
-                      }}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, marginLeft: 'auto' }}>
+                  {isClient ? (
+                    <StatusBadge status={selectedTicket.status} />
+                  ) : (
+                    <StatusPopover
+                      status={selectedTicket.status}
+                      onStatusChange={handleQuickStatusChange}
+                      align="right"
                     />
-                    <TicketTagManager
-                      ticketId={selectedTicket.id}
-                      tags={selectedTicket.tags}
-                      maxVisible={3}
-                      onTagsChange={(newTags) => {
-                        setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
-                        setTickets((prev) =>
-                          prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
-                        );
-                      }}
-                    />
-                  </div>
-                </div>
+                  )}
 
-                {/* Assignment Section */}
-                <div className="mobile-action-section">
-                  <span className="mobile-action-section-title">Assignment</span>
-                  <div className="mobile-action-pills-row">
-                    <AssignmentPopover
-                      ticketId={selectedTicket.id}
-                      currentAssignee={
-                        (selectedTicket as any).assignee
-                          ? {
+                  {/* 9-Dots Grid Quick Actions Button (Mobile & Tablet) */}
+                  {!isClient && (
+                    <button
+                      type="button"
+                      className="mobile-quick-actions-btn"
+                      onClick={() => setIsMobileQuickActionsOpen(true)}
+                      title="Ticket Quick Actions"
+                    >
+                      <Grid size={16} />
+                    </button>
+                  )}
+
+                  {!isClient && (
+                    <div className="desktop-only-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <TierPopover
+                        tier={selectedTicket.tier}
+                        onTierSelect={handleTierEscalate}
+                        align="right"
+                      />
+                    </div>
+                  )}
+
+                  {!isClient && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/tickets/${selectedTicket.id}`)}
+                      className={`btn btn-primary ticket-workspace-btn ${isHeaderOverflowing ? 'icon-only-btn' : ''}`}
+                      title="Open Full Workspace"
+                    >
+                      <ExternalLink size={13} />
+                      <span className="ticket-workspace-btn-text">Open Full Workspace</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Mobile Quick Action Bottom Sheet for Inbox Screen */}
+              <div className={`mobile-action-sheet ${isMobileQuickActionsOpen ? 'open' : ''}`}>
+                <div className="mobile-action-backdrop" onClick={() => setIsMobileQuickActionsOpen(false)} />
+                <div className="mobile-action-drawer">
+                  <div className="mobile-action-drawer-header">
+                    <div className="mobile-action-drawer-title">
+                      <Zap size={18} color="var(--primary, #2563eb)" />
+                      <span>Ticket Quick Actions</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="mobile-action-drawer-close"
+                      onClick={() => setIsMobileQuickActionsOpen(false)}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  {/* Priority & Tier Section */}
+                  <div className="mobile-action-section">
+                    <span className="mobile-action-section-title">Priority & Tier</span>
+                    <div className="mobile-action-pills-row">
+                      <PriorityPopover
+                        priority={selectedTicket.priority}
+                        onPriorityChange={handlePriorityChange}
+                        disabled={!canChangePriority}
+                        align="left"
+                      />
+                      <TierPopover
+                        tier={selectedTicket.tier}
+                        onTierSelect={handleTierEscalate}
+                        align="left"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Category & Tags Section */}
+                  <div className="mobile-action-section">
+                    <span className="mobile-action-section-title">Category & Tags</span>
+                    <div className="mobile-action-pills-row">
+                      <TicketCategoryManager
+                        ticketId={selectedTicket.id}
+                        category={selectedTicket.category}
+                        onCategoryChange={(newCategory) => {
+                          setSelectedTicket((prev: any) => ({ ...prev, category: newCategory }));
+                          setTickets((prev) =>
+                            prev.map((t) => (t.id === selectedTicket.id ? { ...t, category: newCategory } : t)),
+                          );
+                        }}
+                      />
+                      <TicketTagManager
+                        ticketId={selectedTicket.id}
+                        tags={selectedTicket.tags}
+                        maxVisible={3}
+                        onTagsChange={(newTags) => {
+                          setSelectedTicket((prev: any) => ({ ...prev, tags: newTags }));
+                          setTickets((prev) =>
+                            prev.map((t) => (t.id === selectedTicket.id ? { ...t, tags: newTags } : t)),
+                          );
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Assignment Section */}
+                  <div className="mobile-action-section">
+                    <span className="mobile-action-section-title">Assignment</span>
+                    <div className="mobile-action-pills-row">
+                      <AssignmentPopover
+                        ticketId={selectedTicket.id}
+                        currentAssignee={
+                          (selectedTicket as any).assignee
+                            ? {
                               id: (selectedTicket as any).assignee.id || (selectedTicket as any).assigneeId || '',
                               fullName: (selectedTicket as any).assignee.fullName,
                               email: (selectedTicket as any).assignee.email || '',
                             }
-                          : null
-                      }
-                      currentTeam={(selectedTicket as any).team || null}
-                      currentTier={selectedTicket.tier}
-                      ticketProduct={(selectedTicket as any).customFields?.product || (selectedTicket as any).product || null}
-                      align="left"
-                      onAssigned={(res) => {
-                        setSelectedTicket((prev: any) => ({
-                          ...prev,
-                          ...(res.assignee !== undefined ? { assignee: res.assignee } : {}),
-                          ...(res.team !== undefined ? { team: res.team } : {}),
-                          ...(res.status ? { status: res.status } : {}),
-                        }));
-                        setTickets((prev) =>
-                          prev.map((t) =>
-                            t.id === selectedTicket.id
-                              ? {
+                            : null
+                        }
+                        currentTeam={(selectedTicket as any).team || null}
+                        currentTier={selectedTicket.tier}
+                        ticketProduct={(selectedTicket as any).customFields?.product || (selectedTicket as any).product || null}
+                        align="left"
+                        onAssigned={(res) => {
+                          setSelectedTicket((prev: any) => ({
+                            ...prev,
+                            ...(res.assignee !== undefined ? { assignee: res.assignee } : {}),
+                            ...(res.team !== undefined ? { team: res.team } : {}),
+                            ...(res.status ? { status: res.status } : {}),
+                          }));
+                          setTickets((prev) =>
+                            prev.map((t) =>
+                              t.id === selectedTicket.id
+                                ? {
                                   ...t,
                                   ...(res.assignee !== undefined ? { assignee: res.assignee } : {}),
                                   ...(res.team !== undefined ? { team: res.team } : {}),
                                   ...(res.status ? { status: res.status } : {}),
                                 }
-                              : t,
-                          ),
-                        );
-                      }}
-                    />
-                    {!isAdmin && (!selectedTicket.assignee || (selectedTicket.assignee as any).id !== user?.id) && (
-                      <button
-                        onClick={handleAssignToMe}
-                        className="ticket-action-pill"
-                        title="Assign to Myself"
-                      >
-                        <UserCheck size={14} /> Assign to Me
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Organization & Product Section */}
-                {(((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) ||
-                  ((selectedTicket as any).customFields?.product || (selectedTicket as any).product)) && (
-                  <div className="mobile-action-section">
-                    <span className="mobile-action-section-title">Client & Product</span>
-                    <div className="mobile-action-pills-row">
-                      {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
-                        <span
-                          className="pill-badge"
-                          style={{
-                            backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                            color: '#0284c7',
-                            border: '1px solid rgba(56, 189, 248, 0.25)',
-                          }}
-                          title="Organization"
+                                : t,
+                            ),
+                          );
+                        }}
+                      />
+                      {!isAdmin && (!selectedTicket.assignee || (selectedTicket.assignee as any).id !== user?.id) && (
+                        <button
+                          onClick={handleAssignToMe}
+                          className="ticket-action-pill"
+                          title="Assign to Myself"
                         >
-                          🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
-                        </span>
-                      )}
-                      {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
-                        <span
-                          className="pill-badge"
-                          style={{
-                            backgroundColor: 'rgba(168, 85, 247, 0.12)',
-                            color: '#9333ea',
-                            border: '1px solid rgba(168, 85, 247, 0.25)',
-                          }}
-                          title="Product"
-                        >
-                          📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
-                        </span>
+                          <UserCheck size={14} /> Assign to Me
+                        </button>
                       )}
                     </div>
                   </div>
-                )}
-              </div>
-            </div>
 
-            {/* Ticket Subject Title Banner */}
-            <div
-              style={{
-                padding: '12px 16px 10px',
-                borderBottom: '1px solid var(--border-subtle)',
-                backgroundColor: 'var(--bg-surface)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px',
-                flexShrink: 0,
-              }}
-            >
-              <h1
-                style={{
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: 'var(--text-primary)',
-                  margin: 0,
-                  lineHeight: 1.35,
-                  wordBreak: 'break-word',
-                }}
-              >
-                {selectedTicket.subject}
-              </h1>
+                  {/* Organization & Product Section */}
+                  {(((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) ||
+                    ((selectedTicket as any).customFields?.product || (selectedTicket as any).product)) && (
+                      <div className="mobile-action-section">
+                        <span className="mobile-action-section-title">Client & Product</span>
+                        <div className="mobile-action-pills-row">
+                          {((selectedTicket as any).customFields?.organization || (selectedTicket as any).organization) && (
+                            <span
+                              className="pill-badge"
+                              style={{
+                                backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                                color: '#0284c7',
+                                border: '1px solid rgba(56, 189, 248, 0.25)',
+                              }}
+                              title="Organization"
+                            >
+                              🏢 {(selectedTicket as any).customFields?.organization || (selectedTicket as any).organization}
+                            </span>
+                          )}
+                          {((selectedTicket as any).customFields?.product || (selectedTicket as any).product) && (
+                            <span
+                              className="pill-badge"
+                              style={{
+                                backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                                color: '#9333ea',
+                                border: '1px solid rgba(168, 85, 247, 0.25)',
+                              }}
+                              title="Product"
+                            >
+                              📦 {(selectedTicket as any).customFields?.product || (selectedTicket as any).product}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                </div>
+              </div>
+
+              {/* Ticket Subject Title Banner */}
               <div
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '12px',
-                  color: 'var(--text-secondary)',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <span>
-                  From <strong style={{ color: 'var(--text-primary)' }}>{selectedTicket.requester?.fullName || selectedTicket.requester?.email || 'Customer'}</strong>
-                  {selectedTicket.requester?.email ? ` (${selectedTicket.requester.email})` : ''}
-                </span>
-                {selectedTicket.createdAt && (
-                  <>
-                    <span style={{ opacity: 0.5 }}>•</span>
-                    <span>{new Date(selectedTicket.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', hour12: true })}</span>
-                  </>
-                )}
-                {selectedTicket.channel && (
-                  <>
-                    <span style={{ opacity: 0.5 }}>•</span>
-                    <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>via {selectedTicket.channel.toLowerCase()}</span>
-                  </>
-                )}
-                {((selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl) && (
-                  <>
-                    <span style={{ opacity: 0.5 }}>•</span>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '12px',
-                        color: 'var(--text-secondary)',
-                      }}
-                    >
-                      <Globe size={11} style={{ color: 'var(--primary)' }} />
-                      <span style={{ fontWeight: 600 }}>Origin:</span>{' '}
-                      <a
-                        href={(selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: '#2563eb', textDecoration: 'underline' }}
-                      >
-                        {(selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl}
-                      </a>
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Merged Secondary Tickets Banner (When viewing a Master Ticket) */}
-            {((selectedTicket as any).linksTo?.filter((l: any) => l.type === 'MERGED_INTO') || []).length > 0 && (
-              <div
-                style={{
-                  padding: '10px 16px',
-                  backgroundColor: 'rgba(37, 99, 235, 0.05)',
-                  borderBottom: '1px solid rgba(37, 99, 235, 0.15)',
+                  padding: '12px 16px 10px',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--bg-surface)',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '6px',
+                  gap: '4px',
                   flexShrink: 0,
-                  maxHeight: '420px',
-                  overflowY: 'auto',
                 }}
               >
+                <h1
+                  style={{
+                    fontSize: '16px',
+                    fontWeight: 700,
+                    color: 'var(--text-primary)',
+                    margin: 0,
+                    lineHeight: 1.35,
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {selectedTicket.subject}
+                </h1>
                 <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
                     fontSize: '12px',
-                    fontWeight: 700,
-                    color: 'var(--primary)',
+                    color: 'var(--text-secondary)',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <GitMerge size={14} />
                   <span>
-                    Merged Tickets (
-                    {
-                      (selectedTicket as any).linksTo.filter((l: any) => l.type === 'MERGED_INTO')
-                        .length
-                    }
-                    )
+                    From <strong style={{ color: 'var(--text-primary)' }}>{selectedTicket.requester?.fullName || selectedTicket.requester?.email || 'Customer'}</strong>
+                    {selectedTicket.requester?.email ? ` (${selectedTicket.requester.email})` : ''}
                   </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(selectedTicket as any).linksTo
-                    .filter((l: any) => l.type === 'MERGED_INTO')
-                    .map((link: any) => {
-                      const secId = link.source?.id || link.fromTicketId;
-                      const isExpanded = expandedMergedTicketIds.has(secId);
-                      const details = mergedTicketDetails[secId];
-
-                      const handleToggleMergedExpand = async () => {
-                        setExpandedMergedTicketIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(secId)) {
-                            next.delete(secId);
-                          } else {
-                            next.add(secId);
-                          }
-                          return next;
-                        });
-
-                        if (!mergedTicketDetails[secId]?.ticket && !mergedTicketDetails[secId]?.isLoading) {
-                          setMergedTicketDetails((prev) => ({
-                            ...prev,
-                            [secId]: { ticket: null, comments: [], isLoading: true },
-                          }));
-                          try {
-                            const [fullSecTicket, commentsRes, eventsRes] = await Promise.all([
-                              TicketsApi.getById(secId),
-                              ApiClient.get<any>(`/tickets/${secId}/comments?pageSize=100`),
-                              ApiClient.get<any>(`/tickets/${secId}/timeline`).catch(() => ({ events: [] })),
-                            ]);
-                            const rawComments = Array.isArray(commentsRes) ? commentsRes : commentsRes?.comments || [];
-                            let mergeEvent = (eventsRes?.events || []).find((e: any) => e.type === 'MERGED' || e.rawType === 'MERGED');
-                            let mergeNote = mergeEvent?.metadata?.note || null;
-                            let mergedBy = mergeEvent?.actor?.fullName || mergeEvent?.actor?.displayName || mergeEvent?.actorLabel || mergeEvent?.actorName || null;
-
-                            // Fallback: if note wasn't on secondary ticket event, check primary ticket timeline
-                            if (!mergeNote && selectedTicket?.id) {
-                              try {
-                                const primaryTimeline = await ApiClient.get<any>(`/tickets/${selectedTicket.id}/timeline`).catch(() => ({ events: [] }));
-                                const primaryMergeEvent = (primaryTimeline?.events || []).find((e: any) =>
-                                  (e.type === 'MERGED' || e.rawType === 'MERGED') &&
-                                  (e.metadata?.secondaryTicketIds?.includes(secId) || e.metadata?.secondaryTicketNumbers?.includes(fullSecTicket?.number))
-                                );
-                                if (primaryMergeEvent) {
-                                  mergeNote = primaryMergeEvent?.metadata?.note || null;
-                                  mergedBy = primaryMergeEvent?.actor?.fullName || primaryMergeEvent?.actor?.displayName || primaryMergeEvent?.actorLabel || primaryMergeEvent?.actorName || mergedBy;
-                                }
-                              } catch {
-                                // ignore
-                              }
-                            }
-
-                            setMergedTicketDetails((prev) => ({
-                              ...prev,
-                              [secId]: {
-                                ticket: fullSecTicket,
-                                comments: filterConversationComments(rawComments),
-                                mergeNote,
-                                mergedBy,
-                                isLoading: false,
-                              },
-                            }));
-                          } catch {
-                            setMergedTicketDetails((prev) => ({
-                              ...prev,
-                              [secId]: { ticket: null, comments: [], isLoading: false },
-                            }));
-                          }
-                        }
-                      };
-
-                      return (
-                        <div
-                          key={link.id}
-                          style={{
-                            backgroundColor: '#ffffff',
-                            borderRadius: '8px',
-                            border: isExpanded ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-subtle)',
-                            overflow: 'hidden',
-                            boxShadow: isExpanded ? 'var(--shadow-sm)' : 'none',
-                            transition: 'all 0.15s ease',
-                          }}
+                  {selectedTicket.createdAt && (
+                    <>
+                      <span style={{ opacity: 0.5 }}>•</span>
+                      <span>{new Date(selectedTicket.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', hour12: true })}</span>
+                    </>
+                  )}
+                  {selectedTicket.channel && (
+                    <>
+                      <span style={{ opacity: 0.5 }}>•</span>
+                      <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>via {selectedTicket.channel.toLowerCase()}</span>
+                    </>
+                  )}
+                  {((selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl) && (
+                    <>
+                      <span style={{ opacity: 0.5 }}>•</span>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '12px',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        <Globe size={11} style={{ color: 'var(--primary)' }} />
+                        <span style={{ fontWeight: 600 }}>Origin:</span>{' '}
+                        <a
+                          href={(selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#2563eb', textDecoration: 'underline' }}
                         >
+                          {(selectedTicket as any).diagnosticBundle?.pageUrl || (selectedTicket as any).diagnostics?.pageUrl || (selectedTicket as any).customFields?.pageUrl || (selectedTicket as any).customFields?.originUrl}
+                        </a>
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Merged Secondary Tickets Banner (When viewing a Master Ticket) */}
+              {((selectedTicket as any).linksTo?.filter((l: any) => l.type === 'MERGED_INTO') || []).length > 0 && (
+                <div
+                  style={{
+                    padding: '10px 16px',
+                    backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                    borderBottom: '1px solid rgba(37, 99, 235, 0.15)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    flexShrink: 0,
+                    maxHeight: '420px',
+                    overflowY: 'auto',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: 'var(--primary)',
+                    }}
+                  >
+                    <GitMerge size={14} />
+                    <span>
+                      Merged Tickets (
+                      {
+                        (selectedTicket as any).linksTo.filter((l: any) => l.type === 'MERGED_INTO')
+                          .length
+                      }
+                      )
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {(selectedTicket as any).linksTo
+                      .filter((l: any) => l.type === 'MERGED_INTO')
+                      .map((link: any) => {
+                        const secId = link.source?.id || link.fromTicketId;
+                        const isExpanded = expandedMergedTicketIds.has(secId);
+                        const details = mergedTicketDetails[secId];
+
+                        const handleToggleMergedExpand = async () => {
+                          setExpandedMergedTicketIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(secId)) {
+                              next.delete(secId);
+                            } else {
+                              next.add(secId);
+                            }
+                            return next;
+                          });
+
+                          if (!mergedTicketDetails[secId]?.ticket && !mergedTicketDetails[secId]?.isLoading) {
+                            setMergedTicketDetails((prev) => ({
+                              ...prev,
+                              [secId]: { ticket: null, comments: [], isLoading: true },
+                            }));
+                            try {
+                              const [fullSecTicket, commentsRes, eventsRes] = await Promise.all([
+                                TicketsApi.getById(secId),
+                                ApiClient.get<any>(`/tickets/${secId}/comments?pageSize=100`),
+                                ApiClient.get<any>(`/tickets/${secId}/timeline`).catch(() => ({ events: [] })),
+                              ]);
+                              const rawComments = Array.isArray(commentsRes) ? commentsRes : commentsRes?.comments || [];
+                              let mergeEvent = (eventsRes?.events || []).find((e: any) => e.type === 'MERGED' || e.rawType === 'MERGED');
+                              let mergeNote = mergeEvent?.metadata?.note || null;
+                              let mergedBy = mergeEvent?.actor?.fullName || mergeEvent?.actor?.displayName || mergeEvent?.actorLabel || mergeEvent?.actorName || null;
+
+                              // Fallback: if note wasn't on secondary ticket event, check primary ticket timeline
+                              if (!mergeNote && selectedTicket?.id) {
+                                try {
+                                  const primaryTimeline = await ApiClient.get<any>(`/tickets/${selectedTicket.id}/timeline`).catch(() => ({ events: [] }));
+                                  const primaryMergeEvent = (primaryTimeline?.events || []).find((e: any) =>
+                                    (e.type === 'MERGED' || e.rawType === 'MERGED') &&
+                                    (e.metadata?.secondaryTicketIds?.includes(secId) || e.metadata?.secondaryTicketNumbers?.includes(fullSecTicket?.number))
+                                  );
+                                  if (primaryMergeEvent) {
+                                    mergeNote = primaryMergeEvent?.metadata?.note || null;
+                                    mergedBy = primaryMergeEvent?.actor?.fullName || primaryMergeEvent?.actor?.displayName || primaryMergeEvent?.actorLabel || primaryMergeEvent?.actorName || mergedBy;
+                                  }
+                                } catch {
+                                  // ignore
+                                }
+                              }
+
+                              setMergedTicketDetails((prev) => ({
+                                ...prev,
+                                [secId]: {
+                                  ticket: fullSecTicket,
+                                  comments: filterConversationComments(rawComments),
+                                  mergeNote,
+                                  mergedBy,
+                                  isLoading: false,
+                                },
+                              }));
+                            } catch {
+                              setMergedTicketDetails((prev) => ({
+                                ...prev,
+                                [secId]: { ticket: null, comments: [], isLoading: false },
+                              }));
+                            }
+                          }
+                        };
+
+                        return (
                           <div
+                            key={link.id}
                             style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '8px 12px',
-                              backgroundColor: isExpanded ? 'var(--primary-surface, #eff6ff)' : '#ffffff',
-                              borderBottom: isExpanded ? '1px solid var(--border-subtle)' : 'none',
-                              fontSize: '12px',
-                              gap: '8px',
+                              backgroundColor: '#ffffff',
+                              borderRadius: '8px',
+                              border: isExpanded ? '1px solid var(--primary-border, #bfdbfe)' : '1px solid var(--border-subtle)',
+                              overflow: 'hidden',
+                              boxShadow: isExpanded ? 'var(--shadow-sm)' : 'none',
+                              transition: 'all 0.15s ease',
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                              <span
-                                style={{
-                                  fontWeight: 700,
-                                  color: 'var(--primary)',
-                                  backgroundColor: '#ffffff',
-                                  padding: '1px 6px',
-                                  borderRadius: '4px',
-                                  border: '1px solid var(--border-subtle)',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                #{link.source?.number}
-                              </span>
-                              <span
-                                style={{
-                                  color: 'var(--text-primary)',
-                                  fontWeight: 600,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {link.source?.subject}
-                              </span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>
-                                ({link.source?.requester?.fullName || link.source?.requester?.email || 'Requester'})
-                              </span>
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                              <button
-                                type="button"
-                                onClick={handleToggleMergedExpand}
-                                className={`btn ${isExpanded ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                                style={{
-                                  fontSize: '11px',
-                                  padding: '3px 8px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                }}
-                              >
-                                {isExpanded ? 'Hide Content' : 'View Content'}
-                                {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => navigate(`/tickets/${selectedTicket.id}?tab=merged`)}
-                                className="btn btn-ghost btn-sm"
-                                style={{
-                                  fontSize: '11px',
-                                  padding: '3px 6px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                  color: 'var(--text-secondary)',
-                                }}
-                                title="Open Merged tab in full workspace"
-                              >
-                                <ExternalLink size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleUnmergeTicket(selectedTicket.id, link.source?.id)}
-                                className="btn btn-ghost btn-sm"
-                                style={{
-                                  fontSize: '11px',
-                                  padding: '3px 8px',
-                                  color: '#dc2626',
-                                  border: '1px solid #fecaca',
-                                  borderRadius: '4px',
-                                }}
-                                title="Unmerge ticket and restore to previous status"
-                              >
-                                Unmerge
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Expanded Content View (Matches Master Ticket Content View with Smooth Scrolling) */}
-                          {isExpanded && (
                             <div
                               style={{
-                                padding: '12px 14px',
-                                backgroundColor: '#fafbfc',
                                 display: 'flex',
-                                flexDirection: 'column',
-                                gap: '10px',
-                                maxHeight: '350px',
-                                overflowY: 'auto',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 12px',
+                                backgroundColor: isExpanded ? 'var(--primary-surface, #eff6ff)' : '#ffffff',
+                                borderBottom: isExpanded ? '1px solid var(--border-subtle)' : 'none',
+                                fontSize: '12px',
+                                gap: '8px',
                               }}
                             >
-                              {details?.isLoading ? (
-                                <LoadingSpinner size={16} text="Loading merged ticket message..." />
-                              ) : (
-                                <>
-                                  {/* Merged Ticket Merge Note Banner */}
-                                  {details?.mergeNote && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                                <span
+                                  style={{
+                                    fontWeight: 700,
+                                    color: 'var(--primary)',
+                                    backgroundColor: '#ffffff',
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--border-subtle)',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  #{link.source?.number}
+                                </span>
+                                <span
+                                  style={{
+                                    color: 'var(--text-primary)',
+                                    fontWeight: 600,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {link.source?.subject}
+                                </span>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>
+                                  ({link.source?.requester?.fullName || link.source?.requester?.email || 'Requester'})
+                                </span>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={handleToggleMergedExpand}
+                                  className={`btn ${isExpanded ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '3px 8px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  {isExpanded ? 'Hide Content' : 'View Content'}
+                                  {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => navigate(`/tickets/${selectedTicket.id}?tab=merged`)}
+                                  className="btn btn-ghost btn-sm"
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '3px 6px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    color: 'var(--text-secondary)',
+                                  }}
+                                  title="Open Merged tab in full workspace"
+                                >
+                                  <ExternalLink size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnmergeTicket(selectedTicket.id, link.source?.id)}
+                                  className="btn btn-ghost btn-sm"
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '3px 8px',
+                                    color: '#dc2626',
+                                    border: '1px solid #fecaca',
+                                    borderRadius: '4px',
+                                  }}
+                                  title="Unmerge ticket and restore to previous status"
+                                >
+                                  Unmerge
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Expanded Content View (Matches Master Ticket Content View with Smooth Scrolling) */}
+                            {isExpanded && (
+                              <div
+                                style={{
+                                  padding: '12px 14px',
+                                  backgroundColor: '#fafbfc',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '10px',
+                                  maxHeight: '350px',
+                                  overflowY: 'auto',
+                                }}
+                              >
+                                {details?.isLoading ? (
+                                  <LoadingSpinner size={16} text="Loading merged ticket message..." />
+                                ) : (
+                                  <>
+                                    {/* Merged Ticket Merge Note Banner */}
+                                    {details?.mergeNote && (
+                                      <div
+                                        style={{
+                                          padding: '10px 12px',
+                                          backgroundColor: '#f5f3ff',
+                                          border: '1px solid #ddd6fe',
+                                          borderRadius: '6px',
+                                          display: 'flex',
+                                          alignItems: 'flex-start',
+                                          gap: '10px',
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            width: '22px',
+                                            height: '22px',
+                                            borderRadius: '4px',
+                                            backgroundColor: '#ede9fe',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: '#7c3aed',
+                                            flexShrink: 0,
+                                            marginTop: '1px',
+                                          }}
+                                        >
+                                          <GitMerge size={12} />
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                            <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                              Merge Note
+                                            </span>
+                                            {details.mergedBy && (
+                                              <span style={{ fontSize: '10.5px', color: '#8b5cf6', fontWeight: 500 }}>
+                                                • by {details.mergedBy}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <ActionNoteViewer content={details.mergeNote} style={{ color: '#4c1d95', fontSize: '12px', lineHeight: '1.45' }} />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Merged Ticket Initial Request Box */}
                                     <div
                                       style={{
-                                        padding: '10px 12px',
-                                        backgroundColor: '#f5f3ff',
-                                        border: '1px solid #ddd6fe',
+                                        backgroundColor: '#ffffff',
                                         borderRadius: '6px',
-                                        display: 'flex',
-                                        alignItems: 'flex-start',
-                                        gap: '10px',
+                                        border: '1px solid var(--border-subtle)',
+                                        padding: '10px 14px',
+                                        maxHeight: '260px',
+                                        overflowY: 'auto',
                                       }}
                                     >
                                       <div
                                         style={{
-                                          width: '22px',
-                                          height: '22px',
-                                          borderRadius: '4px',
-                                          backgroundColor: '#ede9fe',
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          color: 'var(--text-secondary)',
+                                          marginBottom: '6px',
                                           display: 'flex',
                                           alignItems: 'center',
-                                          justifyContent: 'center',
-                                          color: '#7c3aed',
-                                          flexShrink: 0,
-                                          marginTop: '1px',
+                                          gap: '6px',
                                         }}
                                       >
-                                        <GitMerge size={12} />
+                                        <span style={{ backgroundColor: 'var(--bg-app)', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                                          Initial Request (#{link.source?.number})
+                                        </span>
+                                        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                                          from {link.source?.requester?.fullName || link.source?.requester?.email || 'Requester'}
+                                        </span>
                                       </div>
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                                          <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                                            Merge Note
-                                          </span>
-                                          {details.mergedBy && (
-                                            <span style={{ fontSize: '10.5px', color: '#8b5cf6', fontWeight: 500 }}>
-                                              • by {details.mergedBy}
-                                            </span>
-                                          )}
+                                      <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                                        <FormattedEmailContent
+                                          text={details?.ticket?.description || link.source?.description || 'No message description.'}
+                                        />
+                                      </div>
+                                    </div>
+
+                                    {/* Merged Ticket Conversation History */}
+                                    {details?.comments && details.comments.length > 0 && (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                          Replies ({details.comments.length}):
                                         </div>
-                                        <ActionNoteViewer content={details.mergeNote} style={{ color: '#4c1d95', fontSize: '12px', lineHeight: '1.45' }} />
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Merged Ticket Initial Request Box */}
-                                  <div
-                                    style={{
-                                      backgroundColor: '#ffffff',
-                                      borderRadius: '6px',
-                                      border: '1px solid var(--border-subtle)',
-                                      padding: '10px 14px',
-                                      maxHeight: '260px',
-                                      overflowY: 'auto',
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        fontSize: '11px',
-                                        fontWeight: 700,
-                                        color: 'var(--text-secondary)',
-                                        marginBottom: '6px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                      }}
-                                    >
-                                      <span style={{ backgroundColor: 'var(--bg-app)', padding: '1px 6px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
-                                        Initial Request (#{link.source?.number})
-                                      </span>
-                                      <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
-                                        from {link.source?.requester?.fullName || link.source?.requester?.email || 'Requester'}
-                                      </span>
-                                    </div>
-                                    <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                                      <FormattedEmailContent
-                                        text={details?.ticket?.description || link.source?.description || 'No message description.'}
-                                      />
-                                    </div>
-                                  </div>
-
-                                  {/* Merged Ticket Conversation History */}
-                                  {details?.comments && details.comments.length > 0 && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                                        Replies ({details.comments.length}):
-                                      </div>
-                                      {details.comments.map((c: any) => {
-                                        const isInt = c.visibility === 'INTERNAL' || c.isInternal;
-                                        return (
-                                          <div
-                                            key={c.id}
-                                            style={{
-                                              backgroundColor: isInt ? '#fffbeb' : '#ffffff',
-                                              border: isInt ? '1px solid #fde68a' : '1px solid var(--border-subtle)',
-                                              borderRadius: '6px',
-                                              padding: '8px 12px',
-                                              display: 'flex',
-                                              flexDirection: 'column',
-                                              gap: '4px',
-                                            }}
-                                          >
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' }}>
-                                              <span style={{ fontWeight: 600, color: isInt ? '#92400e' : 'var(--text-primary)' }}>
-                                                {c.author?.fullName || c.author?.email || 'Customer'}
-                                                {isInt && (
-                                                  <span style={{ marginLeft: '6px', fontSize: '10px', color: '#b45309', backgroundColor: '#fef3c7', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
-                                                    Internal Note
-                                                  </span>
-                                                )}
-                                              </span>
-                                              <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
-                                                {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short', hour12: true })}
-                                              </span>
+                                        {details.comments.map((c: any) => {
+                                          const isInt = c.visibility === 'INTERNAL' || c.isInternal;
+                                          return (
+                                            <div
+                                              key={c.id}
+                                              style={{
+                                                backgroundColor: isInt ? '#fffbeb' : '#ffffff',
+                                                border: isInt ? '1px solid #fde68a' : '1px solid var(--border-subtle)',
+                                                borderRadius: '6px',
+                                                padding: '8px 12px',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '4px',
+                                              }}
+                                            >
+                                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' }}>
+                                                <span style={{ fontWeight: 600, color: isInt ? '#92400e' : 'var(--text-primary)' }}>
+                                                  {c.author?.fullName || c.author?.email || 'Customer'}
+                                                  {isInt && (
+                                                    <span style={{ marginLeft: '6px', fontSize: '10px', color: '#b45309', backgroundColor: '#fef3c7', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
+                                                      Internal Note
+                                                    </span>
+                                                  )}
+                                                </span>
+                                                <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
+                                                  {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short', hour12: true })}
+                                                </span>
+                                              </div>
+                                              <div style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: 1.45 }}>
+                                                <FormattedEmailContent text={c.body} />
+                                              </div>
                                             </div>
-                                            <div style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: 1.45 }}>
-                                              <FormattedEmailContent text={c.body} />
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Merged Into Master Ticket Banner (When viewing a Closed Secondary Ticket) */}
-            {(selectedTicket as any).linksFrom?.find((l: any) => l.type === 'MERGED_INTO') && (
-              <div
-                style={{
-                  padding: '10px 16px',
-                  backgroundColor: '#fffbeb',
-                  borderBottom: '1px solid #fef3c7',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: '12px',
-                  color: '#92400e',
-                  flexShrink: 0,
-                  gap: '8px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <GitMerge size={14} />
-                  <span>
-                    This ticket has been merged into Master Ticket{' '}
-                    <strong style={{ color: '#78350f' }}>
-                      #{(selectedTicket as any).linksFrom.find((l: any) => l.type === 'MERGED_INTO')?.target?.number}
-                    </strong>
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetId = (selectedTicket as any).linksFrom.find(
-                        (l: any) => l.type === 'MERGED_INTO',
-                      )?.target?.id;
-                      if (targetId) {
-                        TicketsApi.getById(targetId).then((t) => setSelectedTicket(t));
-                      }
-                    }}
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: '11px', padding: '2px 8px' }}
-                  >
-                    View Master Ticket
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetId = (selectedTicket as any).linksFrom.find(
-                        (l: any) => l.type === 'MERGED_INTO',
-                      )?.target?.id;
-                      if (targetId) {
-                        handleUnmergeTicket(targetId, selectedTicket.id);
-                      }
-                    }}
-                    className="btn btn-danger btn-sm"
-                    style={{ fontSize: '11px', padding: '2px 8px' }}
-                    title="Unmerge and restore this ticket"
-                  >
-                    Unmerge
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Middle Content Area: Conversation Thread with Thread Accordion */}
-            <div
-              className="inbox-conversation-thread-area"
-              style={{
-                flex: 1,
-                minHeight: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-              }}
-            >
-              {/* Thread Header Bar & Expand/Collapse Toggle */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '10px',
-                  flexShrink: 0,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <h4
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      color: 'var(--text-muted)',
-                      margin: 0,
-                      letterSpacing: '0.04em',
-                    }}
-                  >
-                    Conversation Thread
-                  </h4>
-                  {selectedComments.length > 0 && (
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                        color: 'var(--primary, #2563eb)',
-                        padding: '1px 8px',
-                        borderRadius: '12px',
-                      }}
-                    >
-                      {selectedComments.length} {selectedComments.length === 1 ? 'reply' : 'replies'}
-                    </span>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={toggleExpandAll}
+              {/* Merged Into Master Ticket Banner (When viewing a Closed Secondary Ticket) */}
+              {(selectedTicket as any).linksFrom?.find((l: any) => l.type === 'MERGED_INTO') && (
+                <div
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--primary, #2563eb)',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
+                    padding: '10px 16px',
+                    backgroundColor: '#fffbeb',
+                    borderBottom: '1px solid #fef3c7',
+                    display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
-                    padding: '3px 8px',
-                    borderRadius: '4px',
+                    justifyContent: 'space-between',
+                    fontSize: '12px',
+                    color: '#92400e',
+                    flexShrink: 0,
+                    gap: '8px',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                  {isAllExpanded ? (
-                    <>
-                      <ChevronUp size={14} /> Collapse Previous
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown size={14} /> Expand All
-                    </>
-                  )}
-                </button>
-              </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <GitMerge size={14} />
+                    <span>
+                      This ticket has been merged into Master Ticket{' '}
+                      <strong style={{ color: '#78350f' }}>
+                        #{(selectedTicket as any).linksFrom.find((l: any) => l.type === 'MERGED_INTO')?.target?.number}
+                      </strong>
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetId = (selectedTicket as any).linksFrom.find(
+                          (l: any) => l.type === 'MERGED_INTO',
+                        )?.target?.id;
+                        if (targetId) {
+                          TicketsApi.getById(targetId).then((t) => setSelectedTicket(t));
+                        }
+                      }}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '11px', padding: '2px 8px' }}
+                    >
+                      View Master Ticket
+                    </button>
+                    {!isClient && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetId = (selectedTicket as any).linksFrom.find(
+                            (l: any) => l.type === 'MERGED_INTO',
+                          )?.target?.id;
+                          if (targetId) {
+                            handleUnmergeTicket(targetId, selectedTicket.id);
+                          }
+                        }}
+                        className="btn btn-danger btn-sm"
+                        style={{ fontSize: '11px', padding: '2px 8px' }}
+                        title="Unmerge and restore this ticket"
+                      >
+                        Unmerge
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
-              {/* Scrollable Accordion Stream */}
+              {/* Middle Content Area: Conversation Thread with Thread Accordion */}
               <div
-                className="inbox-conversation-accordion-stream"
+                className="inbox-conversation-thread-area"
                 style={{
                   flex: 1,
                   minHeight: 0,
-                  overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '10px',
-                  padding: 0,
+                  overflow: 'hidden',
                 }}
               >
+                {/* Thread Header Bar & Expand/Collapse Toggle */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '10px',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h4
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        color: 'var(--text-muted)',
+                        margin: 0,
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      Conversation Thread
+                    </h4>
+                    {selectedComments.length > 0 && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                          color: 'var(--primary, #2563eb)',
+                          padding: '1px 8px',
+                          borderRadius: '12px',
+                        }}
+                      >
+                        {selectedComments.length} {selectedComments.length === 1 ? 'reply' : 'replies'}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={toggleExpandAll}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--primary, #2563eb)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    {isAllExpanded ? (
+                      <>
+                        <ChevronUp size={14} /> Collapse Previous
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown size={14} /> Expand All
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Scrollable Accordion Stream */}
+                <div
+                  className="inbox-conversation-accordion-stream"
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px',
+                    padding: 0,
+                  }}
+                >
                   {/* Subsequent Replies Accordion Items (Newest First) */}
                   {isCommentsLoading ? (
                     <div style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>
@@ -2412,8 +2473,8 @@ export const InboxPage: React.FC = () => {
                         comment.author?.kind === 'GUEST' ||
                         Boolean(
                           selectedTicket?.requester?.email &&
-                            comment.author?.email &&
-                            comment.author.email.toLowerCase() === selectedTicket.requester.email.toLowerCase(),
+                          comment.author?.email &&
+                          comment.author.email.toLowerCase() === selectedTicket.requester.email.toLowerCase(),
                         );
                       const isStaff = !isCustomer;
                       const authorName = comment.author?.fullName || comment.author?.email || (isStaff ? 'Staff Agent' : 'Customer');
@@ -2430,8 +2491,8 @@ export const InboxPage: React.FC = () => {
                             borderLeft: isInternal
                               ? '3px solid #f59e0b'
                               : isStaff
-                              ? '3px solid #10b981'
-                              : '3px solid var(--primary, #2563eb)',
+                                ? '3px solid #10b981'
+                                : '3px solid var(--primary, #2563eb)',
                             transition: 'all 0.15s ease',
                             overflow: 'hidden',
                             flexShrink: 0,
@@ -2582,12 +2643,12 @@ export const InboxPage: React.FC = () => {
                               <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                                 {comment.createdAt
                                   ? new Date(comment.createdAt).toLocaleDateString(undefined, {
-                                      month: 'short',
-                                      day: 'numeric',
-                                      hour: 'numeric',
-                                      minute: '2-digit',
-                                      hour12: true,
-                                    })
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true,
+                                  })
                                   : ''}
                               </span>
                               {isExpanded ? <ChevronUp size={15} color="var(--text-muted)" /> : <ChevronDown size={15} color="var(--text-muted)" />}
@@ -2798,12 +2859,12 @@ export const InboxPage: React.FC = () => {
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               {selectedTicket.createdAt
                                 ? new Date(selectedTicket.createdAt).toLocaleDateString(undefined, {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                    hour12: true,
-                                  })
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  hour12: true,
+                                })
                                 : ''}
                             </span>
                             {isDescriptionExpanded ? <ChevronUp size={15} color="var(--text-muted)" /> : <ChevronDown size={15} color="var(--text-muted)" />}
@@ -2912,6 +2973,8 @@ export const InboxPage: React.FC = () => {
                 <ChannelBadge channel={selectedTicket.channel} />
               </div>
             </div>
+
+
           </div>
         ) : (
           <div

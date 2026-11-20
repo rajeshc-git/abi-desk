@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Logger,
@@ -62,7 +63,14 @@ export class TicketController {
   @RequirePermission('ticket:create')
   @Audited({ action: 'ticket.created', resourceType: 'ticket' })
   @HttpCode(HttpStatus.CREATED)
-  create(@CurrentUser() principal: AuthenticatedPrincipal, @Body() dto: CreateTicketDto) {
+  create(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: CreateTicketDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
+  ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.create(principal, dto);
   }
 
@@ -268,27 +276,67 @@ export class TicketController {
   /** Matrix rows: View Own Tickets / View All Tenant Tickets. */
   @Get()
   @RequireAnyPermission('ticket:read:own', 'ticket:read:tenant')
-  list(@CurrentUser() principal: AuthenticatedPrincipal, @Query() query: ListTicketsDto) {
+  list(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Query() query: ListTicketsDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
+  ) {
+    if (clientOrgHeader && !query.organization) {
+      query.organization = clientOrgHeader;
+    }
     return this.tickets.list(principal, query);
   }
 
   @Get(':id')
   @RequireAnyPermission('ticket:read:own', 'ticket:read:tenant')
-  findOne(@CurrentUser() principal: AuthenticatedPrincipal, @Param() params: TicketIdParamDto) {
-    return this.tickets.findByIdOrThrow(principal, params.id);
+  async findOne(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param() params: TicketIdParamDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
+  ) {
+    const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+    if (clientOrgHeader) {
+      const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
+      if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
+        throw AppException.notFound('Ticket not found');
+      }
+    }
+    return ticket;
   }
 
   /** The append-only activity trail. Internal events are filtered per caller. */
   @Get(':id/timeline')
   @RequireAnyPermission('ticket:read:own', 'ticket:read:tenant')
-  timeline(@CurrentUser() principal: AuthenticatedPrincipal, @Param() params: TicketIdParamDto) {
+  async timeline(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param() params: TicketIdParamDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
+  ) {
+    if (clientOrgHeader) {
+      const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+      const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
+      if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
+        throw AppException.notFound('Ticket not found');
+      }
+    }
     return this.tickets.timeline(principal, params.id);
   }
 
   /** Zoho Desk style Ticket History audit log endpoint. */
   @Get(':id/history')
   @RequireAnyPermission('ticket:read:own', 'ticket:read:tenant')
-  history(@CurrentUser() principal: AuthenticatedPrincipal, @Param() params: TicketIdParamDto) {
+  async history(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Param() params: TicketIdParamDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
+  ) {
+    if (clientOrgHeader) {
+      const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+      const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
+      if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
+        throw AppException.notFound('Ticket not found');
+      }
+    }
     return this.tickets.timeline(principal, params.id);
   }
 
@@ -306,7 +354,11 @@ export class TicketController {
     @CurrentUser() principal: AuthenticatedPrincipal,
     @Param() params: TicketIdParamDto,
     @Body() dto: UpdateTicketDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.update(principal, params.id, dto);
   }
 
@@ -314,12 +366,24 @@ export class TicketController {
 
   @Get(':id/comments')
   @RequireAnyPermission('ticket:read:own', 'ticket:read:tenant')
-  listComments(
+  async listComments(
     @CurrentUser() principal: AuthenticatedPrincipal,
     @Param() params: TicketIdParamDto,
     @Query() query: ListCommentsDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
-    return this.tickets.listComments(principal, params.id, query);
+    if (clientOrgHeader) {
+      const ticket = await this.tickets.findByIdOrThrow(principal, params.id);
+      const ticketOrg = (ticket as any).customFields?.organization || (ticket as any).organization;
+      if (!ticketOrg || !String(ticketOrg).toLowerCase().includes(clientOrgHeader.toLowerCase())) {
+        throw AppException.notFound('Ticket not found');
+      }
+    }
+    const res = await this.tickets.listComments(principal, params.id, query);
+    if (clientOrgHeader && res && Array.isArray((res as any).comments)) {
+      (res as any).comments = (res as any).comments.filter((c: any) => c.visibility !== 'INTERNAL');
+    }
+    return res;
   }
 
   /**
@@ -338,7 +402,11 @@ export class TicketController {
     @CurrentUser() principal: AuthenticatedPrincipal,
     @Param() params: TicketIdParamDto,
     @Body() dto: AddCommentDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.addComment(principal, params.id, dto);
   }
 
@@ -401,7 +469,14 @@ export class TicketController {
   @RequireAnyPermission('ticket:link', 'ticket:update:tenant', 'ticket:escalate')
   @Audited({ action: 'ticket.merged', resourceType: 'ticket' })
   @HttpCode(HttpStatus.OK)
-  merge(@CurrentUser() principal: AuthenticatedPrincipal, @Body() dto: MergeTicketsDto) {
+  merge(
+    @CurrentUser() principal: AuthenticatedPrincipal,
+    @Body() dto: MergeTicketsDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
+  ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.merge(principal, dto);
   }
 
@@ -414,7 +489,11 @@ export class TicketController {
     @CurrentUser() principal: AuthenticatedPrincipal,
     @Param() params: TicketIdParamDto,
     @Body() dto: UnmergeTicketDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.unmerge(principal, params.id, dto);
   }
 
@@ -427,7 +506,11 @@ export class TicketController {
     @CurrentUser() principal: AuthenticatedPrincipal,
     @Param() params: TicketIdParamDto,
     @Body() dto: SplitTicketDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.split(principal, params.id, dto);
   }
 
@@ -439,7 +522,11 @@ export class TicketController {
   delete(
     @CurrentUser() principal: AuthenticatedPrincipal,
     @Param() params: TicketIdParamDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.deleteTicket(principal, params.id);
   }
 
@@ -451,7 +538,11 @@ export class TicketController {
   bulkDelete(
     @CurrentUser() principal: AuthenticatedPrincipal,
     @Body() dto: BulkDeleteTicketsDto,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
+    if (clientOrgHeader) {
+      throw AppException.permissionDenied('Client portal accounts have read-only access.');
+    }
     return this.tickets.bulkDelete(principal, dto.ticketIds);
   }
 }

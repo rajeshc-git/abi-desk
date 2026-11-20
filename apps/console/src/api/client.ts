@@ -48,7 +48,11 @@ export function formatUserFriendlyError(error: any): string {
     lower.includes('suspended or deactivated') ||
     lower.includes('multiple workspaces') ||
     lower.includes('invalid, expired, or already used') ||
-    lower.includes('invalid, expired, or has already been used')
+    lower.includes('invalid, expired, or has already been used') ||
+    lower.includes('authorized email') ||
+    lower.includes('organization') ||
+    lower.includes('client portal') ||
+    lower.includes('hospital')
   ) {
     return rawMsg;
   }
@@ -204,6 +208,13 @@ export class ApiClient {
     if (this.tenantId) {
       headers['x-abidesk-tenant'] = this.tenantId;
     }
+
+    try {
+      const clientOrg = localStorage.getItem('abidesk_client_org');
+      if (clientOrg) {
+        headers['x-client-organization'] = clientOrg;
+      }
+    } catch {}
 
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     const url = `/api/v1${cleanPath}`;

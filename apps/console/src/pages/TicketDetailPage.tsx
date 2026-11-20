@@ -51,9 +51,10 @@ export const TicketDetailPage: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
   const { socket } = useSocket();
+  const isClient = Boolean(user?.clientOrganization || user?.kind === 'CUSTOMER');
 
   const canWriteInternal =
-    !!user && !user.roles.includes('GUEST_CUSTOMER');
+    !isClient && !!user && !user.roles.includes('GUEST_CUSTOMER');
 
   const [ticket, setTicket] = useState<any | null>(null);
   const [comments, setComments] = useState<CommentItem[]>([]);
@@ -125,6 +126,7 @@ export const TicketDetailPage: React.FC = () => {
   }, [ticket, activeTab]);
 
   const canChangePriority =
+    !isClient &&
     !!user &&
     Boolean(
       user.roles?.some((r: string) =>
@@ -150,7 +152,7 @@ export const TicketDetailPage: React.FC = () => {
           localStorage.setItem(key, JSON.stringify(updated));
           window.dispatchEvent(new Event('unread_tickets_updated'));
         }
-      } catch {}
+      } catch { }
     }
     ApiClient.get<any[]>('/admin/users')
       .then((users) => {
@@ -639,7 +641,7 @@ export const TicketDetailPage: React.FC = () => {
               if (id || ticket?.id) {
                 try {
                   sessionStorage.setItem('last_selected_ticket_id', id || ticket.id);
-                } catch {}
+                } catch { }
               }
               navigate(`/inbox?ticketId=${id || ticket?.id}`);
             }}
@@ -653,23 +655,47 @@ export const TicketDetailPage: React.FC = () => {
           </span>
 
           <div className="desktop-only-pill" style={{ gap: '6px' }}>
-            <PriorityPopover
-              priority={ticket.priority}
-              onPriorityChange={handlePriorityChange}
-              disabled={!canChangePriority}
-              align="left"
-            />
-            <TicketCategoryManager
-              ticketId={ticket.id}
-              category={ticket.category}
-              onCategoryChange={(newCategory) => setTicket((prev: any) => ({ ...prev, category: newCategory }))}
-            />
-            <TicketTagManager
-              ticketId={ticket.id}
-              tags={ticket.tags}
-              maxVisible={3}
-              onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
-            />
+            {isClient ? (
+              <PriorityPill priority={ticket.priority} />
+            ) : (
+              <PriorityPopover
+                priority={ticket.priority}
+                onPriorityChange={handlePriorityChange}
+                disabled={!canChangePriority}
+                align="left"
+              />
+            )}
+            {isClient ? (
+              ticket.category ? (
+                <span className="pill-badge" style={{ backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
+                  📂 {ticket.category}
+                </span>
+              ) : null
+            ) : (
+              <TicketCategoryManager
+                ticketId={ticket.id}
+                category={ticket.category}
+                onCategoryChange={(newCategory) => setTicket((prev: any) => ({ ...prev, category: newCategory }))}
+              />
+            )}
+            {isClient ? (
+              (ticket.tags || []).map((t: any) => (
+                <span
+                  key={t.id || t.slug}
+                  className="pill-badge"
+                  style={{ backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' }}
+                >
+                  🏷️ {t.name}
+                </span>
+              ))
+            ) : (
+              <TicketTagManager
+                ticketId={ticket.id}
+                tags={ticket.tags}
+                maxVisible={3}
+                onTagsChange={(newTags) => setTicket((prev: any) => ({ ...prev, tags: newTags }))}
+              />
+            )}
             {(ticket.customFields?.organization || ticket.organization) && (
               <span
                 className="pill-badge"
@@ -702,57 +728,67 @@ export const TicketDetailPage: React.FC = () => {
         {/* Action Controls */}
         <div className="ticket-header-actions">
           {/* Zoho Desk Styled Status Dropdown */}
-          <StatusPopover
-            status={ticket.status}
-            onStatusChange={handleStatusChange}
-          />
+          {isClient ? (
+            <StatusBadge status={ticket.status} />
+          ) : (
+            <StatusPopover
+              status={ticket.status}
+              onStatusChange={handleStatusChange}
+            />
+          )}
 
           {/* 9-Dots Grid Quick Actions Button (Mobile & Tablet) */}
-          <button
-            type="button"
-            className="mobile-quick-actions-btn"
-            onClick={() => setIsActionSheetOpen(true)}
-            title="Ticket Quick Actions"
-          >
-            <Grid size={16} />
-          </button>
+          {!isClient && (
+            <button
+              type="button"
+              className="mobile-quick-actions-btn"
+              onClick={() => setIsActionSheetOpen(true)}
+              title="Ticket Quick Actions"
+            >
+              <Grid size={16} />
+            </button>
+          )}
 
           <div className="desktop-only-pill" style={{ gap: '6px' }}>
             {/* Tier Escalation / Transfer Popover */}
-            <TierPopover
-              tier={ticket.tier}
-              onTierSelect={handleTierEscalate}
-              align="right"
-            />
+            {!isClient && (
+              <TierPopover
+                tier={ticket.tier}
+                onTierSelect={handleTierEscalate}
+                align="right"
+              />
+            )}
 
             {/* Zoho Desk Styled Assignment Popover (Teams & Agents) */}
-            <AssignmentPopover
-              ticketId={ticket.id}
-              currentAssignee={ticket.assignee}
-              currentTeam={ticket.team}
-              currentTier={ticket.tier}
-              ticketProduct={ticket.customFields?.product || ticket.product || null}
-              align="right"
-              onAssigned={(res) => {
-                if (res.assignee !== undefined) {
-                  setTicket((prev: any) => ({
-                    ...prev,
-                    status: res.status || (res.assignee && prev?.status === 'NEW' ? 'OPEN' : prev?.status),
-                    assignee: res.assignee,
-                  }));
-                }
-                if (res.team !== undefined) {
-                  setTicket((prev: any) => ({
-                    ...prev,
-                    status: res.status || prev?.status,
-                    team: res.team,
-                  }));
-                }
-                loadTicketDetails(ticket.id);
-              }}
-            />
+            {!isClient && (
+              <AssignmentPopover
+                ticketId={ticket.id}
+                currentAssignee={ticket.assignee}
+                currentTeam={ticket.team}
+                currentTier={ticket.tier}
+                ticketProduct={ticket.customFields?.product || ticket.product || null}
+                align="right"
+                onAssigned={(res) => {
+                  if (res.assignee !== undefined) {
+                    setTicket((prev: any) => ({
+                      ...prev,
+                      status: res.status || (res.assignee && prev?.status === 'NEW' ? 'OPEN' : prev?.status),
+                      assignee: res.assignee,
+                    }));
+                  }
+                  if (res.team !== undefined) {
+                    setTicket((prev: any) => ({
+                      ...prev,
+                      status: res.status || prev?.status,
+                      team: res.team,
+                    }));
+                  }
+                  loadTicketDetails(ticket.id);
+                }}
+              />
+            )}
 
-            {!isUserTenantAdmin && (!ticket.assignee || ticket.assignee.id !== user?.id) && (
+            {!isClient && !isUserTenantAdmin && (!ticket.assignee || ticket.assignee.id !== user?.id) && (
               <button
                 onClick={handleAssignToMe}
                 className="ticket-action-pill"
@@ -959,14 +995,14 @@ export const TicketDetailPage: React.FC = () => {
 
               {(((ticket?.linksTo || []).some((l: any) => l.type === 'MERGED_INTO')) ||
                 ((ticket?.linksFrom || []).some((l: any) => l.type === 'MERGED_INTO'))) && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('merged')}
-                  className={`workspace-tab-item ${activeTab === 'merged' ? 'active' : ''}`}
-                >
-                  <GitMerge size={14} /> Merged ({((ticket.linksTo || []).filter((l: any) => l.type === 'MERGED_INTO')).length || 1})
-                </button>
-              )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('merged')}
+                    className={`workspace-tab-item ${activeTab === 'merged' ? 'active' : ''}`}
+                  >
+                    <GitMerge size={14} /> Merged ({((ticket.linksTo || []).filter((l: any) => l.type === 'MERGED_INTO')).length || 1})
+                  </button>
+                )}
 
               {/* Symmetrical Right Control: Browser Fullscreen Toggle (Desktop only) */}
               <div className="desktop-only-tab-action" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
@@ -1016,8 +1052,8 @@ export const TicketDetailPage: React.FC = () => {
                   >
                     <div style={{ flex: 1, overflowY: 'auto' }}>
                       <TimelineView
-                        comments={comments}
-                        onSplitComment={(c) => setSplitComment(c)}
+                        comments={isClient ? comments.filter((c) => c.visibility !== 'INTERNAL') : comments}
+                        onSplitComment={(c) => (!isClient ? setSplitComment(c) : undefined)}
                         initialTicket={{
                           description: ticket.description,
                           requester: ticket.requester,
@@ -1029,8 +1065,10 @@ export const TicketDetailPage: React.FC = () => {
                       />
                     </div>
 
+
+
                     {/* Bottom Action Bar when Reply is Closed (100% reading mode) */}
-                    {!isReplyOpen && (
+                    {!isClient && !isReplyOpen && (
                       <div
                         style={{
                           padding: '12px 20px',
@@ -1104,7 +1142,7 @@ export const TicketDetailPage: React.FC = () => {
                   </div>
 
                   {/* Right 50% Pane: Dedicated Spacious Reply Composer (Only when open) */}
-                  {isReplyOpen && (
+                  {!isClient && isReplyOpen && (
                     <div className="ticket-conversation-composer-pane">
                       <ReplyComposer
                         onSend={async (b, i, a, c) => {

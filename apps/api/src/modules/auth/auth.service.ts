@@ -91,6 +91,7 @@ export class AuthService {
     email: string;
     password: string;
     tenantSlug?: string;
+    isClient?: boolean;
     origin: SessionOrigin;
   }): Promise<AuthenticatedResult> {
     const email = input.email.trim().toLowerCase();
@@ -98,7 +99,7 @@ export class AuthService {
     // Pre-authentication lookup: the tenant is not known yet, so this is one of the
     // three sanctioned uses of an RLS bypass.
     const candidates = await this.contexts.runWithBypass('authentication', {}, () =>
-      this.findLoginCandidates(email, input.tenantSlug),
+      this.findLoginCandidates(email, input.tenantSlug, input.isClient),
     );
 
     if (candidates.length === 0) {
@@ -1726,7 +1727,11 @@ export class AuthService {
    * several tenants (email is unique *per tenant*, deliberately - one person may be
    * a customer of two vendors using this platform), so the caller has to disambiguate.
    */
-  private async findLoginCandidates(email: string, tenantSlug?: string): Promise<AuthUser[]> {
+  private async findLoginCandidates(
+    email: string,
+    tenantSlug?: string,
+    isClient?: boolean,
+  ): Promise<AuthUser[]> {
     if (tenantSlug) {
       const tenant = await this.prisma.client.tenant.findUnique({
         where: { slug: tenantSlug.trim().toLowerCase() },
@@ -1744,8 +1749,21 @@ export class AuthService {
       }
 
       return this.prisma.client.user.findMany({
-        where: { email, tenantId: tenant.id, deletedAt: null },
+        where: {
+          email,
+          tenantId: tenant.id,
+          deletedAt: null,
+          kind: isClient ? 'CUSTOMER' : 'STAFF',
+        },
         select: USER_SELECT,
+      });
+    }
+
+    if (isClient) {
+      return this.prisma.client.user.findMany({
+        where: { email, kind: 'CUSTOMER', deletedAt: null },
+        select: USER_SELECT,
+        take: 5,
       });
     }
 
@@ -2295,5 +2313,544 @@ export class AuthService {
       this.logger.warn({ err, userId }, 'Avatar object not found in MinIO');
       return null;
     }
+  }
+
+  /**
+   * Automatically resolves the client's organization from their work email address
+   * based on the Associated Sender Email Domains configured in Setup >> Organizations.
+   */
+  async resolveClientOrganizationForEmail(email: string): Promise<{ id: string; name: string; slug: string; tenantId: string }> {
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      const cleanEmail = email.trim().toLowerCase();
+      const emailDomain = cleanEmail.split('@')[1];
+      const orgDelegate = (this.prisma.client as any).organization;
+      if (!orgDelegate) {
+        throw AppException.badRequest('Organization directory is not accessible.');
+      }
+
+      const allOrgs = await orgDelegate.findMany({
+        select: { id: true, name: true, slug: true, tenantId: true, domains: true },
+      });
+
+      // 1. Try exact email match (highest priority, works for gmail.com, corporate emails, etc.)
+      for (const org of allOrgs) {
+        if (!org.domains) continue;
+        const list = org.domains
+          .split(/[\s,;]+/)
+          .map((d: string) => d.toLowerCase().trim().replace(/^@/, '').replace(/^\*\.?/, ''))
+          .filter(Boolean);
+
+        if (list.includes(cleanEmail)) {
+          return { id: org.id, name: org.name, slug: org.slug, tenantId: org.tenantId };
+        }
+      }
+
+      // 2. Try corporate domain match (ignoring generic providers like gmail.com, etc.)
+      const genericProviders = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com'];
+      if (emailDomain && !genericProviders.includes(emailDomain)) {
+        for (const org of allOrgs) {
+          if (!org.domains) continue;
+          const list = org.domains
+            .split(/[\s,;]+/)
+            .map((d: string) => d.toLowerCase().trim().replace(/^@/, '').replace(/^\*\.?/, ''))
+            .filter(Boolean);
+
+          const matchesDomain = list.some((rule: string) => rule === emailDomain || emailDomain.endsWith(`.${rule}`));
+          if (matchesDomain) {
+            return { id: org.id, name: org.name, slug: org.slug, tenantId: org.tenantId };
+          }
+        }
+      }
+
+      throw AppException.badRequest(
+        `The email "${cleanEmail}" is not an authorized email for any organization.`
+      );
+    });
+  }
+
+  /**
+   * Generates and dispatches a 6-digit OTP code to the client's work email.
+   */
+  async sendClientOtp(email: string, organization?: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      // 0. Validate or auto-resolve organization
+      const targetOrg = organization
+        ? await (async () => {
+            await this.validateEmailForClientOrganization(normalizedEmail, organization);
+            return { name: organization };
+          })()
+        : await this.resolveClientOrganizationForEmail(normalizedEmail);
+      const orgName = targetOrg.name;
+
+      // 1. Look up existing user or auto-provision a customer account for this organization
+      const existingUser = await this.prisma.client.user.findFirst({
+        where: { email: normalizedEmail, deletedAt: null },
+        select: {
+          ...USER_SELECT,
+          roles: {
+            select: {
+              role: {
+                select: { key: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (existingUser) {
+        const roleKeys = ((existingUser as any).roles || []).map((r: any) => r.role?.key);
+        const isStaffOrAdmin =
+          existingUser.kind === 'STAFF' ||
+          roleKeys.some((k: string) =>
+            ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'SUPPORT_AGENT', 'AGENT', 'SUPERVISOR', 'L1', 'L2', 'L3'].includes(k),
+          );
+
+        if (isStaffOrAdmin) {
+          throw AppException.badRequest(
+            'This email belongs to a staff or administrator account. Please sign in via the Staff Console at /login.',
+          );
+        }
+      }
+
+      let user: AuthUser;
+
+      if (!existingUser) {
+        // Find tenant associated with the organization
+        const orgDelegate = (this.prisma.client as any).organization;
+        const orgRecord = orgDelegate
+          ? await orgDelegate.findFirst({
+              where: { name: { equals: orgName, mode: 'insensitive' } },
+            })
+          : null;
+
+        const defaultTenant = await this.prisma.client.tenant.findFirst({
+          select: { id: true },
+        });
+
+        const tenantId = orgRecord?.tenantId || defaultTenant?.id;
+        if (!tenantId) {
+          throw AppException.badRequest('Unable to find tenant workspace for organization.');
+        }
+
+        const guestRole = await this.prisma.client.role.findFirst({
+          where: { key: 'GUEST_CUSTOMER' },
+          select: { id: true },
+        });
+
+        const fullName = normalizedEmail.split('@')[0] || 'Client User';
+
+        user = await this.prisma.client.user.create({
+          data: {
+            email: normalizedEmail,
+            fullName,
+            tenantId,
+            kind: 'CUSTOMER',
+            status: 'ACTIVE',
+            emailVerifiedAt: new Date(),
+            ...(guestRole
+              ? {
+                  roles: {
+                    create: {
+                      roleId: guestRole.id,
+                      tenantId,
+                    },
+                  },
+                }
+              : {}),
+          },
+          select: USER_SELECT,
+        });
+      } else {
+        user = existingUser;
+      }
+
+      this.assertNotLocked(user);
+
+      // 2. Generate a 6-digit OTP
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // 3. Store in Redis for 10 minutes
+      const redisKey = `client:otp:${normalizedEmail}`;
+      await this.redis.client.set(
+        redisKey,
+        JSON.stringify({ otp: code, organization: orgName, userId: user.id }),
+        'EX',
+        600,
+      );
+
+      // 4. Send verification mail
+      await this.mail.send({
+        to: { email: normalizedEmail },
+        tag: 'auth.client_otp',
+        subject: `${code} is your Client Desk verification code`,
+        text: `Your login code for ${orgName} Ticket Desk is: ${code}\n\nThis code will expire in 10 minutes.\nIf you did not request this code, you can safely ignore this email.`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #cbd5e1; border-radius: 10px; background-color: #ffffff;">
+            <h2 style="color: #0284c7; margin-top: 0; font-size: 20px;">Client Desk Verification Code</h2>
+            <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+              Use the 6-digit verification code below to sign in to the <strong>${orgName}</strong> Ticket Desk:
+            </p>
+            <div style="margin: 24px 0; text-align: center;">
+              <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0284c7; background: #f0f9ff; padding: 12px 28px; border-radius: 8px; border: 1px dashed #7dd3fc; display: inline-block;">
+                ${code}
+              </span>
+            </div>
+            <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 0;">
+              This code will expire in 10 minutes. If you did not request this login code, please safely disregard this email.
+            </p>
+          </div>
+        `,
+      });
+
+      return { status: 'sent', message: 'Verification code sent to your email.', organization: orgName };
+    });
+  }
+
+  /**
+   * Verifies the client OTP code and mints session tokens.
+   */
+  async verifyClientOtp(input: {
+    email: string;
+    otp: string;
+    organization?: string;
+    origin: SessionOrigin;
+  }): Promise<AuthenticatedResult & { organization: string }> {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const redisKey = `client:otp:${normalizedEmail}`;
+
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      const raw = await this.redis.client.get(redisKey);
+      if (!raw) {
+        throw AppException.badRequest('Verification code has expired or is invalid. Please request a new one.');
+      }
+
+      const data = JSON.parse(raw);
+      if (data.otp !== input.otp.trim()) {
+        throw AppException.badRequest('Invalid verification code.');
+      }
+
+      const orgName = input.organization || data.organization || (await this.resolveClientOrganizationForEmail(normalizedEmail)).name;
+      await this.validateEmailForClientOrganization(normalizedEmail, orgName);
+
+      await this.redis.client.del(redisKey);
+
+      const user = await this.prisma.client.user.findUnique({
+        where: { id: data.userId },
+        select: USER_SELECT,
+      });
+
+      if (!user) {
+        throw AppException.notFound('User account not found.');
+      }
+
+      if (user.kind === 'STAFF') {
+        throw AppException.badRequest('Staff and administrator accounts cannot sign in through Client Desk.');
+      }
+
+      this.assertNotLocked(user);
+
+      const session = await this.issueSession(user, input.origin, 'password');
+      return {
+        ...session,
+        organization: orgName,
+      };
+    });
+  }
+
+  /**
+   * Strictly validates that a client email is authorized for the selected organization
+   * based on the Associated Sender Email Domains configured in Setup >> Organizations.
+   * ONLY pre-registered sender emails configured for that organization are allowed to sign in or register.
+   */
+  async validateEmailForClientOrganization(email: string, selectedOrgName: string): Promise<void> {
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      const cleanEmail = email.trim().toLowerCase();
+      const emailDomain = cleanEmail.split('@')[1];
+      const orgDelegate = (this.prisma.client as any).organization;
+      if (!orgDelegate) return;
+
+      // 1. Fetch the target selected organization
+      const selectedOrg = await orgDelegate.findFirst({
+        where: { name: { equals: selectedOrgName.trim(), mode: 'insensitive' } },
+        select: { id: true, name: true, domains: true },
+      });
+
+      if (!selectedOrg) {
+        throw AppException.badRequest(`Organization "${selectedOrgName}" is not registered.`);
+      }
+
+      // 2. Fetch all organizations to verify if this email is mapped to another organization
+      const allOrgs = await orgDelegate.findMany({
+        select: { id: true, name: true, domains: true },
+      });
+
+      let mappedToOtherOrg: { id: string; name: string } | null = null;
+      for (const org of allOrgs) {
+        if (!org.domains || org.id === selectedOrg.id) continue;
+        const list = org.domains
+          .split(/[\s,;]+/)
+          .map((d: string) => d.toLowerCase().trim().replace(/^@/, '').replace(/^\*\.?/, ''))
+          .filter(Boolean);
+
+        const hasExactEmail = list.some((rule: string) => rule === cleanEmail);
+        if (hasExactEmail) {
+          mappedToOtherOrg = org;
+          break;
+        }
+      }
+
+      if (mappedToOtherOrg) {
+        throw AppException.badRequest(
+          `This email is associated with "${mappedToOtherOrg.name}". Please select "${mappedToOtherOrg.name}" from the organization dropdown.`
+        );
+      }
+
+      // 3. Strictly verify that cleanEmail is configured in selectedOrg's mapped emails / domains
+      if (!selectedOrg.domains || !selectedOrg.domains.trim()) {
+        throw AppException.badRequest(
+          `No authorized emails are configured for "${selectedOrg.name}". Please contact your administrator.`
+        );
+      }
+
+      const targetList = selectedOrg.domains
+        .split(/[\s,;]+/)
+        .map((d: string) => d.toLowerCase().trim().replace(/^@/, '').replace(/^\*\.?/, ''))
+        .filter(Boolean);
+
+      const isExplicitEmailMatch = targetList.some((rule: string) => rule === cleanEmail);
+      const isDomainMatch = targetList.some((rule: string) => {
+        // Ignore generic providers for domain-level wildcard matching
+        if (['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com'].includes(rule)) {
+          return false;
+        }
+        return rule === emailDomain || (emailDomain && emailDomain.endsWith(`.${rule}`));
+      });
+
+      if (!isExplicitEmailMatch && !isDomainMatch) {
+        throw AppException.badRequest(
+          `The email "${cleanEmail}" is not an authorized email for "${selectedOrg.name}".`
+        );
+      }
+    });
+  }
+
+  /**
+   * Dispatches a 6-digit OTP code to the client's work email to reset / set password.
+   */
+  async forgotClientPassword(email: string, organization?: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      // 1. Validate or auto-resolve organization binding
+      const targetOrg = organization
+        ? await (async () => {
+            await this.validateEmailForClientOrganization(normalizedEmail, organization);
+            return { name: organization };
+          })()
+        : await this.resolveClientOrganizationForEmail(normalizedEmail);
+      const orgName = targetOrg.name;
+
+      // 2. Look up existing user or auto-provision
+      const existingUser = await this.prisma.client.user.findFirst({
+        where: { email: normalizedEmail, deletedAt: null },
+        select: {
+          ...USER_SELECT,
+          roles: {
+            select: {
+              role: {
+                select: { key: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (existingUser) {
+        const roleKeys = ((existingUser as any).roles || []).map((r: any) => r.role?.key);
+        const isStaffOrAdmin =
+          existingUser.kind === 'STAFF' ||
+          roleKeys.some((k: string) =>
+            ['ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'SUPPORT_AGENT', 'AGENT', 'SUPERVISOR', 'L1', 'L2', 'L3'].includes(k),
+          );
+
+        if (isStaffOrAdmin) {
+          throw AppException.badRequest(
+            'This email belongs to a staff or administrator account. Please reset your password via the Staff Console at /forgot-password.',
+          );
+        }
+      }
+
+      let user: AuthUser;
+
+      if (!existingUser) {
+        const orgDelegate = (this.prisma.client as any).organization;
+        const orgRecord = orgDelegate
+          ? await orgDelegate.findFirst({
+              where: { name: { equals: orgName, mode: 'insensitive' } },
+            })
+          : null;
+
+        const defaultTenant = await this.prisma.client.tenant.findFirst({
+          select: { id: true },
+        });
+
+        const tenantId = orgRecord?.tenantId || defaultTenant?.id;
+        if (!tenantId) {
+          throw AppException.badRequest('Unable to find tenant workspace for organization.');
+        }
+
+        const guestRole = await this.prisma.client.role.findFirst({
+          where: { key: 'GUEST_CUSTOMER' },
+          select: { id: true },
+        });
+
+        const fullName = normalizedEmail.split('@')[0] || 'Client User';
+
+        user = await this.prisma.client.user.create({
+          data: {
+            email: normalizedEmail,
+            fullName,
+            tenantId,
+            kind: 'CUSTOMER',
+            status: 'ACTIVE',
+            emailVerifiedAt: new Date(),
+            ...(guestRole
+              ? {
+                  roles: {
+                    create: {
+                      roleId: guestRole.id,
+                      tenantId,
+                    },
+                  },
+                }
+              : {}),
+          },
+          select: USER_SELECT,
+        });
+      } else {
+        user = existingUser;
+      }
+
+      this.assertNotLocked(user);
+
+      // 3. Generate 6-digit code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const redisKey = `client:pwd_reset:${normalizedEmail}`;
+      await this.redis.client.set(
+        redisKey,
+        JSON.stringify({ otp: code, organization: orgName, userId: user.id }),
+        'EX',
+        900,
+      );
+
+      // 4. Send email
+      await this.mail.send({
+        to: { email: normalizedEmail },
+        tag: 'auth.client_password_reset',
+        subject: `${code} is your Client Desk password reset code`,
+        text: `Your password reset code for ${orgName} Ticket Desk is: ${code}\n\nThis code will expire in 15 minutes.\nIf you did not request this, please disregard this email.`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #cbd5e1; border-radius: 10px; background-color: #ffffff;">
+            <h2 style="color: #0284c7; margin-top: 0; font-size: 20px;">Client Desk Password Reset</h2>
+            <p style="color: #334155; font-size: 14px; line-height: 1.5;">
+              Use the 6-digit verification code below to set or reset your password for the <strong>${orgName}</strong> Ticket Desk:
+            </p>
+            <div style="margin: 24px 0; text-align: center;">
+              <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0284c7; background: #f0f9ff; padding: 12px 28px; border-radius: 8px; border: 1px dashed #7dd3fc; display: inline-block;">
+                ${code}
+              </span>
+            </div>
+            <p style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 0;">
+              This code will expire in 15 minutes. If you did not request to reset your password, you can safely ignore this email.
+            </p>
+          </div>
+        `,
+      });
+
+      return { status: 'sent', message: 'Password reset code sent to your email.', organization: orgName };
+    });
+  }
+
+  /**
+   * Verifies the 6-digit reset code and sets a new password for the client.
+   */
+  async resetClientPassword(input: {
+    email: string;
+    organization?: string;
+    otp: string;
+    newPassword: string;
+    origin: SessionOrigin;
+  }): Promise<AuthenticatedResult & { organization: string }> {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const redisKey = `client:pwd_reset:${normalizedEmail}`;
+
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      const raw = await this.redis.client.get(redisKey);
+      if (!raw) {
+        throw AppException.badRequest('Password reset code has expired or is invalid. Please request a new code.');
+      }
+
+      const data = JSON.parse(raw);
+      if (data.otp !== input.otp.trim()) {
+        throw AppException.badRequest('Invalid verification code.');
+      }
+
+      const orgName = input.organization || data.organization || (await this.resolveClientOrganizationForEmail(normalizedEmail)).name;
+      await this.validateEmailForClientOrganization(normalizedEmail, orgName);
+
+      await this.redis.client.del(redisKey);
+
+      const user = await this.prisma.client.user.findUnique({
+        where: { id: data.userId },
+        select: USER_SELECT,
+      });
+
+      if (!user) {
+        throw AppException.notFound('User account not found.');
+      }
+
+      if (user.kind === 'STAFF') {
+        throw AppException.badRequest('Staff and administrator accounts cannot sign in through the client portal.');
+      }
+
+      this.assertNotLocked(user);
+
+      const passwordHash = await this.passwords.hash(input.newPassword);
+      await this.prisma.client.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          passwordUpdatedAt: new Date(),
+          failedLoginCount: 0,
+          lockedUntil: null,
+        },
+      });
+
+      const session = await this.issueSession(user, input.origin, 'password');
+      return {
+        ...session,
+        organization: orgName,
+      };
+    });
+  }
+
+  /**
+   * Lists active client organizations for the public /client login portal dropdown.
+   */
+  async listClientOrganizations(): Promise<{ id: string; name: string; slug: string }[]> {
+    return this.contexts.runWithBypass('authentication', {}, async () => {
+      const orgDelegate = (this.prisma.client as any).organization;
+      if (!orgDelegate) return [];
+      try {
+        const orgs = await orgDelegate.findMany({
+          select: { id: true, name: true, slug: true },
+          orderBy: { name: 'asc' },
+        });
+        return orgs;
+      } catch (err) {
+        this.logger.warn({ err }, 'Failed to fetch organizations for client login');
+        return [];
+      }
+    });
   }
 }

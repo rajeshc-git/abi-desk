@@ -146,6 +146,48 @@ export const verifyWidgetOtpSchema = z.object({
 
 export class VerifyWidgetOtpDto extends createZodDto(verifyWidgetOtpSchema) {}
 
+export const clientLoginSchema = z.object({
+  email,
+  password,
+  organization: z.string().optional(),
+  sessionMode: z.enum(['token', 'cookie']).default('token'),
+});
+
+export class ClientLoginDto extends createZodDto(clientLoginSchema) {}
+
+export const sendClientOtpSchema = z.object({
+  email,
+  organization: z.string().optional(),
+});
+
+export class SendClientOtpDto extends createZodDto(sendClientOtpSchema) {}
+
+export const verifyClientOtpSchema = z.object({
+  email,
+  organization: z.string().optional(),
+  otp: z.string().min(4, 'is required').max(8),
+  sessionMode: z.enum(['token', 'cookie']).default('token'),
+});
+
+export class VerifyClientOtpDto extends createZodDto(verifyClientOtpSchema) {}
+
+export const forgotClientPasswordSchema = z.object({
+  email,
+  organization: z.string().optional(),
+});
+
+export class ForgotClientPasswordDto extends createZodDto(forgotClientPasswordSchema) {}
+
+export const resetClientPasswordSchema = z.object({
+  email,
+  organization: z.string().optional(),
+  otp: z.string().min(4, 'is required').max(8),
+  newPassword: password,
+  sessionMode: z.enum(['token', 'cookie']).default('token'),
+});
+
+export class ResetClientPasswordDto extends createZodDto(resetClientPasswordSchema) {}
+
 export const updatePreferencesSchema = z.object({
   themeColor: z
     .string()

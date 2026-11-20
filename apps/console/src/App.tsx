@@ -15,6 +15,7 @@ import { AdminPage } from './pages/AdminPage';
 import { RosterPage } from './pages/RosterPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { DbExplorerPage } from './pages/DbExplorerPage';
+import { ClientLoginPage } from './pages/ClientLoginPage';
 
 import './styles/theme.css';
 import './styles/layout.css';
@@ -39,6 +40,8 @@ export const App: React.FC = () => {
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/auth/register/join" element={<RegisterPage />} />
               <Route path="/db" element={<DbExplorerPage />} />
+              <Route path="/client" element={<ClientLoginPage />} />
+              <Route path="/client/forgot-password" element={<ClientLoginPage initialMode="forgot" />} />
 
               {/* Authenticated Workspace */}
               <Route element={<Shell />}>

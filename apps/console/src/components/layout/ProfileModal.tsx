@@ -28,6 +28,7 @@ interface ProfileModalProps {
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
   const { user, updateAvatar, updateFullName, reloadUser } = useAuth();
+  const isClient = Boolean(user?.clientOrganization || user?.kind === 'CUSTOMER');
 
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [isCropOpen, setIsCropOpen] = useState(false);
@@ -267,12 +268,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
                   >
                     <Pencil size={13} />
                   </button>
-                  <span className="profile-verified-badge" title="Verified Agent">
+                  <span className="profile-verified-badge" title={isClient ? 'Verified Client' : 'Verified Agent'}>
                     <ShieldCheck size={14} />
                   </span>
                 </h3>
               )}
-              <p className="profile-email-subtitle">{user?.email || 'agent@workspace.local'}</p>
+              <p className="profile-email-subtitle">{user?.email || (isClient ? 'client@organization.com' : 'agent@workspace.local')}</p>
             </div>
 
             {/* Quick Actions (Upload / Delete photo) */}
@@ -386,88 +387,100 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
                 <Building2 size={16} />
               </div>
               <div className="profile-info-content">
-                <span className="profile-info-label">Organization</span>
-                <span className="profile-info-value">{user?.tenantName || 'My Organization'}</span>
+                <span className="profile-info-label">
+                  {isClient ? 'Client Organization' : 'Organization'}
+                </span>
+                <span className="profile-info-value">
+                  {isClient
+                    ? user?.clientOrganization || user?.tenantName || 'Client Organization'
+                    : user?.tenantName || 'My Organization'}
+                </span>
               </div>
             </div>
 
-            {/* Assigned Product(s) */}
-            <div className="profile-info-card profile-products-card">
-              <div className="profile-info-icon">
-                <Package size={16} />
+            {/* Assigned Product(s) (Staff only) */}
+            {!isClient && (
+              <div className="profile-info-card profile-products-card">
+                <div className="profile-info-icon">
+                  <Package size={16} />
+                </div>
+                <div className="profile-info-content">
+                  <span className="profile-info-label">
+                    {user?.products && user.products.length > 1 ? 'Assigned Products' : 'Assigned Product'}
+                  </span>
+                  <div className="profile-products-list">
+                    {user?.products && user.products.length > 0 ? (
+                      user.products.map((prod) => (
+                        <span key={prod} className="profile-product-badge">
+                          <Package size={12} className="profile-product-badge-icon" />
+                          <span>{prod}</span>
+                        </span>
+                      ))
+                    ) : user?.roles?.some((r: string) => ['ADMIN', 'TENANT_ADMIN'].includes(r)) ? (
+                      <span className="profile-product-badge global">
+                        <Globe size={12} className="profile-product-badge-icon" />
+                        <span>All Products (Tenant Admin)</span>
+                      </span>
+                    ) : (
+                      <span className="profile-product-badge global">
+                        <Globe size={12} className="profile-product-badge-icon" />
+                        <span>All Products</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="profile-info-content">
-                <span className="profile-info-label">
-                  {user?.products && user.products.length > 1 ? 'Assigned Products' : 'Assigned Product'}
-                </span>
-                <div className="profile-products-list">
-                  {user?.products && user.products.length > 0 ? (
-                    user.products.map((prod) => (
-                      <span key={prod} className="profile-product-badge">
-                        <Package size={12} className="profile-product-badge-icon" />
-                        <span>{prod}</span>
+            )}
+
+            {/* Tenant ID (hidden for clients) */}
+            {!isClient && (
+              <div className="profile-info-card">
+                <div className="profile-info-icon">
+                  <KeyRound size={16} />
+                </div>
+                <div className="profile-info-content">
+                  <span className="profile-info-label">Tenant ID</span>
+                  <span className="profile-info-value font-mono text-xs text-muted">
+                    {user?.tenantId || 'N/A'}
+                  </span>
+                </div>
+                {user?.tenantId && (
+                  <button
+                    type="button"
+                    className="profile-copy-btn"
+                    onClick={() => handleCopy(user.tenantId, 'Tenant ID')}
+                    title="Copy Tenant ID"
+                  >
+                    {copiedField === 'Tenant ID' ? (
+                      <Check size={14} color="#10b981" />
+                    ) : (
+                      <Copy size={14} />
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Assigned Roles (Staff only) */}
+            {!isClient && (
+              <div className="profile-roles-section">
+                <div className="profile-roles-header">
+                  <Layers size={14} />
+                  <span>Assigned Workspace Roles</span>
+                </div>
+                <div className="profile-roles-tags">
+                  {user?.roles && user.roles.length > 0 ? (
+                    user.roles.map((role: string) => (
+                      <span key={role} className="profile-role-badge">
+                        {role.replace(/_/g, ' ')}
                       </span>
                     ))
-                  ) : user?.roles?.some((r: string) => ['ADMIN', 'TENANT_ADMIN'].includes(r)) ? (
-                    <span className="profile-product-badge global">
-                      <Globe size={12} className="profile-product-badge-icon" />
-                      <span>All Products (Tenant Admin)</span>
-                    </span>
                   ) : (
-                    <span className="profile-product-badge global">
-                      <Globe size={12} className="profile-product-badge-icon" />
-                      <span>All Products</span>
-                    </span>
+                    <span className="profile-no-roles">No explicit roles assigned</span>
                   )}
                 </div>
               </div>
-            </div>
-
-            {/* Tenant ID */}
-            <div className="profile-info-card">
-              <div className="profile-info-icon">
-                <KeyRound size={16} />
-              </div>
-              <div className="profile-info-content">
-                <span className="profile-info-label">Tenant ID</span>
-                <span className="profile-info-value font-mono text-xs text-muted">
-                  {user?.tenantId || 'N/A'}
-                </span>
-              </div>
-              {user?.tenantId && (
-                <button
-                  type="button"
-                  className="profile-copy-btn"
-                  onClick={() => handleCopy(user.tenantId, 'Tenant ID')}
-                  title="Copy Tenant ID"
-                >
-                  {copiedField === 'Tenant ID' ? (
-                    <Check size={14} color="#10b981" />
-                  ) : (
-                    <Copy size={14} />
-                  )}
-                </button>
-              )}
-            </div>
-
-            {/* Assigned Roles */}
-            <div className="profile-roles-section">
-              <div className="profile-roles-header">
-                <Layers size={14} />
-                <span>Assigned Workspace Roles</span>
-              </div>
-              <div className="profile-roles-tags">
-                {user?.roles && user.roles.length > 0 ? (
-                  user.roles.map((role: string) => (
-                    <span key={role} className="profile-role-badge">
-                      {role.replace(/_/g, ' ')}
-                    </span>
-                  ))
-                ) : (
-                  <span className="profile-no-roles">No explicit roles assigned</span>
-                )}
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </Modal>

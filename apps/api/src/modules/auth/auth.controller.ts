@@ -29,12 +29,17 @@ import {
   RegisterOrganizationDto,
   ResetPasswordDto,
   SendWidgetOtpDto,
+  SendClientOtpDto,
+  ClientLoginDto,
   SessionIdParamDto,
   UpdateAvatarDto,
   UpdatePreferencesDto,
   UpdateProfileDto,
   VerifyRegisterOtpDto,
   VerifyWidgetOtpDto,
+  VerifyClientOtpDto,
+  ForgotClientPasswordDto,
+  ResetClientPasswordDto,
 } from './auth.dto';
 import { type AuthenticatedPrincipal, type AuthenticatedResult } from './auth.types';
 
@@ -70,13 +75,25 @@ export class AuthController {
     @Body() dto: LoginDto,
     @CallerOrigin() origin: CallerContext,
     @Res({ passthrough: true }) reply: FastifyReply,
+    @Headers('x-client-organization') clientOrgHeader?: string,
   ) {
+    if (clientOrgHeader) {
+      await this.auth.validateEmailForClientOrganization(dto.email, clientOrgHeader);
+    }
+
     const result = await this.auth.loginWithPassword({
       email: dto.email,
       password: dto.password,
       ...(dto.tenantSlug ? { tenantSlug: dto.tenantSlug } : {}),
+      isClient: Boolean(clientOrgHeader),
       origin,
     });
+
+    if (clientOrgHeader && result.principal.kind === 'STAFF') {
+      throw AppException.badRequest(
+        'Staff and administrator accounts cannot sign in through the client portal. Please sign in via the Staff Console at /login.',
+      );
+    }
 
     return await this.deliver(result, dto.sessionMode, reply);
   }
@@ -489,6 +506,117 @@ export class AuthController {
       .header('Content-Type', result.mimeType)
       .header('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800')
       .send(result.buffer);
+  }
+
+  /** Public list of client organizations for the /client login portal dropdown. */
+  @Public()
+  @SkipCsrf()
+  @Get('client-organizations')
+  async listClientOrganizations() {
+    const organizations = await this.auth.listClientOrganizations();
+    return { organizations };
+  }
+
+  /** Dedicated client password sign-in with auto-detected organization. */
+  @Public()
+  @SkipCsrf()
+  @Post('client/login')
+  @HttpCode(HttpStatus.OK)
+  async clientLogin(
+    @Body() dto: ClientLoginDto,
+    @CallerOrigin() origin: CallerContext,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const org = dto.organization
+      ? await (async () => {
+          await this.auth.validateEmailForClientOrganization(dto.email, dto.organization!);
+          return { name: dto.organization! };
+        })()
+      : await this.auth.resolveClientOrganizationForEmail(dto.email);
+
+    const result = await this.auth.loginWithPassword({
+      email: dto.email,
+      password: dto.password,
+      isClient: true,
+      origin,
+    });
+
+    if (result.principal.kind === 'STAFF') {
+      throw AppException.badRequest(
+        'Staff and administrator accounts cannot sign in through Client Desk. Please sign in via the Staff Console at /login.',
+      );
+    }
+
+    const delivered = await this.deliver(result, dto.sessionMode || 'token', reply);
+    return {
+      ...(delivered as any),
+      organization: org.name,
+    };
+  }
+
+  /** Sends a 6-digit OTP to client's email for passwordless client portal login. */
+  @Public()
+  @SkipCsrf()
+  @Post('client/otp/send')
+  @HttpCode(HttpStatus.OK)
+  async sendClientOtp(@Body() dto: SendClientOtpDto) {
+    return this.auth.sendClientOtp(dto.email, dto.organization);
+  }
+
+  /** Verifies client 6-digit OTP code and signs the client into the portal. */
+  @Public()
+  @SkipCsrf()
+  @Post('client/otp/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyClientOtp(
+    @Body() dto: VerifyClientOtpDto,
+    @CallerOrigin() origin: CallerContext,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const result = await this.auth.verifyClientOtp({
+      email: dto.email,
+      otp: dto.otp,
+      organization: dto.organization,
+      origin,
+    });
+    const delivered = await this.deliver(result, dto.sessionMode || 'token', reply);
+    return {
+      ...(delivered as any),
+      organization: result.organization,
+    };
+  }
+
+  /** Sends a 6-digit OTP code to client's email for password reset / set. */
+  @Public()
+  @SkipCsrf()
+  @Post('client/password/forgot')
+  @HttpCode(HttpStatus.OK)
+  async forgotClientPassword(@Body() dto: ForgotClientPasswordDto) {
+    return this.auth.forgotClientPassword(dto.email, dto.organization);
+  }
+
+  /** Verifies reset code and updates the client's password. */
+  @Public()
+  @SkipCsrf()
+  @Post('client/password/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetClientPassword(
+    @Body() dto: ResetClientPasswordDto,
+    @CallerOrigin() origin: CallerContext,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const result = await this.auth.resetClientPassword({
+      email: dto.email,
+      organization: dto.organization,
+      otp: dto.otp,
+      newPassword: dto.newPassword,
+      origin,
+    });
+    const delivered = await this.deliver(result, dto.sessionMode || 'token', reply);
+    return {
+      ...(delivered as any),
+      organization: result.organization,
+    };
   }
 
   /** Devices with a live session, so a user can spot one they do not recognise. */
