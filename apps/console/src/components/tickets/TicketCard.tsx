@@ -2,7 +2,6 @@ import React from 'react';
 import { Folder } from 'lucide-react';
 import { PriorityPill, StatusBadge, TierBadge, ChannelBadge } from '../common/Badge';
 import { useSearch } from '../../context/SearchContext';
-import { useAuth } from '../../context/AuthContext';
 
 export interface TicketSummary {
   id: string;
@@ -30,8 +29,6 @@ interface TicketCardProps {
 }
 
 const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, isUnread, onClick }) => {
-  const { user } = useAuth();
-  const isClient = Boolean(user?.clientOrganization || user?.kind === 'CUSTOMER');
   const {
     setSelectedTag,
     setSelectedCategory,
@@ -103,11 +100,9 @@ const TicketCardComponent: React.FC<TicketCardProps> = ({ ticket, isSelected, is
           >
             #{ticket.number}
           </span>
-          {!isClient && (
-            <div style={{ flexShrink: 0 }}>
-              <TierBadge tier={ticket.tier} />
-            </div>
-          )}
+          <div style={{ flexShrink: 0 }}>
+            <TierBadge tier={ticket.tier} />
+          </div>
           {isUnread && (
             <span
               style={{

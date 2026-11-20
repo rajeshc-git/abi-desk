@@ -38,69 +38,25 @@ export const ForgotPasswordPage: React.FC = () => {
 
   return (
     <div
-      className="auth-page-container"
       style={{
         minHeight: '100vh',
-        width: '100%',
+        width: '100vw',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '32px 16px',
+        padding: '24px',
         background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
-        overflowY: 'auto',
-        boxSizing: 'border-box',
       }}
     >
-      <style>{`
-        @media (max-height: 800px) {
-          .auth-page-container {
-            padding: 16px !important;
-          }
-          .auth-branding-header {
-            margin-bottom: 16px !important;
-          }
-          .auth-branding-header .logo-box {
-            margin-bottom: 8px !important;
-          }
-          .auth-branding-header h1 {
-            font-size: 22px !important;
-          }
-          .auth-card {
-            padding: 24px !important;
-          }
-        }
-        @media (max-height: 660px) {
-          .auth-branding-header {
-            margin-bottom: 10px !important;
-          }
-          .auth-branding-header p {
-            display: none !important;
-          }
-          .auth-card {
-            padding: 18px 20px !important;
-          }
-          .auth-card-wrap {
-            transform: scale(0.92);
-            transform-origin: center center;
-          }
-        }
-        @media (max-height: 540px) {
-          .auth-card-wrap {
-            transform: scale(0.82);
-            transform-origin: center center;
-          }
-        }
-      `}</style>
-      <div className="auth-card-wrap" style={{ width: '100%', maxWidth: '440px', margin: 'auto 0' }}>
+      <div style={{ width: '100%', maxWidth: '440px' }}>
         {/* Branding Header */}
-        <div className="auth-branding-header" style={{ textAlign: 'center', marginBottom: '20px' }}>
-          <div className="logo-box" style={{ display: 'inline-block', marginBottom: '10px' }}>
-            <ZohoDeskLogo size={46} showText={false} />
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{ display: 'inline-block', marginBottom: '12px' }}>
+            <ZohoDeskLogo size={48} showText={false} />
           </div>
           <h1
             style={{
-              fontSize: '24px',
+              fontSize: '26px',
               fontWeight: 800,
               letterSpacing: '-0.03em',
               color: '#0f172a',
@@ -108,19 +64,18 @@ export const ForgotPasswordPage: React.FC = () => {
           >
             ABI Desk Console
           </h1>
-          <p style={{ fontSize: '13px', color: '#475569', marginTop: '3px', fontWeight: 500 }}>
+          <p style={{ fontSize: '13px', color: '#475569', marginTop: '4px', fontWeight: 500 }}>
             Enterprise Customer Support & Issue Operations
           </p>
         </div>
 
         {/* Card */}
         <div
-          className="auth-card"
           style={{
             backgroundColor: '#ffffff',
             border: '1px solid #cbd5e1',
             borderRadius: '12px',
-            padding: '28px',
+            padding: '32px',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01)',
           }}
         >

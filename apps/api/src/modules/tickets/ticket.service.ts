@@ -485,12 +485,8 @@ export class TicketService {
    * would confirm the ticket's existence, which for a customer probing sequential
    * ticket numbers is an information leak.
    */
-  async findByIdOrThrow(
-    principal: AuthenticatedPrincipal,
-    id: string,
-    clientOrganization?: string,
-  ) {
-    const scopeFilter = ticketFilterFor(principal, clientOrganization);
+  async findByIdOrThrow(principal: AuthenticatedPrincipal, id: string) {
+    const scopeFilter = ticketFilterFor(principal);
 
     if (!scopeFilter) {
       throw AppException.notFound('Ticket', id);
@@ -648,12 +644,8 @@ export class TicketService {
   /**
    * Fast existence and permission check without joining heavy relations or diagnostic payloads.
    */
-  async ensureTicketExistsAndScoped(
-    principal: AuthenticatedPrincipal,
-    ticketId: string,
-    clientOrganization?: string,
-  ) {
-    const scopeFilter = ticketFilterFor(principal, clientOrganization);
+  async ensureTicketExistsAndScoped(principal: AuthenticatedPrincipal, ticketId: string) {
+    const scopeFilter = ticketFilterFor(principal);
     if (!scopeFilter) {
       throw AppException.notFound('Ticket', ticketId);
     }
@@ -677,12 +669,8 @@ export class TicketService {
    * the whole thing in raw SQL would duplicate the scope logic, which is the last
    * thing that should exist twice.
    */
-  async list(
-    principal: AuthenticatedPrincipal,
-    query: ListTicketsDto,
-    clientOrganization?: string,
-  ) {
-    const scopeFilter = ticketFilterFor(principal, clientOrganization);
+  async list(principal: AuthenticatedPrincipal, query: ListTicketsDto) {
+    const scopeFilter = ticketFilterFor(principal);
 
     if (!scopeFilter) {
       return { tickets: [], total: 0, page: query.page, pageSize: query.pageSize, pages: 0 };
@@ -725,13 +713,9 @@ export class TicketService {
    * Append-only in the database (a trigger refuses UPDATE), so this is the record of
    * what actually happened to a ticket rather than a reconstruction.
    */
-  async timeline(
-    principal: AuthenticatedPrincipal,
-    ticketId: string,
-    clientOrganization?: string,
-  ) {
+  async timeline(principal: AuthenticatedPrincipal, ticketId: string) {
     // Establishes scope: throws 404 if the caller cannot see the ticket at all.
-    await this.ensureTicketExistsAndScoped(principal, ticketId, clientOrganization);
+    await this.ensureTicketExistsAndScoped(principal, ticketId);
 
     const events = await this.prisma.client.ticketEvent.findMany({
       where: { ticketId },
@@ -3182,24 +3166,15 @@ export class TicketService {
 
     if (query.organization) {
       const orgs = query.organization.split(',').map((s) => s.trim()).filter(Boolean);
-      const isClientUser = principal.kind === 'CUSTOMER';
       if (orgs.length > 1) {
         andFilters.push({
-          OR: [
-            ...(isClientUser ? [{ requesterId: principal.userId }] : []),
-            ...orgs.flatMap((org) => [
-              { customFields: { path: ['organization'], string_contains: org } },
-              { customFields: { path: ['organization'], equals: org } },
-            ]),
-          ],
+          OR: orgs.map((org) => ({
+            customFields: { path: ['organization'], string_contains: org },
+          })),
         });
       } else if (orgs.length === 1) {
         andFilters.push({
-          OR: [
-            ...(isClientUser ? [{ requesterId: principal.userId }] : []),
-            { customFields: { path: ['organization'], string_contains: orgs[0] } },
-            { customFields: { path: ['organization'], equals: orgs[0] } },
-          ],
+          customFields: { path: ['organization'], string_contains: orgs[0] },
         });
       }
     }
@@ -3436,23 +3411,9 @@ export class TicketService {
       }
 
       if (!tenant) {
-        // Prioritize operational tenant (slug or name matching 'abi-health' / 'abi') over dummy Acme seed tenant
-        tenant = await tx.tenant.findFirst({
-          where: {
-            status: 'ACTIVE',
-            OR: [
-              { slug: { contains: 'abi-health', mode: 'insensitive' } },
-              { name: { contains: 'abi', mode: 'insensitive' } },
-            ],
-          },
-          select: { id: true, ticketPrefix: true },
-        });
-      }
-
-      if (!tenant) {
         tenant = await tx.tenant.findFirst({
           where: { status: 'ACTIVE' },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: 'asc' },
           select: { id: true, ticketPrefix: true },
         });
       }

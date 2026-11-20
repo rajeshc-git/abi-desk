@@ -12,7 +12,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
-  const { user, brands, activeBrandId, setActiveBrandId } = useAuth();
+  const { brands, activeBrandId, setActiveBrandId } = useAuth();
   const location = useLocation();
   const {
     searchQuery,
@@ -28,7 +28,6 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   } = useSearch();
 
   const { unreadCount } = useNotifications();
-  const isClient = Boolean(user?.clientOrganization || user?.kind === 'CUSTOMER');
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -53,12 +52,6 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     location.pathname.startsWith('/roster') ||
     location.pathname.startsWith('/documents') ||
     location.pathname.startsWith('/db');
-
-  useEffect(() => {
-    if (user?.clientOrganization && selectedOrganization !== user.clientOrganization) {
-      setSelectedOrganization(user.clientOrganization);
-    }
-  }, [user?.clientOrganization, selectedOrganization, setSelectedOrganization]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -386,34 +379,32 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                 }}
               >
                 <span>🏢 {selectedOrganization}</span>
-                {!user?.clientOrganization && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedOrganization(null);
-                    }}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'inherit',
-                      cursor: 'pointer',
-                      padding: '1px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '10px',
-                      lineHeight: 1,
-                      borderRadius: '50%',
-                      width: '12px',
-                      height: '12px',
-                      opacity: 0.75,
-                    }}
-                    title="Remove organization filter"
-                  >
-                    <X size={10} />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedOrganization(null);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    padding: '1px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '10px',
+                    lineHeight: 1,
+                    borderRadius: '50%',
+                    width: '12px',
+                    height: '12px',
+                    opacity: 0.75,
+                  }}
+                  title="Remove organization filter"
+                >
+                  <X size={10} />
+                </button>
               </div>
             )}
 
@@ -1052,7 +1043,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
       </div>
 
       <div className="header-right">
-        {!isClient && brands.length > 0 && (
+        {brands.length > 0 && (
           <div className="header-brand-select-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={16} style={{ color: 'var(--text-muted)' }} />
             <select
@@ -1069,66 +1060,64 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
           </div>
         )}
 
-        {!isClient && (
-          <div style={{ position: 'relative' }}>
-            <button
-              ref={notifBtnRef}
-              type="button"
-              onClick={() => setIsNotifOpen((prev) => !prev)}
-              className="notification-btn header-action-btn"
-              style={{
-                background: isNotifOpen ? 'var(--bg-hover, #f1f5f9)' : 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                color: isNotifOpen ? 'var(--primary, #2563eb)' : 'var(--text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                padding: 0,
-                flexShrink: 0,
-                position: 'relative',
-                width: '36px',
-                height: '36px',
-                transition: 'all 0.15s ease',
-              }}
-              title={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
-            >
-              <Bell size={16} />
-              {unreadCount > 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '-4px',
-                    right: '-4px',
-                    backgroundColor: '#ef4444',
-                    color: '#ffffff',
-                    fontSize: '10px',
-                    fontWeight: 800,
-                    height: '17px',
-                    minWidth: '17px',
-                    padding: '0 4px',
-                    borderRadius: '10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    border: '2px solid var(--bg-surface, #ffffff)',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                    animation: 'pulse 2s infinite',
-                  }}
-                >
-                  {unreadCount > 999 ? '999+' : unreadCount}
-                </span>
-              )}
-            </button>
+        <div style={{ position: 'relative' }}>
+          <button
+            ref={notifBtnRef}
+            type="button"
+            onClick={() => setIsNotifOpen((prev) => !prev)}
+            className="notification-btn header-action-btn"
+            style={{
+              background: isNotifOpen ? 'var(--bg-hover, #f1f5f9)' : 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              color: isNotifOpen ? 'var(--primary, #2563eb)' : 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              padding: 0,
+              flexShrink: 0,
+              position: 'relative',
+              width: '36px',
+              height: '36px',
+              transition: 'all 0.15s ease',
+            }}
+            title={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+          >
+            <Bell size={16} />
+            {unreadCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  height: '17px',
+                  minWidth: '17px',
+                  padding: '0 4px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '2px solid var(--bg-surface, #ffffff)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  animation: 'pulse 2s infinite',
+                }}
+              >
+                {unreadCount > 999 ? '999+' : unreadCount}
+              </span>
+            )}
+          </button>
 
-            <NotificationDropdown
-              isOpen={isNotifOpen}
-              onClose={() => setIsNotifOpen(false)}
-              triggerRef={notifBtnRef}
-            />
-          </div>
-        )}
+          <NotificationDropdown
+            isOpen={isNotifOpen}
+            onClose={() => setIsNotifOpen(false)}
+            triggerRef={notifBtnRef}
+          />
+        </div>
       </div>
     </header>
   );

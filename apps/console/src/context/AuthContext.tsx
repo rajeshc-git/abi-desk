@@ -14,7 +14,6 @@ export interface UserSession {
   permissions?: string[];
   products?: string[];
   productIds?: string[];
-  clientOrganization?: string;
   preferences?: {
     themeColor?: string | null;
     docCenterPresets?: any[];
@@ -39,11 +38,6 @@ interface AuthContextType {
   activeBrandId: string | null;
   isLoading: boolean;
   login: (email: string, pass: string) => Promise<void>;
-  clientLogin: (email: string, pass: string, organization?: string) => Promise<void>;
-  clientSendOtp: (email: string, organization?: string) => Promise<{ status: string; message: string; organization?: string }>;
-  clientVerifyOtp: (email: string, otp: string, organization?: string) => Promise<void>;
-  clientForgotPassword: (email: string, organization?: string) => Promise<{ status: string; message: string; organization?: string }>;
-  clientResetPassword: (email: string, otp: string, newPassword: string, organization?: string) => Promise<void>;
   requestRegisterOtp: (
     companyName: string,
     fullName: string,
@@ -71,17 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return null;
     }
     const saved = localStorage.getItem('abidesk_user');
-    if (!saved) return null;
-    try {
-      const parsed = JSON.parse(saved);
-      const clientOrg = localStorage.getItem('abidesk_client_org');
-      if (clientOrg && parsed.kind === 'CUSTOMER') {
-        parsed.clientOrganization = clientOrg;
-      }
-      return parsed;
-    } catch {
-      return null;
-    }
+    return saved ? JSON.parse(saved) : null;
   });
   const [token, setToken] = useState<string | null>(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -133,7 +117,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               data.user.preferences && Object.keys(data.user.preferences).length > 0
                 ? data.user.preferences
                 : prev?.preferences,
-            clientOrganization: prev?.clientOrganization || localStorage.getItem('abidesk_client_org') || undefined,
           };
           localStorage.setItem('abidesk_user', JSON.stringify(session));
           return session;
@@ -301,12 +284,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('abidesk_brand_id', brandId);
   };
 
-  const login = async (email: string, pass: string, isClientLogin: boolean = false) => {
+  const login = async (email: string, pass: string) => {
     setIsLoading(true);
-    if (!isClientLogin) {
-      localStorage.removeItem('abidesk_client_org');
-    }
-    const clientOrg = localStorage.getItem('abidesk_client_org') || undefined;
     try {
       const res = await ApiClient.post<{
         accessToken: string;
@@ -361,7 +340,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           preferences: meRes.user.preferences,
           products: meRes.user.products || meRes.productNames || [],
           productIds: meRes.user.productIds || meRes.productIds || [],
-          clientOrganization: clientOrg,
         };
         setUser(session);
         localStorage.setItem('abidesk_user', JSON.stringify(session));
@@ -382,180 +360,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           permissions: res.permissions,
           products: (res.user as any).products || (res as any).productNames || [],
           productIds: (res.user as any).productIds || (res as any).productIds || [],
-          clientOrganization: clientOrg,
         };
         setUser(session);
         localStorage.setItem('abidesk_user', JSON.stringify(session));
       }
 
       await loadTenantBrands();
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const clientLogin = async (email: string, pass: string, organization?: string) => {
-    setIsLoading(true);
-    try {
-      const res = await ApiClient.post<{
-        accessToken: string;
-        refreshToken: string;
-        user: {
-          id: string;
-          email: string;
-          fullName: string;
-          kind: 'STAFF' | 'CUSTOMER';
-        };
-        roles: string[];
-        tenantId: string;
-        tenantName?: string;
-        permissions: string[];
-        organization: string;
-      }>('/auth/client/login', { email, password: pass, organization });
-
-      const resolvedOrg = res.organization || organization;
-      if (resolvedOrg) {
-        localStorage.setItem('abidesk_client_org', resolvedOrg);
-      }
-
-      ApiClient.setAuth(res.accessToken, res.tenantId);
-      ApiClient.setRefreshToken(res.refreshToken);
-      setToken(res.accessToken);
-
-      const session: UserSession = {
-        id: res.user.id,
-        email: res.user.email,
-        fullName: res.user.fullName,
-        avatarUrl: (res.user as any).avatarUrl,
-        kind: res.user.kind,
-        roles: res.roles,
-        tenantId: res.tenantId,
-        tenantName: res.tenantName,
-        permissions: res.permissions,
-        clientOrganization: resolvedOrg,
-      };
-      setUser(session);
-      localStorage.setItem('abidesk_user', JSON.stringify(session));
-      await loadTenantBrands();
-    } catch (err) {
-      localStorage.removeItem('abidesk_client_org');
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const clientSendOtp = async (email: string, organization?: string) => {
-    return ApiClient.post<{ status: string; message: string; organization?: string }>('/auth/client/otp/send', {
-      email,
-      organization,
-    });
-  };
-
-  const clientVerifyOtp = async (email: string, otp: string, organization?: string) => {
-    setIsLoading(true);
-    try {
-      const res = await ApiClient.post<{
-        accessToken: string;
-        refreshToken: string;
-        user: {
-          id: string;
-          email: string;
-          fullName: string;
-          kind: 'STAFF' | 'CUSTOMER';
-        };
-        roles: string[];
-        tenantId: string;
-        tenantName?: string;
-        permissions: string[];
-        organization: string;
-      }>('/auth/client/otp/verify', { email, otp, organization });
-
-      const resolvedOrg = res.organization || organization;
-      if (resolvedOrg) {
-        localStorage.setItem('abidesk_client_org', resolvedOrg);
-      }
-
-      ApiClient.setAuth(res.accessToken, res.tenantId);
-      ApiClient.setRefreshToken(res.refreshToken);
-      setToken(res.accessToken);
-
-      const session: UserSession = {
-        id: res.user.id,
-        email: res.user.email,
-        fullName: res.user.fullName,
-        avatarUrl: (res.user as any).avatarUrl,
-        kind: res.user.kind,
-        roles: res.roles,
-        tenantId: res.tenantId,
-        tenantName: res.tenantName,
-        permissions: res.permissions,
-        clientOrganization: resolvedOrg,
-      };
-      setUser(session);
-      localStorage.setItem('abidesk_user', JSON.stringify(session));
-      await loadTenantBrands();
-    } catch (err) {
-      localStorage.removeItem('abidesk_client_org');
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const clientForgotPassword = async (email: string, organization?: string) => {
-    return ApiClient.post<{ status: string; message: string; organization?: string }>('/auth/client/password/forgot', {
-      email,
-      organization,
-    });
-  };
-
-  const clientResetPassword = async (email: string, otp: string, newPassword: string, organization?: string) => {
-    setIsLoading(true);
-    try {
-      const res = await ApiClient.post<{
-        accessToken: string;
-        refreshToken: string;
-        user: {
-          id: string;
-          email: string;
-          fullName: string;
-          kind: 'STAFF' | 'CUSTOMER';
-        };
-        roles: string[];
-        tenantId: string;
-        tenantName?: string;
-        permissions: string[];
-        organization: string;
-      }>('/auth/client/password/reset', { email, otp, newPassword, organization });
-
-      const resolvedOrg = res.organization || organization;
-      if (resolvedOrg) {
-        localStorage.setItem('abidesk_client_org', resolvedOrg);
-      }
-
-      ApiClient.setAuth(res.accessToken, res.tenantId);
-      ApiClient.setRefreshToken(res.refreshToken);
-      setToken(res.accessToken);
-
-      const session: UserSession = {
-        id: res.user.id,
-        email: res.user.email,
-        fullName: res.user.fullName,
-        avatarUrl: (res.user as any).avatarUrl,
-        kind: res.user.kind,
-        roles: res.roles,
-        tenantId: res.tenantId,
-        tenantName: res.tenantName,
-        permissions: res.permissions,
-        clientOrganization: resolvedOrg,
-      };
-      setUser(session);
-      localStorage.setItem('abidesk_user', JSON.stringify(session));
-      await loadTenantBrands();
-    } catch (err) {
-      localStorage.removeItem('abidesk_client_org');
-      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -679,7 +489,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('abidesk_user');
     localStorage.removeItem('abidesk_brand_id');
     localStorage.removeItem('abidesk_theme_color');
-    localStorage.removeItem('abidesk_client_org');
     localStorage.removeItem('unread_ticket_ids');
     try {
       sessionStorage.removeItem('last_selected_ticket_id');
@@ -801,11 +610,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeBrandId,
         isLoading,
         login,
-        clientLogin,
-        clientSendOtp,
-        clientVerifyOtp,
-        clientForgotPassword,
-        clientResetPassword,
         requestRegisterOtp,
         verifyRegisterOtp,
         acceptInvitation,

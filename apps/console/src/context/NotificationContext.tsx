@@ -88,11 +88,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
 
     // 2. Fetch from database to load any notifications received while offline
-    const isClientUser = user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF');
-    if (isClientUser) {
-      return;
-    }
-
     ApiClient.get<any[]>('/notifications')
       .then((serverNotifs) => {
         if (!Array.isArray(serverNotifs) || serverNotifs.length === 0) return;
@@ -346,10 +341,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         (userEmail && new RegExp(`(?:^|[\\s(\\[{<>"'\`])@${escapeReg(userEmail)}(?:\\b|\\s|$|[)\\]}>"'\`])`, 'i').test(cleanCommentText));
 
       if (isMentioned) {
-        // High priority mention notification (Internal staff only; clients are never notified on internal notes)
-        const isClient = user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF');
-        if (isClient && isInternal) return;
-
+        // High priority mention notification!
         const notifTitle = `💬 ${authorName} mentioned you`;
         const notifMsg = `Mentioned you in ${isInternal ? 'an internal note' : 'a reply'} on Ticket #${cleanNumber}`;
 
@@ -402,10 +394,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
 
     const handleTicketCreated = (data: any) => {
-      // Clients never receive new ticket intake queue notifications
-      const isClient = user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF');
-      if (isClient) return;
-
       const incoming = data?.ticket;
       if (!incoming?.id) return;
 
@@ -440,10 +428,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
 
     const handleAgentCelebrated = (data: any) => {
-      // Clients never receive internal agent celebration notifications or modals
-      const isClient = user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF');
-      if (isClient) return;
-
       if (!data?.agentId) return;
 
       const isTargetAgent =
@@ -474,10 +458,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
 
     const handleAgentBroadcast = (data: any) => {
-      // Clients never receive internal staff broadcast notifications or modals
-      const isClient = user?.kind === 'CUSTOMER' || Boolean(user?.clientOrganization && user?.kind !== 'STAFF');
-      if (isClient) return;
-
       if (!data?.message && (!data?.attachments || data.attachments.length === 0)) return;
 
       const isTarget =
